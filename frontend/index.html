@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Folio</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+
+    #app {
+      display: flex;
+      height: 100vh;
+    }
+
+    #editor-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #333;
+      overflow: hidden;
+    }
+
+    #preview-pane {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem;
+      background: #1e1e2e;
+    }
+
+    .cm-editor {
+      height: 100%;
+      font-size: 14px;
+    }
+
+    .cm-scroller {
+      overflow: auto;
+    }
+
+    /* Annotation decorations */
+    .ann-agent { background: rgba(34, 197, 94, 0.2); }
+    .ann-local { background: rgba(59, 130, 246, 0.2); }
+    .ann-github, .ann-gitlab { background: rgba(245, 158, 11, 0.2); }
+    .ann-highlight { background: rgba(245, 158, 11, 0.35); }
+    .ann-strikethrough { text-decoration: line-through; opacity: 0.6; }
+
+    .ann-widget {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .ann-btn {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid;
+      cursor: pointer;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+
+    .ann-btn-accept {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: rgba(34, 197, 94, 0.5);
+      color: #86efac;
+    }
+    .ann-btn-accept:hover { background: rgba(34, 197, 94, 0.3); }
+
+    .ann-btn-reject {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #fca5a5;
+    }
+    .ann-btn-reject:hover { background: rgba(239, 68, 68, 0.3); }
+
+    .ann-replacement-preview {
+      font-size: 11px;
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.1);
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 4px;
+    }
+
+    .ann-insert-marker {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: rgba(34, 197, 94, 0.8);
+      margin: 0 2px;
+      vertical-align: text-bottom;
+    }
+
+    .ann-comment-pin {
+      display: inline-block;
+      font-size: 11px;
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: #93c5fd;
+      margin-left: 6px;
+      cursor: help;
+      vertical-align: middle;
+    }
+
+    /* Preview pane styles */
+    #preview {
+      max-width: 720px;
+      line-height: 1.7;
+    }
+
+    #preview h1, #preview h2, #preview h3,
+    #preview h4, #preview h5, #preview h6 {
+      margin: 1.5em 0 0.5em;
+      color: #f0f0f0;
+    }
+
+    #preview p { margin: 0.75em 0; }
+
+    #preview code {
+      background: #2a2a3a;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+      font-size: 0.875em;
+    }
+
+    #preview pre {
+      background: #2a2a3a;
+      padding: 1em;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1em 0;
+    }
+
+    #preview pre code { background: none; padding: 0; }
+
+    #preview blockquote {
+      border-left: 3px solid #555;
+      padding-left: 1em;
+      color: #aaa;
+      margin: 1em 0;
+    }
+
+    #preview a { color: #7dd3fc; }
+
+    #preview ul, #preview ol { padding-left: 1.5em; margin: 0.5em 0; }
+
+    #preview table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+    }
+
+    #preview th, #preview td {
+      border: 1px solid #444;
+      padding: 0.4em 0.7em;
+    }
+
+    #preview th { background: #2a2a3a; }
+
+    .mermaid-container { margin: 1em 0; }
+    .mermaid-container svg { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="editor-pane"></div>
+    <div id="preview-pane">
+      <div id="preview"></div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
