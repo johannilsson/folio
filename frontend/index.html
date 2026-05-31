@@ -20,164 +20,362 @@
       height: 100vh;
     }
 
+    /* ── Editor pane ── */
+
     #editor-pane {
       flex: 1;
       display: flex;
       flex-direction: column;
-      border-right: 1px solid #333;
       overflow: hidden;
     }
 
-    #preview-pane {
-      flex: 1;
-      overflow-y: auto;
-      padding: 2rem;
-      background: #1e1e2e;
-    }
-
-    .cm-editor {
-      height: 100%;
-      font-size: 14px;
-    }
-
-    .cm-scroller {
-      overflow: auto;
-    }
-
-    /* Annotation decorations */
-    .ann-agent { background: rgba(34, 197, 94, 0.2); }
-    .ann-local { background: rgba(59, 130, 246, 0.2); }
-    .ann-github, .ann-gitlab { background: rgba(245, 158, 11, 0.2); }
-    .ann-highlight { background: rgba(245, 158, 11, 0.35); }
-    .ann-strikethrough { text-decoration: line-through; opacity: 0.6; }
-
-    .ann-widget {
-      display: inline-flex;
+    #editor-toolbar {
+      display: flex;
       align-items: center;
-      gap: 4px;
-      margin-left: 6px;
-      vertical-align: middle;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #222;
+      border-bottom: 1px solid #333;
+      flex-shrink: 0;
     }
 
-    .ann-btn {
-      font-size: 11px;
-      padding: 1px 6px;
-      border-radius: 3px;
-      border: 1px solid;
+    #toggle-raw {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #2a2a2a;
+      color: #ccc;
       cursor: pointer;
-      font-family: inherit;
-      line-height: 1.4;
+    }
+    #toggle-raw:hover { background: #333; color: #fff; }
+
+    /* ── WYSIWYG area: editor + gutter side by side, scrolling together ── */
+
+    #editor-wrapper {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      overflow-y: auto;
+      position: relative;
     }
 
-    .ann-btn-accept {
-      background: rgba(34, 197, 94, 0.15);
-      border-color: rgba(34, 197, 94, 0.5);
-      color: #86efac;
-    }
-    .ann-btn-accept:hover { background: rgba(34, 197, 94, 0.3); }
-
-    .ann-btn-reject {
-      background: rgba(239, 68, 68, 0.15);
-      border-color: rgba(239, 68, 68, 0.5);
-      color: #fca5a5;
-    }
-    .ann-btn-reject:hover { background: rgba(239, 68, 68, 0.3); }
-
-    .ann-replacement-preview {
-      font-size: 11px;
-      color: #86efac;
-      background: rgba(34, 197, 94, 0.1);
-      padding: 1px 4px;
-      border-radius: 3px;
-      margin-left: 4px;
+    /* Tiptap renders the content editable inside the element we pass it */
+    #editor-tiptap {
+      flex: 1;
+      min-width: 0;
     }
 
-    .ann-insert-marker {
-      display: inline-block;
-      width: 2px;
-      height: 1em;
-      background: rgba(34, 197, 94, 0.8);
-      margin: 0 2px;
-      vertical-align: text-bottom;
+    #editor-tiptap .tiptap {
+      padding: 2rem;
+      min-height: 100%;
+      outline: none;
+      font-size: 15px;
+      line-height: 1.75;
+      color: #e0e0e0;
     }
 
-    .ann-comment-pin {
-      display: inline-block;
-      font-size: 11px;
-      background: rgba(59, 130, 246, 0.2);
-      border: 1px solid rgba(59, 130, 246, 0.4);
-      border-radius: 3px;
-      padding: 1px 5px;
-      color: #93c5fd;
-      margin-left: 6px;
-      cursor: help;
-      vertical-align: middle;
-    }
+    /* ── Tiptap content styles ── */
 
-    /* Preview pane styles */
-    #preview {
-      max-width: 720px;
-      line-height: 1.7;
-    }
-
-    #preview h1, #preview h2, #preview h3,
-    #preview h4, #preview h5, #preview h6 {
-      margin: 1.5em 0 0.5em;
+    .tiptap h1, .tiptap h2, .tiptap h3,
+    .tiptap h4, .tiptap h5, .tiptap h6 {
+      margin: 1.4em 0 0.4em;
       color: #f0f0f0;
+      line-height: 1.3;
     }
+    .tiptap h1 { font-size: 1.9em; }
+    .tiptap h2 { font-size: 1.5em; }
+    .tiptap h3 { font-size: 1.2em; }
 
-    #preview p { margin: 0.75em 0; }
+    .tiptap p { margin: 0.6em 0; }
 
-    #preview code {
+    .tiptap strong { color: #f0f0f0; }
+
+    .tiptap code {
       background: #2a2a3a;
       padding: 0.1em 0.35em;
       border-radius: 3px;
       font-size: 0.875em;
+      font-family: 'SF Mono', 'Fira Code', monospace;
     }
 
-    #preview pre {
+    .tiptap pre {
       background: #2a2a3a;
       padding: 1em;
       border-radius: 6px;
       overflow-x: auto;
       margin: 1em 0;
     }
+    .tiptap pre code { background: none; padding: 0; }
 
-    #preview pre code { background: none; padding: 0; }
-
-    #preview blockquote {
+    .tiptap blockquote {
       border-left: 3px solid #555;
       padding-left: 1em;
       color: #aaa;
       margin: 1em 0;
     }
 
-    #preview a { color: #7dd3fc; }
+    .tiptap a { color: #7dd3fc; }
 
-    #preview ul, #preview ol { padding-left: 1.5em; margin: 0.5em 0; }
+    .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; }
 
-    #preview table {
+    .tiptap li { margin: 0.2em 0; }
+
+    .tiptap hr {
+      border: none;
+      border-top: 1px solid #444;
+      margin: 1.5em 0;
+    }
+
+    .tiptap table {
       border-collapse: collapse;
       width: 100%;
       margin: 1em 0;
     }
-
-    #preview th, #preview td {
+    .tiptap th, .tiptap td {
       border: 1px solid #444;
       padding: 0.4em 0.7em;
     }
+    .tiptap th { background: #2a2a3a; }
 
-    #preview th { background: #2a2a3a; }
+    /* ── Raw markdown pane ── */
 
-    .mermaid-container { margin: 1em 0; }
-    .mermaid-container svg { max-width: 100%; }
+    #raw-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #raw-pane[hidden] { display: none; }
+
+    #raw-pane textarea {
+      flex: 1;
+      padding: 2rem;
+      background: #1a1a1a;
+      color: #cdd6f4;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      border: none;
+      outline: none;
+      resize: none;
+    }
+
+    /* ── Annotation decorations (inline) ── */
+
+    .ann-delete {
+      background: rgba(239, 68, 68, 0.22);
+      text-decoration: line-through;
+      text-decoration-color: rgba(239, 68, 68, 0.7);
+      color: #fca5a5;
+      border-bottom: 2px solid rgba(239, 68, 68, 0.55);
+      padding-bottom: 1px;
+    }
+
+    .ann-insert-preview {
+      background: rgba(34, 197, 94, 0.2);
+      color: #86efac;
+      border-radius: 2px 2px 0 0;
+      padding: 0 2px 1px;
+      border-bottom: 2px solid rgba(34, 197, 94, 0.55);
+    }
+
+    .ann-highlight { background: rgba(245, 158, 11, 0.35); }
+
+    .ann-comment-target {
+      background: rgba(250, 204, 21, 0.15);
+      border-bottom: 2px solid rgba(250, 204, 21, 0.6);
+      padding-bottom: 1px;
+    }
+
+    /* ── Annotation gutter (scrolls with document) ── */
+
+    #annotation-gutter {
+      width: 280px;
+      flex-shrink: 0;
+      position: relative;
+      pointer-events: none;
+    }
+
+    /* ── Gutter cards ── */
+
+    .ann-card {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      background: #1e1e2e;
+      border: 1px solid #2e2e40;
+      border-radius: 7px;
+      padding: 8px 10px;
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .ann-card[data-source="agent"]  { border-left: 3px solid #22c55e; }
+    .ann-card[data-source="local"]  { border-left: 3px solid #3b82f6; }
+    .ann-card[data-source="github"],
+    .ann-card[data-source="gitlab"] { border-left: 3px solid #f59e0b; }
+
+    .ann-card-info { display: flex; flex-direction: column; gap: 2px; }
+
+    .ann-card-summary {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      color: #d0d0e0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ann-card-meta {
+      font-size: 10px;
+      color: #555;
+    }
+
+    .ann-card-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .ann-card-btn {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .ann-card-accept {
+      background: #16a34a;
+      color: #fff;
+    }
+    .ann-card-accept:hover { background: #15803d; }
+
+    .ann-card-reject {
+      background: #dc2626;
+      color: #fff;
+    }
+    .ann-card-reject:hover { background: #b91c1c; }
+
+    .ann-card-dismiss {
+      background: #3a3a50;
+      color: #aaa;
+    }
+    .ann-card-dismiss:hover { background: #44445e; color: #ccc; }
+
+    .ann-card--comment { cursor: pointer; }
+
+    .ann-card-summary::after { content: ' ›'; opacity: 0.4; }
+    .ann-card-expanded .ann-card-summary::after { content: ' ⌄'; opacity: 0.5; }
+
+    .ann-card-comment-body {
+      display: none;
+      font-size: 12px;
+      color: #b8b8d0;
+      line-height: 1.55;
+      margin-top: 5px;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .ann-card-expanded .ann-card-comment-body { display: block; }
+
+    /* ── Floating comment adder ── */
+
+    #comment-floater {
+      position: absolute;
+      z-index: 20;
+    }
+
+    .cf-btn {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(99, 102, 241, 0.5);
+      background: #1e1e2e;
+      color: #a5b4fc;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .cf-btn:hover { background: #252538; }
+
+    .cf-form[hidden] { display: none; }
+    .cf-form {
+      background: #1e1e2e;
+      border: 1px solid #2e2e40;
+      border-radius: 7px;
+      padding: 8px;
+      width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+
+    .cf-textarea {
+      background: #151525;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 6px 8px;
+      resize: none;
+      outline: none;
+      width: 100%;
+    }
+    .cf-textarea:focus { border-color: rgba(99, 102, 241, 0.5); }
+
+    .cf-actions { display: flex; gap: 5px; justify-content: flex-end; }
+
+    .cf-submit {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      background: #4f46e5;
+      color: #fff;
+      font-family: inherit;
+    }
+    .cf-submit:hover { background: #4338ca; }
+
+    .cf-cancel {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .cf-cancel:hover { background: #2a2a3a; }
+
+    .ann-card-focused {
+      background: #252538;
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.55), 0 2px 8px rgba(99, 102, 241, 0.15);
+    }
   </style>
 </head>
 <body>
   <div id="app">
-    <div id="editor-pane"></div>
-    <div id="preview-pane">
-      <div id="preview"></div>
+    <div id="editor-pane">
+      <div id="editor-toolbar">
+        <button id="toggle-raw">Markdown →</button>
+      </div>
+      <div id="editor-wrapper">
+        <div id="editor-tiptap"></div>
+      </div>
+      <div id="raw-pane" hidden>
+        <textarea spellcheck="false" placeholder="Markdown source…"></textarea>
+      </div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

@@ -1,38 +1,44 @@
 import { on } from './websocket'
-import { getFile, getFolio, getKrokiUrl } from './api'
-import { initEditor, setContent, onChange, getView } from './editor'
-import { initPreview, renderPreview } from './preview'
-import { annotationPlugin, updateSidecar } from './annotations'
+import { getFile, getFolio } from './api'
+import { initEditor, setContent, getEditor } from './editor'
+import { createAnnotationsExtension, updateSidecar } from './annotations'
 
 async function boot(): Promise<void> {
-  const [initialContent, sidecar, krokiUrl] = await Promise.all([
-    getFile(),
-    getFolio(),
-    getKrokiUrl(),
-  ])
+  const [initialContent, sidecar] = await Promise.all([getFile(), getFolio()])
 
-  // Set sidecar before editor initialises so the plugin renders on first paint
   updateSidecar(sidecar)
 
-  const previewEl = document.getElementById('preview')!
-  initPreview(previewEl, krokiUrl)
-  renderPreview(initialContent)
-
-  const editorPane = document.getElementById('editor-pane')!
-  initEditor(editorPane, initialContent, [annotationPlugin])
-
-  onChange(content => renderPreview(content))
+  const editorEl = document.getElementById('editor-tiptap')!
+  initEditor(editorEl, initialContent, [createAnnotationsExtension()])
 
   on('md:changed', async () => {
     const content = await getFile()
     setContent(content)
-    renderPreview(content)
   })
 
   on('folio:changed', async () => {
     const updated = await getFolio()
     updateSidecar(updated)
-    getView()?.dispatch({})
+    const ed = getEditor()
+    if (ed) ed.view.dispatch(ed.state.tr)
+  })
+
+  // Toggle between WYSIWYG and raw markdown
+  const toggleBtn = document.getElementById('toggle-raw')!
+  const rawPane = document.getElementById('raw-pane')!
+  const rawTextarea = rawPane.querySelector('textarea') as HTMLTextAreaElement
+
+  toggleBtn.addEventListener('click', () => {
+    const ed = getEditor()!
+    if (rawPane.hidden) {
+      rawTextarea.value = ed.getMarkdown()
+      rawPane.hidden = false
+      toggleBtn.textContent = '← WYSIWYG'
+    } else {
+      ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
+      rawPane.hidden = true
+      toggleBtn.textContent = 'Markdown →'
+    }
   })
 }
 
