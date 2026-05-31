@@ -300,21 +300,22 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
 }
 
 function repositionCards(gutterEl: HTMLElement): void {
-  const cards = Array.from(gutterEl.querySelectorAll<HTMLElement>('.ann-card'))
-  cards.sort((a, b) => parseFloat(a.dataset.anchorTop ?? '0') - parseFloat(b.dataset.anchorTop ?? '0'))
+  const items = Array.from(gutterEl.querySelectorAll<HTMLElement>('.ann-card, .cf-gutter-form'))
+  items.sort((a, b) => parseFloat(a.dataset.anchorFrom ?? '0') - parseFloat(b.dataset.anchorFrom ?? '0'))
 
   const GAP = 6
   let minTop = 0
-  for (const card of cards) {
-    const anchor = parseFloat(card.dataset.anchorTop ?? '0')
+  for (const item of items) {
+    if (item.hidden) continue
+    const anchor = parseFloat(item.dataset.anchorTop ?? '0')
     const top = Math.max(anchor - 4, minTop)
-    card.style.top = `${top}px`
-    minTop = top + card.offsetHeight + GAP
+    item.style.top = `${top}px`
+    minTop = top + item.offsetHeight + GAP
   }
 }
 
 function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Editor): void {
-  gutterEl.innerHTML = ''
+  for (const el of gutterEl.querySelectorAll('.ann-card')) el.remove()
 
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
   if (pending.length === 0) return
@@ -326,25 +327,25 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
 
   const wrapperRect = wrapper.getBoundingClientRect()
 
-  const entries: Array<{ ann: Annotation; top: number }> = []
+  const entries: Array<{ ann: Annotation; top: number; from: number }> = []
   for (const ann of pending) {
     const anchor = findAnchor(pmView.state.doc, ann.context_before, ann.target)
-    const pos = anchor ? anchor.from : null
-    if (pos === null) continue
+    if (!anchor) continue
     try {
-      const coords = pmView.coordsAtPos(pos)
+      const coords = pmView.coordsAtPos(anchor.from)
       const top = coords.top - wrapperRect.top + wrapper.scrollTop
-      entries.push({ ann, top })
+      entries.push({ ann, top, from: anchor.from })
     } catch {
       // Position currently off-screen — skip
     }
   }
 
-  entries.sort((a, b) => a.top - b.top)
+  entries.sort((a, b) => a.from - b.from)
 
-  for (const { ann, top } of entries) {
+  for (const { ann, top, from } of entries) {
     const card = makeGutterCard(ann, editor)
     card.dataset.anchorTop = String(top)
+    card.dataset.anchorFrom = String(from)
     card.style.top = `${top}px`
     gutterEl.appendChild(card)
   }
@@ -406,11 +407,13 @@ export function createAnnotationsExtension(): Extension {
 
             const cfBtn = document.createElement('button')
             cfBtn.className = 'cf-btn'
-            cfBtn.textContent = '💬 Comment'
+            cfBtn.textContent = 'Comment'
+            floater.appendChild(cfBtn)
 
-            const cfForm = document.createElement('div')
-            cfForm.className = 'cf-form'
-            cfForm.hidden = true
+            const cfGutterForm = document.createElement('div')
+            cfGutterForm.className = 'cf-gutter-form'
+            cfGutterForm.hidden = true
+            gutterEl.appendChild(cfGutterForm)
 
             const cfTextarea = document.createElement('textarea')
             cfTextarea.className = 'cf-textarea'
@@ -427,25 +430,28 @@ export function createAnnotationsExtension(): Extension {
             cfCancel.textContent = 'Cancel'
             cfActions.appendChild(cfSubmit)
             cfActions.appendChild(cfCancel)
-            cfForm.appendChild(cfTextarea)
-            cfForm.appendChild(cfActions)
-            floater.appendChild(cfBtn)
-            floater.appendChild(cfForm)
+            cfGutterForm.appendChild(cfTextarea)
+            cfGutterForm.appendChild(cfActions)
 
             let savedSelection: { from: number; to: number } | null = null
 
             function hideFloater(): void {
               floater.hidden = true
-              cfBtn.hidden = false
-              cfForm.hidden = true
+              cfGutterForm.hidden = true
               cfTextarea.value = ''
               savedSelection = null
+              repositionCards(gutterEl)
             }
 
             cfBtn.addEventListener('mousedown', e => {
               e.preventDefault()
-              cfBtn.hidden = true
-              cfForm.hidden = false
+              const anchorTop = parseFloat(floater.style.top ?? '0')
+              cfGutterForm.dataset.anchorTop = String(anchorTop)
+              cfGutterForm.dataset.anchorFrom = String(savedSelection?.from ?? 0)
+              cfGutterForm.style.top = `${anchorTop}px`
+              cfGutterForm.hidden = false
+              floater.hidden = true
+              repositionCards(gutterEl)
               cfTextarea.focus()
             })
 
@@ -477,22 +483,19 @@ export function createAnnotationsExtension(): Extension {
                 buildGutterCards(view, gutterEl, editor)
 
                 const { selection } = view.state
-                if (!cfForm.hidden) return // keep floater open while form is active
+                if (!cfGutterForm.hidden) return // keep position stable while form is active
                 if (selection.empty) { floater.hidden = true; return }
 
                 try {
                   const containerRect = scrollContainer!.getBoundingClientRect()
-                  const coords = view.coordsAtPos(selection.to)
-                  const top = coords.bottom - containerRect.top + scrollContainer!.scrollTop + 6
-                  const left = Math.min(
-                    coords.left - containerRect.left,
-                    scrollContainer!.clientWidth - 260,
-                  )
+                  const coordsFrom = view.coordsAtPos(selection.from)
+                  const coordsTo = view.coordsAtPos(selection.to)
+                  const midX = (coordsFrom.left + coordsTo.right) / 2
+                  const top = coordsFrom.top - containerRect.top + scrollContainer!.scrollTop
+                  const left = Math.max(80, Math.min(midX - containerRect.left, scrollContainer!.clientWidth - 80))
                   floater.style.top = `${top}px`
                   floater.style.left = `${left}px`
                   floater.hidden = false
-                  cfBtn.hidden = false
-                  cfForm.hidden = true
                   savedSelection = { from: selection.from, to: selection.to }
                 } catch {
                   floater.hidden = true

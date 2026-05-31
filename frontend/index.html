@@ -288,33 +288,46 @@
     #comment-floater {
       position: absolute;
       z-index: 20;
+      display: flex;
+      align-items: center;
+      padding: 3px 4px;
+      background: #1a1a1a;
+      border-radius: 999px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.75), 0 1px 4px rgba(0,0,0,0.5);
+      transform: translateX(-50%) translateY(calc(-100% - 8px));
+      white-space: nowrap;
     }
-
+    #comment-floater[hidden] { display: none; }
     .cf-btn {
-      font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 5px;
-      border: 1px solid rgba(99, 102, 241, 0.5);
-      background: #1e1e2e;
-      color: #a5b4fc;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: #e0e0e0;
       cursor: pointer;
       white-space: nowrap;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      letter-spacing: 0.01em;
     }
-    .cf-btn:hover { background: #252538; }
+    .cf-btn:hover { background: rgba(255,255,255,0.1); }
 
-    .cf-form[hidden] { display: none; }
-    .cf-form {
+    .cf-gutter-form {
+      position: absolute;
+      left: 8px;
+      right: 8px;
       background: #1e1e2e;
       border: 1px solid #2e2e40;
+      border-left: 3px solid #3b82f6;
       border-radius: 7px;
-      padding: 8px;
-      width: 240px;
+      padding: 8px 10px;
       display: flex;
       flex-direction: column;
       gap: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      pointer-events: auto;
     }
+    .cf-gutter-form[hidden] { display: none; }
 
     .cf-textarea {
       background: #151525;
