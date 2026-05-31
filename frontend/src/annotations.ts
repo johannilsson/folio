@@ -17,6 +17,11 @@ let sidecarUpdateCb: (() => void) | null = null
 let focusedAnnotationId: string | null = null
 let currentGutterEl: HTMLElement | null = null
 let focusChangeCallback: (() => void) | null = null
+let rebuildFn: (() => void) | null = null
+
+export function scheduleGutterRebuild(): void {
+  if (rebuildFn) requestAnimationFrame(rebuildFn)
+}
 
 function updateFocusedCard(): void {
   if (!currentGutterEl) return
@@ -518,7 +523,8 @@ export function createAnnotationsExtension(): Extension {
             const onScroll = () => buildGutterCards(pmView, gutterEl, editor)
             scrollContainer?.addEventListener('scroll', onScroll)
 
-            requestAnimationFrame(() => buildGutterCards(pmView, gutterEl, editor))
+            rebuildFn = () => buildGutterCards(pmView, gutterEl, editor)
+            requestAnimationFrame(rebuildFn)
 
             return {
               update(view) {
@@ -550,6 +556,7 @@ export function createAnnotationsExtension(): Extension {
                 actionFloater.remove()
                 focusChangeCallback = null
                 currentGutterEl = null
+                rebuildFn = null
               },
             }
           },
