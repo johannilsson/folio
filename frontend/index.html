@@ -249,18 +249,6 @@
       font-family: inherit;
     }
 
-    .ann-card-accept {
-      background: #16a34a;
-      color: #fff;
-    }
-    .ann-card-accept:hover { background: #15803d; }
-
-    .ann-card-reject {
-      background: #dc2626;
-      color: #fff;
-    }
-    .ann-card-reject:hover { background: #b91c1c; }
-
     .ann-card-dismiss {
       background: #3a3a50;
       color: #aaa;
@@ -283,9 +271,9 @@
     }
     .ann-card-expanded .ann-card-comment-body { display: block; }
 
-    /* ── Floating comment adder ── */
+    /* ── Overlays (action + comment pill) ── */
 
-    #comment-floater {
+    #action-floater, #comment-floater {
       position: absolute;
       z-index: 20;
       display: flex;
@@ -297,20 +285,31 @@
       transform: translateX(-50%) translateY(calc(-100% - 8px));
       white-space: nowrap;
     }
+    #action-floater[hidden] { display: none; }
     #comment-floater[hidden] { display: none; }
-    .cf-btn {
+
+    .af-btn {
       font-size: 13px;
       font-weight: 600;
       padding: 5px 14px;
       border-radius: 999px;
       border: none;
       background: transparent;
-      color: #e0e0e0;
       cursor: pointer;
       white-space: nowrap;
       letter-spacing: 0.01em;
     }
-    .cf-btn:hover { background: rgba(255,255,255,0.1); }
+    .af-btn { color: #e0e0e0; }
+    .af-btn:hover { background: rgba(255,255,255,0.1); }
+
+    .af-divider {
+      width: 1px;
+      height: 16px;
+      background: #333;
+      flex-shrink: 0;
+    }
+
+    /* ── Floating comment adder ── */
 
     .cf-gutter-form {
       position: absolute;

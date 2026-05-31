@@ -16,12 +16,14 @@ let sidecarUpdateCb: (() => void) | null = null
 
 let focusedAnnotationId: string | null = null
 let currentGutterEl: HTMLElement | null = null
+let focusChangeCallback: (() => void) | null = null
 
 function updateFocusedCard(): void {
   if (!currentGutterEl) return
   currentGutterEl.querySelectorAll<HTMLElement>('.ann-card').forEach(card => {
     card.classList.toggle('ann-card-focused', card.dataset.id === focusedAnnotationId)
   })
+  focusChangeCallback?.()
 }
 
 export function updateSidecar(sidecar: Sidecar): void {
@@ -246,10 +248,10 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
   info.appendChild(summary)
   info.appendChild(meta)
 
-  if (ann.kind === 'comment' && ann.comment) {
+  if (ann.kind === 'comment') {
     const body = document.createElement('div')
     body.className = 'ann-card-comment-body'
-    body.textContent = ann.comment
+    body.textContent = ann.comment ?? ''
     card.appendChild(info)
     card.appendChild(body)
 
@@ -259,14 +261,9 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
       card.classList.toggle('ann-card-expanded')
       if (currentGutterEl) repositionCards(currentGutterEl)
     })
-  } else {
-    card.appendChild(info)
-  }
 
-  const actions = document.createElement('div')
-  actions.className = 'ann-card-actions'
-
-  if (ann.kind === 'comment') {
+    const actions = document.createElement('div')
+    actions.className = 'ann-card-actions'
     const dismiss = document.createElement('button')
     dismiss.className = 'ann-card-btn ann-card-dismiss'
     dismiss.textContent = 'Dismiss'
@@ -275,27 +272,16 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
       resolveAnnotation(ann, 'dismissed', editor)
     })
     actions.appendChild(dismiss)
+    card.appendChild(actions)
   } else {
-    const accept = document.createElement('button')
-    accept.className = 'ann-card-btn ann-card-accept'
-    accept.textContent = 'Accept'
-    accept.addEventListener('mousedown', e => {
+    card.appendChild(info)
+    card.addEventListener('mousedown', e => {
       e.preventDefault()
-      applyAccept(ann, editor)
+      focusedAnnotationId = ann.id
+      updateFocusedCard()
     })
-
-    const reject = document.createElement('button')
-    reject.className = 'ann-card-btn ann-card-reject'
-    reject.textContent = 'Reject'
-    reject.addEventListener('mousedown', e => {
-      e.preventDefault()
-      resolveAnnotation(ann, 'rejected', editor)
-    })
-
-    actions.appendChild(accept)
-    actions.appendChild(reject)
   }
-  card.appendChild(actions)
+
   return card
 }
 
@@ -399,6 +385,60 @@ export function createAnnotationsExtension(): Extension {
             const scrollContainer = pmView.dom.parentElement?.parentElement
             if (scrollContainer) scrollContainer.appendChild(gutterEl)
 
+            // ── Action overlay (accept / reject) ────────────────────────────
+            const actionFloater = document.createElement('div')
+            actionFloater.id = 'action-floater'
+            actionFloater.hidden = true
+            if (scrollContainer) scrollContainer.appendChild(actionFloater)
+
+            const afAccept = document.createElement('button')
+            afAccept.className = 'af-btn'
+            afAccept.textContent = 'Accept'
+            afAccept.addEventListener('mousedown', e => {
+              e.preventDefault()
+              const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId)
+              if (ann) applyAccept(ann, editor)
+            })
+
+            const afDivider = document.createElement('span')
+            afDivider.className = 'af-divider'
+
+            const afReject = document.createElement('button')
+            afReject.className = 'af-btn'
+            afReject.textContent = 'Reject'
+            afReject.addEventListener('mousedown', e => {
+              e.preventDefault()
+              const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId)
+              if (ann) resolveAnnotation(ann, 'rejected', editor)
+            })
+
+            actionFloater.appendChild(afAccept)
+            actionFloater.appendChild(afDivider)
+            actionFloater.appendChild(afReject)
+
+            focusChangeCallback = () => {
+              const ann = focusedAnnotationId
+                ? currentSidecar.annotations.find(a => a.id === focusedAnnotationId && a.kind !== 'comment')
+                : null
+              if (!ann || !scrollContainer) { actionFloater.hidden = true; return }
+              const anchor = findAnchor(pmView.state.doc, ann.context_before, ann.target)
+              if (!anchor) { actionFloater.hidden = true; return }
+              try {
+                const containerRect = scrollContainer.getBoundingClientRect()
+                const coordsFrom = pmView.coordsAtPos(anchor.from)
+                const coordsTo = pmView.coordsAtPos(anchor.to)
+                const midX = (coordsFrom.left + coordsTo.right) / 2
+                const top = coordsFrom.top - containerRect.top + scrollContainer.scrollTop
+                const left = Math.max(80, Math.min(midX - containerRect.left, scrollContainer.clientWidth - 80))
+                actionFloater.style.top = `${top}px`
+                actionFloater.style.left = `${left}px`
+                actionFloater.hidden = false
+              } catch {
+                actionFloater.hidden = true
+              }
+            }
+            // ───────────────────────────────────────────────────────────────
+
             // ── Floating comment adder ──────────────────────────────────────
             const floater = document.createElement('div')
             floater.id = 'comment-floater'
@@ -406,7 +446,7 @@ export function createAnnotationsExtension(): Extension {
             if (scrollContainer) scrollContainer.appendChild(floater)
 
             const cfBtn = document.createElement('button')
-            cfBtn.className = 'cf-btn'
+            cfBtn.className = 'af-btn'
             cfBtn.textContent = 'Comment'
             floater.appendChild(cfBtn)
 
@@ -505,6 +545,8 @@ export function createAnnotationsExtension(): Extension {
                 scrollContainer?.removeEventListener('scroll', onScroll)
                 gutterEl.remove()
                 floater.remove()
+                actionFloater.remove()
+                focusChangeCallback = null
                 currentGutterEl = null
               },
             }
