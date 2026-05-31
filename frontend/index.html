@@ -39,6 +39,15 @@
       flex-shrink: 0;
     }
 
+    #filename-display {
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      pointer-events: none;
+    }
+
     #toggle-raw {
       font-size: 12px;
       padding: 3px 10px;
@@ -381,6 +390,7 @@
     <div id="editor-pane">
       <div id="editor-toolbar">
         <button id="toggle-raw">Markdown →</button>
+        <span id="filename-display"></span>
       </div>
       <div id="editor-wrapper">
         <div id="editor-tiptap"></div>

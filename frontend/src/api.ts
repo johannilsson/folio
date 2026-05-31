@@ -1,3 +1,6 @@
+export const getInfo = (): Promise<{ filename: string }> =>
+  fetch('/api/info').then(r => r.json())
+
 export const getFile = (): Promise<string> =>
   fetch('/api/file').then(r => r.text())
 

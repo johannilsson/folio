@@ -121,6 +121,14 @@ async fn put_folio(State(state): State<AppState>, body: String) -> impl IntoResp
     }
 }
 
+async fn get_info(State(state): State<AppState>) -> impl IntoResponse {
+    let filename = state.doc_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    Json(json!({ "filename": filename }))
+}
+
 async fn get_kroki_url(State(state): State<AppState>) -> impl IntoResponse {
     Json(json!({ "url": state.kroki_url }))
 }
@@ -161,6 +169,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/assets/{*path}", get(serve_asset))
         .route("/api/file", get(get_file).put(put_file))
         .route("/api/folio", get(get_folio).put(put_folio))
+        .route("/api/info", get(get_info))
         .route("/api/kroki-url", get(get_kroki_url))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))

@@ -1,10 +1,14 @@
 import { on } from './websocket'
-import { getFile, getFolio } from './api'
+import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor } from './editor'
 import { createAnnotationsExtension, updateSidecar } from './annotations'
 
 async function boot(): Promise<void> {
-  const [initialContent, sidecar] = await Promise.all([getFile(), getFolio()])
+  const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
+
+  const filenameEl = document.getElementById('filename-display')!
+  filenameEl.textContent = info.filename
+  document.title = info.filename
 
   updateSidecar(sidecar)
 
