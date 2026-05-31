@@ -203,8 +203,8 @@
       position: absolute;
       left: 8px;
       right: 8px;
-      background: #1e1e2e;
-      border: 1px solid #2e2e40;
+      background: #1a1a1a;
+      border: 1px solid #333;
       border-radius: 7px;
       padding: 8px 10px;
       pointer-events: auto;
@@ -231,13 +231,14 @@
 
     .ann-card-meta {
       font-size: 10px;
-      color: #555;
+      color: #666;
     }
 
     .ann-card-actions {
-      display: flex;
+      display: none;
       gap: 5px;
     }
+    .ann-card-expanded .ann-card-actions { display: flex; }
 
     .ann-card-btn {
       font-size: 11px;
@@ -315,15 +316,14 @@
       position: absolute;
       left: 8px;
       right: 8px;
-      background: #1e1e2e;
-      border: 1px solid #2e2e40;
+      background: #1a1a1a;
+      border: 1px solid #333;
       border-left: 3px solid #3b82f6;
       border-radius: 7px;
       padding: 8px 10px;
       display: flex;
       flex-direction: column;
       gap: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       pointer-events: auto;
     }
     .cf-gutter-form[hidden] { display: none; }
@@ -371,8 +371,8 @@
     .cf-cancel:hover { background: #2a2a3a; }
 
     .ann-card-focused {
-      background: #252538;
-      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.55), 0 2px 8px rgba(99, 102, 241, 0.15);
+      background: rgba(250, 204, 21, 0.05);
+      border-color: rgba(250, 204, 21, 0.45);
     }
   </style>
 </head>

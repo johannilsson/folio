@@ -259,6 +259,8 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
       if ((e.target as HTMLElement).closest('.ann-card-actions')) return
       e.preventDefault()
       card.classList.toggle('ann-card-expanded')
+      focusedAnnotationId = card.classList.contains('ann-card-expanded') ? ann.id : null
+      updateFocusedCard()
       if (currentGutterEl) repositionCards(currentGutterEl)
     })
 
@@ -266,7 +268,7 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
     actions.className = 'ann-card-actions'
     const dismiss = document.createElement('button')
     dismiss.className = 'ann-card-btn ann-card-dismiss'
-    dismiss.textContent = 'Dismiss'
+    dismiss.textContent = 'Resolve'
     dismiss.addEventListener('mousedown', e => {
       e.preventDefault()
       resolveAnnotation(ann, 'dismissed', editor)
@@ -516,7 +518,7 @@ export function createAnnotationsExtension(): Extension {
             const onScroll = () => buildGutterCards(pmView, gutterEl, editor)
             scrollContainer?.addEventListener('scroll', onScroll)
 
-            buildGutterCards(pmView, gutterEl, editor)
+            requestAnimationFrame(() => buildGutterCards(pmView, gutterEl, editor))
 
             return {
               update(view) {
