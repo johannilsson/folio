@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import type { Editor } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
@@ -11,6 +12,14 @@ import { putFolio } from './api'
 
 let currentSidecar: Sidecar = { version: 1, annotations: [] }
 let sidecarUpdateCb: (() => void) | null = null
+
+// ─── Annotation undo/redo stacks ─────────────────────────────────────────────
+// Each entry mirrors one ProseMirror undo history item.
+// null = no annotation change at that history depth; Annotation[] = snapshot to restore.
+
+let annotationUndoStack: (Annotation[] | null)[] = []
+let annotationRedoStack: (Annotation[] | null)[] = []
+let pendingAnnotationSnapshot: Annotation[] | null = null
 
 // ─── Focus state ─────────────────────────────────────────────────────────────
 
@@ -33,6 +42,9 @@ function updateFocusedCard(): void {
 
 export function updateSidecar(sidecar: Sidecar): void {
   currentSidecar = sidecar
+  annotationUndoStack = []
+  annotationRedoStack = []
+  pendingAnnotationSnapshot = null
 }
 
 export function getSidecar(): Sidecar {
@@ -62,16 +74,30 @@ export function findAnchor(
     }
   })
 
+  const flat = flatText.toLowerCase()
   const search = (contextBefore + (target ?? '')).toLowerCase()
-  const idx = flatText.toLowerCase().indexOf(search)
+  let idx = flat.indexOf(search)
+  let spaceOffset = 0
+  if (idx === -1 && target) {
+    const searchSpaced = (contextBefore + ' ' + target).toLowerCase()
+    idx = flat.indexOf(searchSpaced)
+    spaceOffset = 1
+  }
   if (idx === -1) return null
 
-  const fromIdx = idx + contextBefore.length
+  const fromIdx = idx + contextBefore.length + spaceOffset
   const toIdx = fromIdx + (target?.length ?? 0)
 
   if (fromIdx > charPos.length) return null
 
-  const from = fromIdx < charPos.length ? charPos[fromIdx] : charPos[charPos.length - 1] + 1
+  // If fromIdx lands at the start of a new block (gap in charPos), stay inside
+  // the previous block so the widget doesn't inherit the next node's styles.
+  const from =
+    fromIdx < charPos.length
+      ? fromIdx > 0 && charPos[fromIdx] > charPos[fromIdx - 1] + 1
+        ? charPos[fromIdx - 1] + 1
+        : charPos[fromIdx]
+      : charPos[charPos.length - 1] + 1
   const to =
     toIdx > fromIdx
       ? toIdx < charPos.length
@@ -124,6 +150,7 @@ function addCommentAnnotation(contextBefore: string, target: string, comment: st
 function applyAccept(ann: Annotation, editor: Editor): void {
   const anchor = findAnchor(editor.state.doc, ann.context_before, ann.target)
   if (anchor) {
+    pendingAnnotationSnapshot = [...currentSidecar.annotations]
     const { from, to } = anchor
     if (ann.kind === 'replace') {
       if (ann.replacement) {
@@ -527,7 +554,51 @@ export function createAnnotationsExtension(): Extension {
             requestAnimationFrame(rebuildFn)
 
             return {
-              update(view) {
+              update(view, prevState) {
+                if (prevState) {
+                  const undoBefore = undoDepth(prevState)
+                  const undoAfter = undoDepth(view.state)
+                  const redoBefore = redoDepth(prevState)
+                  const redoAfter = redoDepth(view.state)
+
+                  if (undoAfter < undoBefore) {
+                    // Undo — pop annotation snapshot and push to redo
+                    const snapshot = annotationUndoStack.pop()
+                    if (snapshot !== undefined) {
+                      if (snapshot !== null) {
+                        annotationRedoStack.push([...currentSidecar.annotations])
+                        currentSidecar = { ...currentSidecar, annotations: snapshot }
+                        putFolio(currentSidecar)
+                        sidecarUpdateCb?.()
+                        requestAnimationFrame(() => view.dispatch(view.state.tr))
+                      } else {
+                        annotationRedoStack.push(null)
+                      }
+                    }
+                  } else if (undoAfter > undoBefore) {
+                    if (redoAfter === redoBefore - 1) {
+                      // Redo — pop annotation snapshot and push back to undo
+                      const snapshot = annotationRedoStack.pop()
+                      if (snapshot !== undefined) {
+                        if (snapshot !== null) {
+                          annotationUndoStack.push([...currentSidecar.annotations])
+                          currentSidecar = { ...currentSidecar, annotations: snapshot }
+                          putFolio(currentSidecar)
+                          sidecarUpdateCb?.()
+                          requestAnimationFrame(() => view.dispatch(view.state.tr))
+                        } else {
+                          annotationUndoStack.push(null)
+                        }
+                      }
+                    } else {
+                      // New edit — commit pending snapshot (or null) and clear redo
+                      annotationUndoStack.push(pendingAnnotationSnapshot)
+                      pendingAnnotationSnapshot = null
+                      annotationRedoStack = []
+                    }
+                  }
+                }
+
                 buildGutterCards(view, gutterEl, editor)
 
                 const { selection } = view.state

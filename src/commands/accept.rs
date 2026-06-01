@@ -41,26 +41,26 @@ pub fn run(
     let mut ops: Vec<(usize, usize, String)> = Vec::new(); // (start, end, replacement)
     for &idx in &indices {
         let ann = &sidecar.annotations[idx];
-        let offset = match ann.anchor(&doc) {
-            Some(o) => o,
+        let (raw_start, raw_end) = match ann.anchor(&doc) {
+            Some(pair) => pair,
             None => {
-                eprintln!("anchoring failed for {}", ann.id);
+                let target_str = ann.target.as_deref().unwrap_or("(none)");
+                eprintln!(
+                    "anchoring failed for {} ({}): could not find {:?} + {:?}",
+                    ann.id, ann.kind, ann.context_before, target_str
+                );
                 process::exit(2);
             }
         };
 
         let (start, end, repl) = match &ann.kind {
             AnnotationKind::Replace => {
-                let target = ann.target.as_deref().unwrap_or("");
-                (offset, offset + target.len(), ann.replacement.clone().unwrap_or_default())
+                (raw_start, raw_end, ann.replacement.clone().unwrap_or_default())
             }
-            AnnotationKind::Delete => {
-                let target = ann.target.as_deref().unwrap_or("");
-                (offset, offset + target.len(), String::new())
-            }
+            AnnotationKind::Delete => (raw_start, raw_end, String::new()),
             AnnotationKind::Insert => {
                 let repl = ann.replacement.clone().unwrap_or_default();
-                (offset, offset, repl)
+                (raw_start, raw_start, repl)
             }
             // comment/highlight: no doc change
             _ => continue,
