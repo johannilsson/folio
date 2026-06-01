@@ -42,6 +42,7 @@ pub async fn run(
     read_only: bool,
     token: Option<String>,
     kroki_url: String,
+    plantuml_url: String,
 ) -> anyhow::Result<()> {
     let file = file.canonicalize().unwrap_or(file);
     let folio_path = super::folio_path(&file);
@@ -99,6 +100,7 @@ pub async fn run(
         read_only,
         token,
         kroki_url,
+        plantuml_url,
     };
 
     let app = build_router(state);

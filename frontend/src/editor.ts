@@ -2,6 +2,7 @@ import { Editor } from '@tiptap/core'
 import type { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
+import { DiagramCodeBlock } from './diagrams'
 import { putFile } from './api'
 
 let editor: Editor | null = null
@@ -14,7 +15,7 @@ export function initEditor(
 ): void {
   editor = new Editor({
     element: container,
-    extensions: [StarterKit, Markdown, ...extraExtensions],
+    extensions: [StarterKit.configure({ codeBlock: false }), DiagramCodeBlock, Markdown, ...extraExtensions],
     content: initialContent,
     contentType: 'markdown',
     onUpdate({ editor: ed }) {

@@ -2,6 +2,7 @@ import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor } from './editor'
 import { createAnnotationsExtension, updateSidecar, scheduleGutterRebuild } from './annotations'
+import { setPlantumlUrl } from './diagrams'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -9,6 +10,7 @@ async function boot(): Promise<void> {
   const filenameEl = document.getElementById('filename-display')!
   filenameEl.textContent = info.filename
   document.title = info.filename
+  setPlantumlUrl(info.plantumlUrl)
 
   updateSidecar(sidecar)
 

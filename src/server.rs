@@ -33,6 +33,7 @@ pub struct AppState {
     pub read_only: bool,
     pub token: Option<String>,
     pub kroki_url: String,
+    pub plantuml_url: String,
 }
 
 async fn auth_middleware(
@@ -126,7 +127,7 @@ async fn get_info(State(state): State<AppState>) -> impl IntoResponse {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    Json(json!({ "filename": filename }))
+    Json(json!({ "filename": filename, "plantumlUrl": state.plantuml_url }))
 }
 
 async fn get_kroki_url(State(state): State<AppState>) -> impl IntoResponse {

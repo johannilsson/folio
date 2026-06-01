@@ -13,8 +13,11 @@
   },
   "dependencies": {
     "@tiptap/core": "3.23.6",
+    "@tiptap/extension-code-block": "3.23.6",
     "@tiptap/markdown": "3.23.6",
     "@tiptap/pm": "3.23.6",
-    "@tiptap/starter-kit": "3.23.6"
+    "@tiptap/starter-kit": "3.23.6",
+    "mermaid": "^11.15.0",
+    "plantuml-encoder": "^1.4.0"
   }
 }

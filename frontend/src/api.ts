@@ -1,4 +1,4 @@
-export const getInfo = (): Promise<{ filename: string }> =>
+export const getInfo = (): Promise<{ filename: string; plantumlUrl: string }> =>
   fetch('/api/info').then(r => r.json())
 
 export const getFile = (): Promise<string> =>

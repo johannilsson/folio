@@ -32,6 +32,8 @@ enum Commands {
         token: Option<String>,
         #[arg(long, default_value = "https://kroki.io")]
         kroki_url: String,
+        #[arg(long, default_value = "https://www.plantuml.com/plantuml")]
+        plantuml_url: String,
     },
     /// Print pending annotations
     Review {
@@ -91,8 +93,9 @@ async fn main() {
             read_only,
             token,
             kroki_url,
+            plantuml_url,
         } => {
-            commands::serve::run(file, port, host, no_open, no_watch, read_only, token, kroki_url)
+            commands::serve::run(file, port, host, no_open, no_watch, read_only, token, kroki_url, plantuml_url)
                 .await
         }
         Commands::Review { file, kind, source, json } => {
