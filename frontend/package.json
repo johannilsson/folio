@@ -5,11 +5,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "jsdom": "^25.0.0",
     "typescript": "^5.7.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^3.0.0"
   },
   "dependencies": {
     "@tiptap/core": "3.23.6",

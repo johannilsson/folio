@@ -100,8 +100,8 @@ export function findAnchor(
       : charPos[charPos.length - 1] + 1
   const to =
     toIdx > fromIdx
-      ? toIdx < charPos.length
-        ? charPos[toIdx]
+      ? toIdx - 1 < charPos.length
+        ? charPos[toIdx - 1] + 1
         : charPos[charPos.length - 1] + 1
       : from
 

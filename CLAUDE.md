@@ -29,6 +29,16 @@ touch src/main.rs && FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
 cargo build
 ```
 
+## Tests
+
+```bash
+# Rust unit tests (sidecar anchoring, strip_markdown)
+cargo test
+
+# Frontend unit tests (findAnchor)
+cd frontend && pnpm test
+```
+
 ## Architecture
 
 ### Backend (`src/`)

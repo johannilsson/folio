@@ -435,3 +435,135 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ann(context_before: &str, target: Option<&str>) -> Annotation {
+        Annotation {
+            id: "test".into(),
+            kind: AnnotationKind::Comment,
+            source: AnnotationSource::Agent,
+            author: "test".into(),
+            context_before: context_before.into(),
+            target: target.map(|s| s.into()),
+            replacement: None,
+            comment: None,
+            created: "2026-01-01T00:00:00Z".into(),
+            resolved: false,
+            resolved_as: None,
+            resolved_at: None,
+        }
+    }
+
+    // ── strip_markdown ────────────────────────────────────────────────────────
+
+    #[test]
+    fn strip_heading_marker() {
+        let (s, _) = strip_markdown("## Hello world");
+        assert_eq!(s, "Hello world");
+    }
+
+    #[test]
+    fn strip_bold_markers() {
+        let (s, _) = strip_markdown("Some **bold** text.");
+        assert_eq!(s, "Some bold text.");
+    }
+
+    #[test]
+    fn strip_italic_markers() {
+        let (s, _) = strip_markdown("Some *italic* text.");
+        assert_eq!(s, "Some italic text.");
+    }
+
+    #[test]
+    fn strip_list_marker() {
+        let (s, _) = strip_markdown("- List item text");
+        assert_eq!(s, "List item text");
+    }
+
+    #[test]
+    fn strip_preserves_inline_code_content() {
+        let (s, _) = strip_markdown("Use `foo()` here.");
+        assert_eq!(s, "Use foo() here.");
+    }
+
+    #[test]
+    fn block_boundaries_concatenated_without_separator() {
+        let (s, _) = strip_markdown("First paragraph.\n\nSecond paragraph.");
+        assert_eq!(s, "First paragraph.Second paragraph.");
+    }
+
+    #[test]
+    fn pos_map_offset_for_heading() {
+        // "## Hello world" → stripped "Hello world", 'H' is at raw byte 3
+        let (s, map) = strip_markdown("## Hello world");
+        assert_eq!(s, "Hello world");
+        assert_eq!(map[0], 3); // 'H'
+        assert_eq!(map[5], 8); // ' ' between Hello and world
+    }
+
+    #[test]
+    fn pos_map_offset_for_bold() {
+        // "Some **bold** text." → stripped "Some bold text.", 'b' is at raw byte 7
+        let (s, map) = strip_markdown("Some **bold** text.");
+        assert_eq!(s, "Some bold text.");
+        assert_eq!(map[5], 7); // 'b' of "bold"
+    }
+
+    // ── Annotation::anchor ────────────────────────────────────────────────────
+
+    #[test]
+    fn anchor_target_in_middle_of_paragraph() {
+        let doc = "Hello world, this is a test.";
+        assert_eq!(ann("Hello ", Some("world")).anchor(doc), Some((6, 11)));
+    }
+
+    #[test]
+    fn anchor_target_at_end_of_first_block() {
+        // "line." ends the first paragraph; raw search finds it directly.
+        let doc = "First line.\n\nSecond line.";
+        assert_eq!(ann("First ", Some("line.")).anchor(doc), Some((6, 11)));
+    }
+
+    #[test]
+    fn anchor_case_insensitive() {
+        let doc = "Hello World.";
+        assert_eq!(ann("HELLO ", Some("WORLD")).anchor(doc), Some((6, 11)));
+    }
+
+    #[test]
+    fn anchor_no_target_returns_insertion_point() {
+        // insert/comment annotations have no target; both offsets are identical.
+        let doc = "Hello world.";
+        assert_eq!(ann("Hello ", None).anchor(doc), Some((6, 6)));
+    }
+
+    #[test]
+    fn anchor_not_found_returns_none() {
+        let doc = "Hello world.";
+        assert_eq!(ann("does not exist", Some("here")).anchor(doc), None);
+    }
+
+    #[test]
+    fn anchor_stripped_bold_target() {
+        // context_before and target are plain text; the doc has **bold** markers.
+        // Raw search "Some important" won't match; stripped search will.
+        // "Some **important** text." — 'i' of "important" is at raw byte 7.
+        let doc = "Some **important** text.";
+        assert_eq!(ann("Some ", Some("important")).anchor(doc), Some((7, 16)));
+    }
+
+    #[test]
+    fn anchor_context_spans_block_boundary() {
+        // Stripped text concatenates blocks with no separator, so context_before
+        // can bridge a paragraph boundary that is invisible in rendered text.
+        // "End of first.\n\nStart of second." — 's' of "second." is at raw byte 24.
+        let doc = "End of first.\n\nStart of second.";
+        assert_eq!(
+            ann("End of first.Start of ", Some("second.")).anchor(doc),
+            Some((24, 31))
+        );
+    }
+}
