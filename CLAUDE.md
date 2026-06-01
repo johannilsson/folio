@@ -32,6 +32,7 @@ cargo build
 ## Architecture
 
 ### Backend (`src/`)
+
 - `main.rs` — CLI entry point (clap)
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
 - `server.rs` — Axum router, rust-embed asset serving, AppState
@@ -40,9 +41,11 @@ cargo build
 - `commands/accept.rs` — anchoring + reverse-order patch application
 
 ### Frontend (`frontend/src/`)
+
 - `main.ts` — boot: fetches file + sidecar, wires WebSocket events
 - `editor.ts` — Tiptap 3 editor (StarterKit + @tiptap/markdown)
 - `annotations.ts` — ProseMirror plugin: inline decorations, scrollable gutter cards, floating comment adder
+- `diagrams.ts` — Tiptap NodeView extension: renders `mermaid` and `plantuml` code blocks as diagrams
 - `api.ts` — fetch wrappers + `Annotation`/`Sidecar` TypeScript types
 - `websocket.ts` — WebSocket client with typed event subscriptions
 
@@ -59,6 +62,7 @@ Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<file>.folio`.
 | `comment` | Yellow background + yellow bottom border | Dismiss |
 
 ### Anchoring
+
 `findAnchor` concatenates text nodes with **no separator** (block boundaries are invisible). When creating annotations from user selections, always use `doc.textBetween(from, to, '')` with an empty separator to match this flat model — never `'\n'`.
 
 `context_before` should be plain rendered text (not markdown syntax). Annotations written by agents must use rendered text too.
@@ -70,3 +74,4 @@ Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<file>.folio`.
 - **Focus indicator**: clicking annotated text sets `focusedAnnotationId`; the matching card gets `ann-card-focused` class.
 - **Event handling**: use `mousedown + e.preventDefault()` on card buttons and the floating comment adder to preserve editor selection.
 - **CSS `hidden` + `display: flex`**: explicit `display` values on elements override the UA stylesheet's `[hidden] { display: none }`. Always add `selector[hidden] { display: none }` for any element that uses both.
+
