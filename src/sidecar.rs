@@ -240,9 +240,9 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                         j += 1;
                     }
                     if ct == ticks {
-                        for k in content_start..cs {
-                            stripped.push(chars[k].1);
-                            pos_map.push(chars[k].0);
+                        for &(bp, ch) in &chars[content_start..cs] {
+                            stripped.push(ch);
+                            pos_map.push(bp);
                         }
                         i = j;
                         closed = true;
@@ -253,9 +253,9 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                 }
             }
             if !closed {
-                for k in tick_start..j.min(n) {
-                    stripped.push(chars[k].1);
-                    pos_map.push(chars[k].0);
+                for &(bp, ch) in &chars[tick_start..j.min(n)] {
+                    stripped.push(ch);
+                    pos_map.push(bp);
                 }
                 i = j.min(n);
             }
@@ -284,9 +284,9 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                             j += 1;
                         }
                         if cl == mlen {
-                            for k in content_start..cs {
-                                stripped.push(chars[k].1);
-                                pos_map.push(chars[k].0);
+                            for &(bp, ch) in &chars[content_start..cs] {
+                                stripped.push(ch);
+                                pos_map.push(bp);
                             }
                             i = j;
                             closed = true;
@@ -298,18 +298,18 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                     }
                 }
                 if !closed {
-                    for k in open_start..j.min(n) {
-                        stripped.push(chars[k].1);
-                        pos_map.push(chars[k].0);
+                    for &(bp, ch) in &chars[open_start..j.min(n)] {
+                        stripped.push(ch);
+                        pos_map.push(bp);
                     }
                     i = j.min(n);
                 }
                 continue;
             }
             // mlen > 3: not a formatting marker — emit as literal
-            for k in open_start..i {
-                stripped.push(chars[k].1);
-                pos_map.push(chars[k].0);
+            for &(bp, ch) in &chars[open_start..i] {
+                stripped.push(ch);
+                pos_map.push(bp);
             }
             continue;
         }
@@ -323,9 +323,9 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
             let mut closed = false;
             while j + 1 < n && chars[j].1 != '\n' {
                 if chars[j].1 == '~' && chars[j + 1].1 == '~' {
-                    for k in content_start..j {
-                        stripped.push(chars[k].1);
-                        pos_map.push(chars[k].0);
+                    for &(bp, ch) in &chars[content_start..j] {
+                        stripped.push(ch);
+                        pos_map.push(bp);
                     }
                     i = j + 2;
                     closed = true;
@@ -334,9 +334,9 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                 j += 1;
             }
             if !closed {
-                for k in open_start..j.min(n) {
-                    stripped.push(chars[k].1);
-                    pos_map.push(chars[k].0);
+                for &(bp, ch) in &chars[open_start..j.min(n)] {
+                    stripped.push(ch);
+                    pos_map.push(bp);
                 }
                 i = j.min(n);
             }

@@ -78,7 +78,7 @@ pub fn run(
 
     // Apply ops in reverse order to preserve byte offsets
     let mut new_doc = doc.clone();
-    ops.sort_by(|a, b| b.0.cmp(&a.0));
+    ops.sort_by_key(|b| std::cmp::Reverse(b.0));
     for (start, end, repl) in ops {
         new_doc.replace_range(start..end, &repl);
     }

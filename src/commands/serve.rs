@@ -33,6 +33,7 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     file: PathBuf,
     port: Option<u16>,
