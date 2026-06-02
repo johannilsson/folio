@@ -37,6 +37,7 @@ function updateFocusedCard(): void {
   currentGutterEl.querySelectorAll<HTMLElement>('.ann-card').forEach(card => {
     card.classList.toggle('ann-card-focused', card.dataset.id === focusedAnnotationId)
   })
+  repositionCards(currentGutterEl)
   focusChangeCallback?.()
 }
 
@@ -236,19 +237,19 @@ function buildDecorations(doc: PMNode): DecorationSet {
 
 // ─── Gutter cards ─────────────────────────────────────────────────────────────
 
-function formatSummary(ann: Annotation): string {
-  const t = (s: string, max = 24) => (s.length > max ? s.slice(0, max) + '…' : s)
+function formatBody(ann: Annotation): string {
+  const t = (s: string, max = 28) => (s.length > max ? s.slice(0, max) + '…' : s)
   switch (ann.kind) {
     case 'replace':
-      return `◇ "${t(ann.target ?? '')}" → "${t(ann.replacement ?? '')}"`
+      return `"${t(ann.target ?? '')}" → "${t(ann.replacement ?? '')}"`
     case 'delete':
-      return `✕  "${t(ann.target ?? '')}"`
+      return `"${t(ann.target ?? '')}"`
     case 'insert':
-      return `+  "${t(ann.replacement ?? '')}"`
+      return `"${t(ann.replacement ?? '')}"`
     case 'highlight':
-      return `◌  "${t(ann.target ?? '')}"`
+      return `"${t(ann.target ?? '')}"`
     case 'comment':
-      return `💬 ${t(ann.comment ?? '', 32)}`
+      return t(ann.comment ?? '', 32)
   }
 }
 
@@ -256,41 +257,30 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function makeHeader(ann: Annotation): HTMLElement {
+  const header = document.createElement('div')
+  header.className = 'ann-card-header'
+  const author = document.createElement('strong')
+  author.className = 'ann-card-author'
+  author.textContent = ann.author
+  const time = document.createElement('span')
+  time.className = 'ann-card-time'
+  time.textContent = formatTime(ann.created)
+  header.appendChild(author)
+  header.appendChild(time)
+  return header
+}
+
 function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
   const card = document.createElement('div')
-  card.className = ann.kind === 'comment' ? 'ann-card ann-card--comment' : 'ann-card'
+  card.className = 'ann-card'
   card.dataset.source = ann.source
   card.dataset.id = ann.id
 
-  const info = document.createElement('div')
-  info.className = 'ann-card-info'
-
-  const summary = document.createElement('div')
-  summary.className = 'ann-card-summary'
-  summary.textContent = formatSummary(ann)
-
-  const meta = document.createElement('div')
-  meta.className = 'ann-card-meta'
-  meta.textContent = `${ann.author} · ${formatTime(ann.created)}`
-
-  info.appendChild(summary)
-  info.appendChild(meta)
-
   if (ann.kind === 'comment') {
     const body = document.createElement('div')
-    body.className = 'ann-card-comment-body'
+    body.className = 'ann-card-body'
     body.textContent = ann.comment ?? ''
-    card.appendChild(info)
-    card.appendChild(body)
-
-    card.addEventListener('mousedown', e => {
-      if ((e.target as HTMLElement).closest('.ann-card-actions')) return
-      e.preventDefault()
-      card.classList.toggle('ann-card-expanded')
-      focusedAnnotationId = card.classList.contains('ann-card-expanded') ? ann.id : null
-      updateFocusedCard()
-      if (currentGutterEl) repositionCards(currentGutterEl)
-    })
 
     const actions = document.createElement('div')
     actions.className = 'ann-card-actions'
@@ -302,15 +292,25 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
       resolveAnnotation(ann, 'dismissed', editor)
     })
     actions.appendChild(dismiss)
+
+    card.appendChild(makeHeader(ann))
+    card.appendChild(body)
     card.appendChild(actions)
   } else {
-    card.appendChild(info)
-    card.addEventListener('mousedown', e => {
-      e.preventDefault()
-      focusedAnnotationId = ann.id
-      updateFocusedCard()
-    })
+    const body = document.createElement('div')
+    body.className = 'ann-card-body'
+    body.textContent = formatBody(ann)
+
+    card.appendChild(makeHeader(ann))
+    card.appendChild(body)
   }
+
+  card.addEventListener('mousedown', e => {
+    if ((e.target as HTMLElement).closest('.ann-card-actions')) return
+    e.preventDefault()
+    focusedAnnotationId = ann.id
+    updateFocusedCard()
+  })
 
   return card
 }
@@ -320,6 +320,7 @@ function repositionCards(gutterEl: HTMLElement): void {
   items.sort((a, b) => parseFloat(a.dataset.anchorFrom ?? '0') - parseFloat(b.dataset.anchorFrom ?? '0'))
 
   const GAP = 6
+  const BOTTOM_PAD = 48
   let minTop = 0
   for (const item of items) {
     if (item.hidden) continue
@@ -327,6 +328,12 @@ function repositionCards(gutterEl: HTMLElement): void {
     const top = Math.max(anchor - 4, minTop)
     item.style.top = `${top}px`
     minTop = top + item.offsetHeight + GAP
+  }
+
+  if (minTop > 0) {
+    const needed = minTop + BOTTOM_PAD
+    const current = parseFloat(gutterEl.style.minHeight) || 0
+    if (needed > current) gutterEl.style.minHeight = `${needed}px`
   }
 }
 

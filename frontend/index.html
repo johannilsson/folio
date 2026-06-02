@@ -229,27 +229,11 @@
     .ann-card[data-source="github"],
     .ann-card[data-source="gitlab"] { border-left: 3px solid #f59e0b; }
 
-    .ann-card-info { display: flex; flex-direction: column; gap: 2px; }
-
-    .ann-card-summary {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 11px;
-      color: #d0d0e0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .ann-card-meta {
-      font-size: 10px;
-      color: #666;
-    }
-
     .ann-card-actions {
       display: none;
       gap: 5px;
     }
-    .ann-card-expanded .ann-card-actions { display: flex; }
+    .ann-card-focused .ann-card-actions { display: flex; }
 
     .ann-card-btn {
       font-size: 11px;
@@ -261,27 +245,36 @@
       font-family: inherit;
     }
 
+    .ann-card { cursor: pointer; }
+
     .ann-card-dismiss {
       background: #3a3a50;
       color: #aaa;
     }
     .ann-card-dismiss:hover { background: #44445e; color: #ccc; }
 
-    .ann-card--comment { cursor: pointer; }
+    .ann-card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .ann-card-author {
+      font-size: 12px;
+      font-weight: 600;
+      color: #d0d0e0;
+    }
+    .ann-card-time {
+      font-size: 10px;
+      color: #666;
+    }
 
-    .ann-card-summary::after { content: ' ›'; opacity: 0.4; }
-    .ann-card-expanded .ann-card-summary::after { content: ' ⌄'; opacity: 0.5; }
-
-    .ann-card-comment-body {
-      display: none;
+    .ann-card-body {
       font-size: 12px;
       color: #b8b8d0;
       line-height: 1.55;
-      margin-top: 5px;
       word-break: break-word;
       white-space: pre-wrap;
     }
-    .ann-card-expanded .ann-card-comment-body { display: block; }
 
     /* ── Overlays (action + comment pill) ── */
 
@@ -382,8 +375,7 @@
     .cf-cancel:hover { background: #2a2a3a; }
 
     .ann-card-focused {
-      background: rgba(250, 204, 21, 0.05);
-      border-color: rgba(250, 204, 21, 0.45);
+      border-color: rgba(255, 255, 255, 0.4);
     }
 
     /* ── Diagram blocks ── */
