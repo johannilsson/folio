@@ -90,13 +90,9 @@ export function findAnchor(
 
   if (fromIdx > charPos.length) return null
 
-  // If fromIdx lands at the start of a new block (gap in charPos), stay inside
-  // the previous block so the widget doesn't inherit the next node's styles.
   const from =
     fromIdx < charPos.length
-      ? fromIdx > 0 && charPos[fromIdx] > charPos[fromIdx - 1] + 1
-        ? charPos[fromIdx - 1] + 1
-        : charPos[fromIdx]
+      ? charPos[fromIdx]
       : charPos[charPos.length - 1] + 1
   const to =
     toIdx > fromIdx

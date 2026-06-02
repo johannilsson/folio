@@ -556,6 +556,33 @@ mod tests {
     }
 
     #[test]
+    fn anchor_target_in_first_bullet_after_heading() {
+        // "## Header\n\n- First bullet text"
+        // 'F' of "First" is at raw byte 13 (after `## Header\n\n- `).
+        // context_before = "Header" (plain rendered text, no `## ` prefix).
+        // Pass 1 raw: "headerfirst" not in raw doc (block markers and newlines separate them).
+        // Pass 3 stripped: "HeaderFirst bullet text" → from_ci=6 → pos_map[6]=13.
+        let doc = "## Header\n\n- First bullet text";
+        assert_eq!(
+            ann("Header", Some("First")).anchor(doc),
+            Some((13, 18))
+        );
+    }
+
+    #[test]
+    fn anchor_target_in_first_bullet_context_crosses_boundary() {
+        // Verifies that when context_before is rendered text from the heading and the
+        // target is the first word of the following bullet, anchoring resolves to the
+        // bullet and not to anything inside the heading.
+        let doc = "## Intro\n\n- Start of bullet here";
+        // "Intro" ends at raw byte 8. "- " is at 10-11. 'S' of "Start" is at raw byte 12.
+        assert_eq!(
+            ann("Intro", Some("Start")).anchor(doc),
+            Some((12, 17))
+        );
+    }
+
+    #[test]
     fn anchor_context_spans_block_boundary() {
         // Stripped text concatenates blocks with no separator, so context_before
         // can bridge a paragraph boundary that is invisible in rendered text.

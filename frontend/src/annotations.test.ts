@@ -97,6 +97,47 @@ describe('findAnchor', () => {
     })
   })
 
+  describe('block boundary: from at start of new block', () => {
+    it('places from inside the bullet block when context_before is exactly the heading text', () => {
+      // "## Header\n\n- First bullet text" — heading "Header" at pos 1, bullet "First bullet text" at pos 11.
+      // Block gap between heading close (pos 7) and bullet (pos 11) = 4 tokens.
+      // context_before = "Header" (6 chars) → fromIdx = 6 → charPos[6] = 11 (start of bullet).
+      // Bug (before fix): gap detected → from = charPos[5]+1 = 7 (heading closing position, inside header).
+      // Fix: from = charPos[6] = 11 (first char of bullet text).
+      const doc = mockDoc([
+        { text: 'Header', pos: 1 },
+        { text: 'First bullet text', pos: 11 },
+      ])
+      const result = findAnchor(doc as any, 'Header', 'First')
+      expect(result).not.toBeNull()
+      expect(result!.from).toBe(11)
+    })
+
+    it('from must not be inside the heading when targeting a bullet', () => {
+      // Heading occupies positions 1–6; heading close + list tokens occupy 7–10.
+      // Accepted change must land at pos ≥ 11, never at 7 (the heading closing token).
+      const doc = mockDoc([
+        { text: 'Header', pos: 1 },
+        { text: 'First bullet text', pos: 11 },
+      ])
+      const result = findAnchor(doc as any, 'Header', 'First')
+      expect(result!.from).not.toBe(7)
+      expect(result!.from).toBeGreaterThanOrEqual(11)
+    })
+
+    it('handles an insert annotation (no target) at the start of the first bullet', () => {
+      // context_before = "Header" → insertion point must be inside the bullet (pos 11), not the heading.
+      const doc = mockDoc([
+        { text: 'Header', pos: 1 },
+        { text: 'First bullet text', pos: 11 },
+      ])
+      const result = findAnchor(doc as any, 'Header', null)
+      expect(result).not.toBeNull()
+      expect(result!.from).toBe(11)
+      expect(result!.to).toBe(11)
+    })
+  })
+
   describe('targets spanning multiple text nodes in one block', () => {
     it('handles bold text followed by regular text in the same paragraph', () => {
       // Simulates <strong>Cover crops</strong> between rows:
