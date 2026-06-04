@@ -62,12 +62,14 @@ async function boot(): Promise<void> {
       rawTextarea.value = ed.getMarkdown()
       editorWrapper.hidden = true
       rawPane.hidden = false
-      toggleBtn.textContent = '← WYSIWYG'
+      toggleBtn.textContent = '¶'
+      toggleBtn.title = 'Switch to rich text'
     } else {
       ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
       editorWrapper.hidden = false
       rawPane.hidden = true
-      toggleBtn.textContent = 'Markdown →'
+      toggleBtn.textContent = '</>'
+      toggleBtn.title = 'Switch to Markdown source'
       scheduleGutterRebuild()
     }
   })

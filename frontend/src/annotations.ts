@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core'
 import type { Editor } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -27,6 +27,7 @@ let focusedAnnotationId: string | null = null
 let currentGutterEl: HTMLElement | null = null
 let focusChangeCallback: (() => void) | null = null
 let rebuildFn: (() => void) | null = null
+let pendingCommentRange: { from: number; to: number } | null = null
 
 export function scheduleGutterRebuild(): void {
   if (rebuildFn) requestAnimationFrame(rebuildFn)
@@ -230,6 +231,10 @@ function buildDecorations(doc: PMNode): DecorationSet {
         }
         break
     }
+  }
+
+  if (pendingCommentRange) {
+    decos.push(Decoration.inline(pendingCommentRange.from, pendingCommentRange.to, { class: 'ann-comment-pending' }))
   }
 
   return DecorationSet.create(doc, decos)
@@ -517,6 +522,9 @@ export function createAnnotationsExtension(): Extension {
               cfGutterForm.hidden = true
               cfTextarea.value = ''
               savedSelection = null
+              pendingCommentRange = null
+              const { from } = pmView.state.selection
+              pmView.dispatch(pmView.state.tr.setSelection(TextSelection.create(pmView.state.doc, from)))
               repositionCards(gutterEl)
             }
 
@@ -528,6 +536,8 @@ export function createAnnotationsExtension(): Extension {
               cfGutterForm.style.top = `${anchorTop}px`
               cfGutterForm.hidden = false
               floater.hidden = true
+              pendingCommentRange = savedSelection
+              pmView.dispatch(pmView.state.tr)
               repositionCards(gutterEl)
               cfTextarea.focus()
             })
@@ -631,6 +641,7 @@ export function createAnnotationsExtension(): Extension {
                 focusChangeCallback = null
                 currentGutterEl = null
                 rebuildFn = null
+                pendingCommentRange = null
               },
             }
           },

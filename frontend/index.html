@@ -363,23 +363,38 @@
       text-decoration-color: var(--ann-del-bdr);
       color: var(--ann-del-text);
       border-bottom: 2px solid var(--ann-del-bdr);
-      padding-bottom: 1px;
+      padding: 1px 3px;
+      border-radius: 3px;
     }
 
     .ann-insert-preview {
       background: var(--ann-ins-bg);
       color: var(--ann-ins-text);
-      border-radius: 2px 2px 0 0;
-      padding: 0 2px 1px;
       border-bottom: 2px solid var(--ann-ins-bdr);
+      padding: 1px 3px;
+      border-radius: 3px;
     }
 
-    .ann-highlight { text-decoration: underline dotted var(--ann-hi); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    .ann-highlight {
+      text-decoration: underline dotted var(--ann-hi);
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+      padding: 1px 3px;
+      border-radius: 3px;
+    }
 
     .ann-comment-target {
       background: var(--ann-com-bg);
       border-bottom: 2px solid var(--ann-com-bdr);
-      padding-bottom: 1px;
+      padding: 1px 3px;
+      border-radius: 3px;
+    }
+
+    .ann-comment-pending {
+      background: var(--ann-com-bg);
+      border-bottom: 2px dashed var(--ann-com-bdr);
+      padding: 1px 3px;
+      border-radius: 3px;
     }
 
     /* ── Annotation gutter (scrolls with document) ── */
@@ -505,7 +520,7 @@
       right: 8px;
       background: var(--card-bg);
       border: 1px solid var(--border);
-      border-left: 3px solid #3b82f6;
+      border-left: 3px solid #6366f1;
       border-radius: 7px;
       padding: 8px 10px;
       display: flex;
@@ -590,7 +605,7 @@
   <div id="app">
     <div id="editor-pane">
       <div id="editor-toolbar">
-        <button id="toggle-raw">Markdown →</button>
+        <button id="toggle-raw" title="Switch to Markdown source">&lt;/&gt;</button>
         <span id="filename-display"></span>
         <button id="toggle-theme" title="Toggle light/dark mode">☀</button>
       </div>
