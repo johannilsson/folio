@@ -1,0 +1,97 @@
+{
+  "skill_name": "folio",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Please proofread /tmp/folio-skill-workspace/sample-blog.md and write annotations for all spelling mistakes and unclear phrasing. Use the folio sidecar at /tmp/folio-skill-workspace/sample-blog.folio.",
+      "expected_output": "A valid .folio sidecar with replace/delete annotations for all spelling errors. context_before and target must use plain rendered text only (no markdown syntax). All resolved fields false.",
+      "files": ["/tmp/folio-skill-workspace/sample-blog.md"],
+      "assertions": [
+        {
+          "text": "Output file is valid JSON with version:1",
+          "check": "parse the .folio output as JSON; top-level keys include 'version' (value 1) and 'annotations' (array)"
+        },
+        {
+          "text": "All annotations have resolved:false and source:agent",
+          "check": "every annotation has resolved=false and source='agent'"
+        },
+        {
+          "text": "IDs follow ann_XXXXXXXX format",
+          "check": "every annotation id matches the pattern ann_[a-z0-9]{8}"
+        },
+        {
+          "text": "No markdown syntax in context_before or target",
+          "check": "no annotation's context_before or target field contains '#', '**', '__', or backtick characters"
+        },
+        {
+          "text": "At least 5 spelling errors caught",
+          "check": "at least 5 of these misspellings are targeted: 'worlds', 'Wether', 'importent', 'rosted', 'excelent', 'courser', 'exeptional'"
+        },
+        {
+          "text": "context_before fields are non-empty",
+          "check": "every annotation has a non-empty context_before string"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Review /tmp/folio-skill-workspace/sample-readme.md for safety and documentation issues. Add a folio annotation pointing out that the docs say the sync operation is 'irreversible' but don't explain how to restore from backup. Also flag the --force flag description as insufficient. Write the annotations to /tmp/folio-skill-workspace/sample-readme.folio.",
+      "expected_output": "A valid .folio sidecar with at least 2 annotations: one on the 'irreversible' sentence, one on the --force flag. context_before uses plain text.",
+      "files": ["/tmp/folio-skill-workspace/sample-readme.md"],
+      "assertions": [
+        {
+          "text": "Output file is valid JSON with version:1",
+          "check": "parse the .folio output as JSON; has 'version':1 and 'annotations' array"
+        },
+        {
+          "text": "At least 2 annotations present",
+          "check": "annotations array has at least 2 entries"
+        },
+        {
+          "text": "One annotation addresses the irreversible warning",
+          "check": "at least one annotation's target or comment or context_before contains 'irreversible'"
+        },
+        {
+          "text": "One annotation addresses the --force flag",
+          "check": "at least one annotation's target or comment or context_before contains '--force' or 'force'"
+        },
+        {
+          "text": "No markdown syntax in context_before or target",
+          "check": "no annotation's context_before or target contains backtick, '##', or '**' characters"
+        },
+        {
+          "text": "All annotations have resolved:false",
+          "check": "every annotation has resolved=false"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I have a markdown file at /tmp/folio-skill-workspace/sample-blog.md. Please add a folio annotation suggesting we change the title 'How to Make Great Coffee' to 'Brewing the Perfect Cup: A Beginner's Guide'. Write it to /tmp/folio-skill-workspace/sample-blog-title.folio.",
+      "expected_output": "A single 'replace' annotation. target='How to Make Great Coffee' (no # prefix). replacement='Brewing the Perfect Cup: A Beginner's Guide'.",
+      "files": ["/tmp/folio-skill-workspace/sample-blog.md"],
+      "assertions": [
+        {
+          "text": "Output file is valid JSON with version:1",
+          "check": "parse the .folio output as JSON; has 'version':1 and 'annotations' array"
+        },
+        {
+          "text": "Exactly one annotation of kind replace",
+          "check": "annotations array has exactly one entry with kind='replace'"
+        },
+        {
+          "text": "Target is plain title text without # prefix",
+          "check": "the replace annotation's target is 'How to Make Great Coffee' (no leading #)"
+        },
+        {
+          "text": "Replacement matches the requested new title",
+          "check": "the replace annotation's replacement is \"Brewing the Perfect Cup: A Beginner's Guide\""
+        },
+        {
+          "text": "resolved is false",
+          "check": "the annotation has resolved=false"
+        }
+      ]
+    }
+  ]
+}

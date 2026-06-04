@@ -5,6 +5,11 @@ import plantumlEncoder from 'plantuml-encoder'
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark' })
 
+export function setMermaidTheme(theme: 'dark' | 'default'): void {
+  mermaid.initialize({ startOnLoad: false, theme })
+  window.dispatchEvent(new Event('folio:theme-changed'))
+}
+
 let mermaidIdCounter = 0
 
 async function renderMermaid(code: string): Promise<string> {
@@ -66,6 +71,9 @@ export const DiagramCodeBlock = CodeBlock.extend({
 
       render(node.textContent)
 
+      const onThemeChange = () => { if (lang === 'mermaid') render(currentCode) }
+      window.addEventListener('folio:theme-changed', onThemeChange)
+
       return {
         dom,
         update(updated: Node) {
@@ -75,6 +83,7 @@ export const DiagramCodeBlock = CodeBlock.extend({
           if (newCode !== currentCode) render(newCode)
           return true
         },
+        destroy() { window.removeEventListener('folio:theme-changed', onThemeChange) },
       }
     }
   },

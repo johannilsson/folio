@@ -4,15 +4,195 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Folio</title>
+  <script>
+    (function () {
+      const saved = localStorage.getItem('folio-theme')
+      if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved
+    })()
+  </script>
   <style>
+    /* ── Theme variables ── */
+
+    :root {
+      --bg: #1a1a1a;
+      --bg-raised: #222;
+      --bg-surface: #2a2a3a;
+      --bg-input: #151525;
+      --border: #333;
+      --border-mid: #444;
+      --border-muted: #555;
+      --text: #e0e0e0;
+      --text-strong: #f0f0f0;
+      --text-2: #aaa;
+      --text-3: #888;
+      --text-4: #666;
+      --text-link: #7dd3fc;
+      --text-raw: #cdd6f4;
+      --card-bg: #1a1a1a;
+      --card-author: #d0d0e0;
+      --card-body: #b8b8d0;
+      --card-focused: rgba(255,255,255,.4);
+      --chip-bg: #3a3a50;
+      --chip-bg-h: #44445e;
+      --chip: #aaa;
+      --chip-h: #ccc;
+      --float-bg: #1a1a1a;
+      --float-shadow: 0 4px 20px rgba(0,0,0,.75), 0 1px 4px rgba(0,0,0,.5);
+      --af-text: #e0e0e0;
+      --af-hover: rgba(255,255,255,.1);
+      --af-div: #333;
+      --cancel-bg-h: #2a2a3a;
+      --toolbar-btn-hover: rgba(255,255,255,.07);
+      --toolbar-btn-hover-text: #aaa;
+      --ann-del-bg: rgba(239,68,68,.22);
+      --ann-del-text: #fca5a5;
+      --ann-del-bdr: rgba(239,68,68,.55);
+      --ann-ins-bg: rgba(34,197,94,.2);
+      --ann-ins-text: #86efac;
+      --ann-ins-bdr: rgba(34,197,94,.55);
+      --ann-hi: rgb(247,253,73);
+      --ann-com-bg: rgba(250,204,21,.28);
+      --ann-com-bdr: rgba(250,204,21,.9);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg: #fafaf8;
+        --bg-raised: #f0f0ee;
+        --bg-surface: #ebebf0;
+        --bg-input: #f0f0f5;
+        --border: #d8d8d5;
+        --border-mid: #ddd;
+        --border-muted: #bbb;
+        --text: #1a1a1a;
+        --text-strong: #0f0f0f;
+        --text-2: #666;
+        --text-3: #777;
+        --text-4: #999;
+        --text-link: #2563eb;
+        --text-raw: #1e1e3a;
+        --card-bg: #ffffff;
+        --card-author: #2a2a3a;
+        --card-body: #444460;
+        --card-focused: rgba(0,0,0,.3);
+        --chip-bg: #e8e8f0;
+        --chip-bg-h: #d8d8e8;
+        --chip: #666;
+        --chip-h: #444;
+        --float-bg: #ffffff;
+        --float-shadow: 0 4px 20px rgba(0,0,0,.15), 0 1px 4px rgba(0,0,0,.08);
+        --af-text: #1a1a1a;
+        --af-hover: rgba(0,0,0,.07);
+        --af-div: #ddd;
+        --cancel-bg-h: #ebebf0;
+        --toolbar-btn-hover: rgba(0,0,0,.06);
+        --toolbar-btn-hover-text: #555;
+        --ann-del-bg: rgba(239,68,68,.12);
+        --ann-del-text: #dc2626;
+        --ann-del-bdr: rgba(239,68,68,.5);
+        --ann-ins-bg: rgba(34,197,94,.12);
+        --ann-ins-text: #15803d;
+        --ann-ins-bdr: rgba(34,197,94,.5);
+        --ann-hi: rgb(202,138,4);
+        --ann-com-bg: rgba(250,204,21,.18);
+        --ann-com-bdr: rgba(250,204,21,.7);
+      }
+    }
+
+    html[data-theme="light"] {
+      --bg: #fafaf8;
+      --bg-raised: #f0f0ee;
+      --bg-surface: #ebebf0;
+      --bg-input: #f0f0f5;
+      --border: #d8d8d5;
+      --border-mid: #ddd;
+      --border-muted: #bbb;
+      --text: #1a1a1a;
+      --text-strong: #0f0f0f;
+      --text-2: #666;
+      --text-3: #777;
+      --text-4: #999;
+      --text-link: #2563eb;
+      --text-raw: #1e1e3a;
+      --card-bg: #ffffff;
+      --card-author: #2a2a3a;
+      --card-body: #444460;
+      --card-focused: rgba(0,0,0,.3);
+      --chip-bg: #e8e8f0;
+      --chip-bg-h: #d8d8e8;
+      --chip: #666;
+      --chip-h: #444;
+      --float-bg: #ffffff;
+      --float-shadow: 0 4px 20px rgba(0,0,0,.15), 0 1px 4px rgba(0,0,0,.08);
+      --af-text: #1a1a1a;
+      --af-hover: rgba(0,0,0,.07);
+      --af-div: #ddd;
+      --cancel-bg-h: #ebebf0;
+      --toolbar-btn-hover: rgba(0,0,0,.06);
+      --toolbar-btn-hover-text: #555;
+      --ann-del-bg: rgba(239,68,68,.12);
+      --ann-del-text: #dc2626;
+      --ann-del-bdr: rgba(239,68,68,.5);
+      --ann-ins-bg: rgba(34,197,94,.12);
+      --ann-ins-text: #15803d;
+      --ann-ins-bdr: rgba(34,197,94,.5);
+      --ann-hi: rgb(202,138,4);
+      --ann-com-bg: rgba(250,204,21,.18);
+      --ann-com-bdr: rgba(250,204,21,.7);
+    }
+
+    html[data-theme="dark"] {
+      --bg: #1a1a1a;
+      --bg-raised: #222;
+      --bg-surface: #2a2a3a;
+      --bg-input: #151525;
+      --border: #333;
+      --border-mid: #444;
+      --border-muted: #555;
+      --text: #e0e0e0;
+      --text-strong: #f0f0f0;
+      --text-2: #aaa;
+      --text-3: #888;
+      --text-4: #666;
+      --text-link: #7dd3fc;
+      --text-raw: #cdd6f4;
+      --card-bg: #1a1a1a;
+      --card-author: #d0d0e0;
+      --card-body: #b8b8d0;
+      --card-focused: rgba(255,255,255,.4);
+      --chip-bg: #3a3a50;
+      --chip-bg-h: #44445e;
+      --chip: #aaa;
+      --chip-h: #ccc;
+      --float-bg: #1a1a1a;
+      --float-shadow: 0 4px 20px rgba(0,0,0,.75), 0 1px 4px rgba(0,0,0,.5);
+      --af-text: #e0e0e0;
+      --af-hover: rgba(255,255,255,.1);
+      --af-div: #333;
+      --cancel-bg-h: #2a2a3a;
+      --toolbar-btn-hover: rgba(255,255,255,.07);
+      --toolbar-btn-hover-text: #aaa;
+      --ann-del-bg: rgba(239,68,68,.22);
+      --ann-del-text: #fca5a5;
+      --ann-del-bdr: rgba(239,68,68,.55);
+      --ann-ins-bg: rgba(34,197,94,.2);
+      --ann-ins-text: #86efac;
+      --ann-ins-bdr: rgba(34,197,94,.55);
+      --ann-hi: rgb(247,253,73);
+      --ann-com-bg: rgba(250,204,21,.28);
+      --ann-com-bdr: rgba(250,204,21,.9);
+    }
+
+    /* ── Base ── */
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     html, body { height: 100%; overflow: hidden; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #1a1a1a;
-      color: #e0e0e0;
+      background: var(--bg);
+      color: var(--text);
     }
 
     #app {
@@ -34,8 +214,8 @@
       align-items: center;
       gap: 8px;
       padding: 6px 12px;
-      background: #222;
-      border-bottom: 1px solid #333;
+      background: var(--bg-raised);
+      border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
 
@@ -43,22 +223,25 @@
       flex: 1;
       text-align: center;
       font-size: 13px;
-      color: #888;
+      color: var(--text-3);
       font-family: 'SF Mono', 'Fira Code', monospace;
       pointer-events: none;
     }
 
-    #toggle-raw {
+    #toggle-raw, #toggle-theme {
       font-size: 12px;
       padding: 4px 8px;
       border-radius: 4px;
       border: none;
       background: transparent;
-      color: #666;
+      color: var(--text-4);
       cursor: pointer;
       font-family: inherit;
     }
-    #toggle-raw:hover { background: rgba(255,255,255,0.07); color: #aaa; }
+    #toggle-raw:hover, #toggle-theme:hover {
+      background: var(--toolbar-btn-hover);
+      color: var(--toolbar-btn-hover-text);
+    }
 
     /* ── WYSIWYG area: editor + gutter side by side, scrolling together ── */
 
@@ -83,7 +266,7 @@
       outline: none;
       font-size: 15px;
       line-height: 1.75;
-      color: #e0e0e0;
+      color: var(--text);
     }
 
     /* ── Tiptap content styles ── */
@@ -91,7 +274,7 @@
     .tiptap h1, .tiptap h2, .tiptap h3,
     .tiptap h4, .tiptap h5, .tiptap h6 {
       margin: 1.4em 0 0.4em;
-      color: #f0f0f0;
+      color: var(--text-strong);
       line-height: 1.3;
     }
     .tiptap h1 { font-size: 1.9em; }
@@ -100,10 +283,10 @@
 
     .tiptap p { margin: 0.6em 0; }
 
-    .tiptap strong { color: #f0f0f0; }
+    .tiptap strong { color: var(--text-strong); }
 
     .tiptap code {
-      background: #2a2a3a;
+      background: var(--bg-surface);
       padding: 0.1em 0.35em;
       border-radius: 3px;
       font-size: 0.875em;
@@ -111,7 +294,7 @@
     }
 
     .tiptap pre {
-      background: #2a2a3a;
+      background: var(--bg-surface);
       padding: 1em;
       border-radius: 6px;
       overflow-x: auto;
@@ -120,13 +303,13 @@
     .tiptap pre code { background: none; padding: 0; }
 
     .tiptap blockquote {
-      border-left: 3px solid #555;
+      border-left: 3px solid var(--border-muted);
       padding-left: 1em;
-      color: #aaa;
+      color: var(--text-2);
       margin: 1em 0;
     }
 
-    .tiptap a { color: #7dd3fc; }
+    .tiptap a { color: var(--text-link); }
 
     .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; }
 
@@ -134,7 +317,7 @@
 
     .tiptap hr {
       border: none;
-      border-top: 1px solid #444;
+      border-top: 1px solid var(--border-mid);
       margin: 1.5em 0;
     }
 
@@ -144,10 +327,10 @@
       margin: 1em 0;
     }
     .tiptap th, .tiptap td {
-      border: 1px solid #444;
+      border: 1px solid var(--border-mid);
       padding: 0.4em 0.7em;
     }
-    .tiptap th { background: #2a2a3a; }
+    .tiptap th { background: var(--bg-surface); }
 
     /* ── Raw markdown pane ── */
 
@@ -162,8 +345,8 @@
     #raw-pane textarea {
       flex: 1;
       padding: 2rem;
-      background: #1a1a1a;
-      color: #cdd6f4;
+      background: var(--bg);
+      color: var(--text-raw);
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 13px;
       line-height: 1.6;
@@ -175,27 +358,27 @@
     /* ── Annotation decorations (inline) ── */
 
     .ann-delete {
-      background: rgba(239, 68, 68, 0.22);
+      background: var(--ann-del-bg);
       text-decoration: line-through;
-      text-decoration-color: rgba(239, 68, 68, 0.7);
-      color: #fca5a5;
-      border-bottom: 2px solid rgba(239, 68, 68, 0.55);
+      text-decoration-color: var(--ann-del-bdr);
+      color: var(--ann-del-text);
+      border-bottom: 2px solid var(--ann-del-bdr);
       padding-bottom: 1px;
     }
 
     .ann-insert-preview {
-      background: rgba(34, 197, 94, 0.2);
-      color: #86efac;
+      background: var(--ann-ins-bg);
+      color: var(--ann-ins-text);
       border-radius: 2px 2px 0 0;
       padding: 0 2px 1px;
-      border-bottom: 2px solid rgba(34, 197, 94, 0.55);
+      border-bottom: 2px solid var(--ann-ins-bdr);
     }
 
-    .ann-highlight { text-decoration: underline dotted rgb(247, 253, 73); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    .ann-highlight { text-decoration: underline dotted var(--ann-hi); text-decoration-thickness: 2px; text-underline-offset: 3px; }
 
     .ann-comment-target {
-      background: rgba(250, 204, 21, 0.28);
-      border-bottom: 2px solid rgba(250, 204, 21, 0.9);
+      background: var(--ann-com-bg);
+      border-bottom: 2px solid var(--ann-com-bdr);
       padding-bottom: 1px;
     }
 
@@ -214,8 +397,8 @@
       position: absolute;
       left: 8px;
       right: 8px;
-      background: #1a1a1a;
-      border: 1px solid #333;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
       border-radius: 7px;
       padding: 8px 10px;
       pointer-events: auto;
@@ -248,10 +431,10 @@
     .ann-card { cursor: pointer; }
 
     .ann-card-dismiss {
-      background: #3a3a50;
-      color: #aaa;
+      background: var(--chip-bg);
+      color: var(--chip);
     }
-    .ann-card-dismiss:hover { background: #44445e; color: #ccc; }
+    .ann-card-dismiss:hover { background: var(--chip-bg-h); color: var(--chip-h); }
 
     .ann-card-header {
       display: flex;
@@ -261,16 +444,16 @@
     .ann-card-author {
       font-size: 12px;
       font-weight: 600;
-      color: #d0d0e0;
+      color: var(--card-author);
     }
     .ann-card-time {
       font-size: 10px;
-      color: #666;
+      color: var(--text-3);
     }
 
     .ann-card-body {
       font-size: 12px;
-      color: #b8b8d0;
+      color: var(--card-body);
       line-height: 1.55;
       word-break: break-word;
       white-space: pre-wrap;
@@ -284,9 +467,9 @@
       display: flex;
       align-items: center;
       padding: 3px 4px;
-      background: #1a1a1a;
+      background: var(--float-bg);
       border-radius: 999px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.75), 0 1px 4px rgba(0,0,0,0.5);
+      box-shadow: var(--float-shadow);
       transform: translateX(-50%) translateY(calc(-100% - 8px));
       white-space: nowrap;
     }
@@ -304,13 +487,13 @@
       white-space: nowrap;
       letter-spacing: 0.01em;
     }
-    .af-btn { color: #e0e0e0; }
-    .af-btn:hover { background: rgba(255,255,255,0.1); }
+    .af-btn { color: var(--af-text); }
+    .af-btn:hover { background: var(--af-hover); }
 
     .af-divider {
       width: 1px;
       height: 16px;
-      background: #333;
+      background: var(--af-div);
       flex-shrink: 0;
     }
 
@@ -320,8 +503,8 @@
       position: absolute;
       left: 8px;
       right: 8px;
-      background: #1a1a1a;
-      border: 1px solid #333;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
       border-left: 3px solid #3b82f6;
       border-radius: 7px;
       padding: 8px 10px;
@@ -333,10 +516,10 @@
     .cf-gutter-form[hidden] { display: none; }
 
     .cf-textarea {
-      background: #151525;
-      border: 1px solid #333;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
-      color: #e0e0e0;
+      color: var(--text);
       font-family: inherit;
       font-size: 13px;
       line-height: 1.5;
@@ -366,16 +549,16 @@
       font-size: 11px;
       padding: 4px 10px;
       border-radius: 4px;
-      border: 1px solid #333;
+      border: 1px solid var(--border);
       background: transparent;
-      color: #888;
+      color: var(--text-3);
       cursor: pointer;
       font-family: inherit;
     }
-    .cf-cancel:hover { background: #2a2a3a; }
+    .cf-cancel:hover { background: var(--cancel-bg-h); }
 
     .ann-card-focused {
-      border-color: rgba(255, 255, 255, 0.4);
+      border-color: var(--card-focused);
     }
 
     /* ── Diagram blocks ── */
@@ -396,7 +579,7 @@
     }
 
     .tiptap .diagram-loading {
-      color: #666;
+      color: var(--text-4);
       font-style: italic;
       font-size: 13px;
       padding: 1em 0;
@@ -409,6 +592,7 @@
       <div id="editor-toolbar">
         <button id="toggle-raw">Markdown →</button>
         <span id="filename-display"></span>
+        <button id="toggle-theme" title="Toggle light/dark mode">☀</button>
       </div>
       <div id="editor-wrapper">
         <div id="editor-tiptap"></div>
