@@ -2,6 +2,7 @@ import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor } from './editor'
 import { createAnnotationsExtension, updateSidecar, scheduleGutterRebuild } from './annotations'
+import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 
 async function boot(): Promise<void> {
@@ -15,7 +16,7 @@ async function boot(): Promise<void> {
   updateSidecar(sidecar)
 
   const editorEl = document.getElementById('editor-tiptap')!
-  initEditor(editorEl, initialContent, [createAnnotationsExtension()])
+  initEditor(editorEl, initialContent, [createAnnotationsExtension(), createTableUIExtension()])
 
   on('md:changed', async () => {
     const content = await getFile()
