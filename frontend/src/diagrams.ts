@@ -1,7 +1,10 @@
 import type { Node } from '@tiptap/pm/model'
-import { CodeBlock } from '@tiptap/extension-code-block'
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
+import { all, createLowlight } from 'lowlight'
 import mermaid from 'mermaid'
 import plantumlEncoder from 'plantuml-encoder'
+
+const lowlight = createLowlight(all)
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark' })
 
@@ -29,7 +32,7 @@ function plantUMLUrls(source: string): { svg: string; png: string } {
   return { svg: `${plantumlBase}/svg/${enc}`, png: `${plantumlBase}/png/${enc}` }
 }
 
-export const DiagramCodeBlock = CodeBlock.extend({
+export const DiagramCodeBlock = CodeBlockLowlight.configure({ lowlight }).extend({
   addNodeView() {
     return ({ node }) => {
       const lang: string = node.attrs.language ?? ''
