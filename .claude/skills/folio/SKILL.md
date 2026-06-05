@@ -41,7 +41,7 @@ The sidecar is a JSON file at `<document>.folio` (same directory as the `.md`):
       "kind": "replace",
       "source": "agent",
       "author": "your-agent-name",
-      "context_before": "the 50–100 chars of raw markdown immediately before the target",
+      "context_before": "the 50–100 chars of plain rendered text immediately before the target",
       "target": "the exact text to act on",
       "replacement": "new text (for replace/insert kinds)",
       "comment": "optional human-readable explanation",
@@ -70,39 +70,49 @@ Always set `source` to `"agent"` and `resolved` to `false`.
 
 ## Anchoring — the most important part
 
-Folio finds your annotation in the document by searching for `context_before + target` as a single concatenated string in the raw markdown source. Getting this right is what makes annotations work.
+Folio finds your annotation by searching for `context_before + target` in the document's plain rendered text. Getting this right is what makes annotations work.
 
-### Rule 1: Use raw markdown, exactly as it appears in the file
+### Rule 1: Use plain rendered text — no markdown syntax
 
-The search runs directly on the raw markdown source text. Include all markdown syntax characters — `**`, `#`, backticks, etc. — exactly as they appear in the file.
+Write `context_before` and `target` as the text looks to a reader, not as it appears in the raw source. Strip all markdown syntax: heading markers, bold/italic delimiters, list markers, backticks.
 
 ```
-## Introduction         →  context_before: "## Introduction"   ✓
-**bold word**           →  target: "**bold word**"              ✓
-`inline code`           →  target: "`inline code`"              ✓
+## Introduction         →  context_before: "Introduction"    ✓
+**bold word**           →  target: "bold word"               ✓
+`inline code`           →  target: "inline code"             ✓
 
-## Introduction         →  context_before: "Introduction"       ✗
-**bold word**           →  target: "bold word"                  ✗
+## Introduction         →  context_before: "## Introduction" ✗
+**bold word**           →  target: "**bold word**"           ✗
+`inline code`           →  target: "`inline code`"           ✗
 ```
 
-Copy the text verbatim from the `.md` file — do not render or strip it.
+The anchoring engine strips markdown from the document before searching, so your plain-text context and target will match even if the document contains heavy formatting.
 
-### Rule 2: Block boundaries use newlines
+### Rule 2: Block boundaries are invisible — concatenate directly
 
-In the raw markdown source, paragraphs and headings are separated by `\n` (one or two). Include these newlines in `context_before` when crossing a block boundary.
-
-If your target is at the start of a new block, let `context_before` end with the newline(s) from the file:
+In the rendered (stripped) view, newlines and block markers disappear. When `context_before` ends in one block and the target starts in the next, join them with no separator:
 
 ```json
 {
-  "context_before": "ends here.\n\n",
-  "target": "Next paragraph"
+  "context_before": "End of first paragraph.Start of ",
+  "target": "second paragraph"
 }
 ```
 
+A heading followed by a bullet works the same way — just use the heading text directly as context:
+
+```json
+{
+  "context_before": "Introduction",
+  "target": "First bullet text"
+}
+```
+
+Do not add `\n`, `\n\n`, or block markers at the boundary.
+
 ### Rule 3: Use enough context
 
-`context_before` should be approximately 50–100 characters of raw markdown immediately preceding the target. Short context risks false matches if the same phrase appears elsewhere in the document. Longer is safer.
+`context_before` should be approximately 50–100 characters of plain text immediately preceding the target. Short context risks false matches if the same phrase appears elsewhere in the document. Longer is safer.
 
 ---
 
@@ -120,6 +130,9 @@ Generate IDs by combining random characters from `a-z0-9`. Check existing annota
 After writing the sidecar, you can verify with the `folio` CLI:
 
 ```bash
+# Create an empty sidecar (if one doesn't exist yet)
+folio init <file.md>
+
 # Check sidecar is valid JSON and schema is correct
 folio check <file.md>
 
@@ -128,9 +141,15 @@ folio review <file.md> [--kind replace] [--source agent] [--json]
 
 # Preview what accept would do without changing files
 folio accept <file.md> --all --source agent --dry-run
+
+# Accept and apply annotations (writes changes to the .md file)
+folio accept <file.md> --all --source agent
+
+# Reject annotations without applying them
+folio reject <file.md> --all --source agent
 ```
 
-If `folio check` fails, your sidecar JSON is malformed. If `folio accept --dry-run` shows unexpected byte offsets, your `context_before` or `target` likely contains markdown syntax or is missing text across a block boundary.
+If `folio check` fails, your sidecar JSON is malformed. If `folio accept --dry-run` shows unexpected byte offsets, your `context_before` or `target` likely contains markdown syntax — strip it and use plain text.
 
 ---
 
@@ -157,11 +176,14 @@ If the server was started with `--token <secret>`, add `-H "Authorization: Beare
 
 ## Common mistakes
 
-**Stripping markdown from `context_before` or `target`**
-The anchoring search runs on raw markdown source. `**word**` in the sidecar must exactly match `**word**` in the file. Do not strip `**`, `#`, backticks, or other markdown syntax.
+**Including markdown syntax in `context_before` or `target`**
+The anchoring engine works on plain rendered text. If you write `"**word**"` in `target` but the rendered text is just `"word"`, the annotation will fail to anchor. Always strip `**`, `#`, backticks, list markers, and other markdown syntax.
 
-**Missing newlines at block boundaries**
-The most common cause of failed anchors. If your target is at the start of a paragraph or heading, `context_before` must include the `\n` (or `\n\n`) that precedes it in the file. Test with `folio accept --dry-run` if you're unsure.
+**Adding newlines at block boundaries**
+The stripped view has no newlines between blocks — they are concatenated directly. Writing `"context_before": "heading text\n\n"` will not match. Use `"heading text"` (or `"heading textFirst word of next block"` if you need to bridge the gap).
+
+**Using pipe characters for table cell context**
+Markdown table pipes (`|`) are document structure in ProseMirror — they never appear as text. Writing `"context_before": "| Mousiness | Fault | "` will never anchor in the editor. For table cells, use the rendered text of the preceding cell(s) concatenated with no separator: `"context_before": "Lactic bacteria producing "` to target text within the same cell, or `"context_before": "MousinessFault"` to cross a cell boundary.
 
 **Short `context_before` on repeated phrases**
 If "the" appears 50 times in the document, `context_before: "the"` will anchor to the first one. Use a long, unique slice of text.
