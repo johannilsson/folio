@@ -308,6 +308,13 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
 
     card.appendChild(makeHeader(ann))
     card.appendChild(body)
+
+    if (ann.comment) {
+      const commentEl = document.createElement('div')
+      commentEl.className = 'ann-card-comment'
+      commentEl.textContent = ann.comment
+      card.appendChild(commentEl)
+    }
   }
 
   card.addEventListener('mousedown', e => {
