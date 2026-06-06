@@ -47,6 +47,9 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let file = file.canonicalize().unwrap_or(file);
     let folio_path = super::folio_path(&file);
+    if let Some(parent) = folio_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
     let lock = lock_path(&file);
     let doc_name = file.file_name().unwrap().to_string_lossy().to_string();
 

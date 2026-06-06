@@ -116,6 +116,11 @@ async fn get_folio(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn put_folio(State(state): State<AppState>, body: String) -> impl IntoResponse {
+    if let Some(parent) = state.folio_path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    }
     match tokio::fs::write(&state.folio_path, &body).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
