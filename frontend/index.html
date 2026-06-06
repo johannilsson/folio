@@ -509,9 +509,15 @@
 
     .ann-card-actions {
       display: none;
-      gap: 5px;
+      flex-direction: column;
+      gap: 6px;
     }
     .ann-card-focused .ann-card-actions { display: flex; }
+
+    .ann-card-action-row {
+      display: flex;
+      gap: 5px;
+    }
 
     .ann-card-btn {
       font-size: 11px;
@@ -564,6 +570,74 @@
       border-top: 1px solid var(--border);
       padding-top: 5px;
     }
+
+    /* ── Reply thread ── */
+
+    .ann-card-replies {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      margin-top: 2px;
+    }
+
+    .ann-reply {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .ann-reply-header {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .ann-reply-author {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--card-author);
+    }
+
+    .ann-reply-time {
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    .ann-reply-body {
+      font-size: 12px;
+      color: var(--card-body);
+      line-height: 1.55;
+      word-break: break-word;
+      white-space: pre-wrap;
+      padding-left: 2px;
+    }
+
+    .ann-card-reply {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-3);
+      font-weight: 500;
+    }
+    .ann-card-reply:hover { background: var(--cancel-bg-h); color: var(--text-2); }
+
+    .ann-reply-textarea {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 5px 7px;
+      resize: none;
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .ann-reply-textarea:focus { border-color: rgba(99, 102, 241, 0.5); }
 
     /* ── Overlays (action + comment pill) ── */
 
@@ -621,47 +695,23 @@
     }
     .cf-gutter-form[hidden] { display: none; }
 
-    .cf-textarea {
-      background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
-      line-height: 1.5;
-      padding: 6px 8px;
-      resize: none;
-      outline: none;
-      width: 100%;
-    }
-    .cf-textarea:focus { border-color: rgba(99, 102, 241, 0.5); }
-
-    .cf-actions { display: flex; gap: 5px; justify-content: flex-end; }
-
-    .cf-submit {
+    .cf-title {
       font-size: 11px;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 4px;
-      border: none;
-      cursor: pointer;
-      background: #4f46e5;
-      color: #fff;
-      font-family: inherit;
+      font-weight: 700;
+      color: var(--card-author);
     }
-    .cf-submit:hover { background: #4338ca; }
 
     .cf-cancel {
       font-size: 11px;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 4px;
-      border: 1px solid var(--border);
+      border: none;
       background: transparent;
       color: var(--text-3);
       cursor: pointer;
       font-family: inherit;
     }
-    .cf-cancel:hover { background: var(--cancel-bg-h); }
+    .cf-cancel:hover { color: var(--text-2); }
 
     .ann-card-focused {
       border-color: var(--card-focused);

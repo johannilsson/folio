@@ -45,6 +45,15 @@ impl std::fmt::Display for AnnotationKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadReply {
+    pub id: String,
+    pub author: String,
+    pub source: AnnotationSource,
+    pub body: String,
+    pub created: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,
     pub kind: AnnotationKind,
@@ -63,6 +72,8 @@ pub struct Annotation {
     pub resolved_as: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replies: Vec<ThreadReply>,
 }
 
 impl Annotation {
@@ -454,6 +465,7 @@ mod tests {
             resolved: false,
             resolved_as: None,
             resolved_at: None,
+            replies: vec![],
         }
     }
 
@@ -592,5 +604,40 @@ mod tests {
             ann("End of first.Start of ", Some("second.")).anchor(doc),
             Some((24, 31))
         );
+    }
+
+    // ── ThreadReply serialization ─────────────────────────────────────────────
+
+    #[test]
+    fn reply_round_trip() {
+        let mut a = ann("Hello ", Some("world"));
+        a.replies.push(ThreadReply {
+            id: "reply-1".into(),
+            author: "me".into(),
+            source: AnnotationSource::Local,
+            body: "Looks good".into(),
+            created: "2026-06-01T00:00:00Z".into(),
+        });
+        let json = serde_json::to_string(&a).unwrap();
+        let decoded: Annotation = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.replies.len(), 1);
+        assert_eq!(decoded.replies[0].body, "Looks good");
+    }
+
+    #[test]
+    fn reply_backward_compat_missing_key() {
+        let json = r#"{
+            "id":"t","kind":"comment","source":"agent","author":"a",
+            "context_before":"x","created":"2026-01-01T00:00:00Z","resolved":false
+        }"#;
+        let a: Annotation = serde_json::from_str(json).unwrap();
+        assert!(a.replies.is_empty());
+    }
+
+    #[test]
+    fn empty_replies_omitted_from_json() {
+        let a = ann("Hello ", Some("world"));
+        let json = serde_json::to_string(&a).unwrap();
+        assert!(!json.contains("replies"));
     }
 }

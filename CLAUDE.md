@@ -71,6 +71,8 @@ Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<file>.folio`.
 | `highlight` | Amber background | Accept / Reject |
 | `comment` | Yellow background + yellow bottom border | Dismiss |
 
+Each annotation optionally carries a `replies: ThreadReply[]` array (empty = omitted from JSON). Replies have `id`, `author`, `source`, `body`, `created`. The local user posts replies with `source: local`, `author: me`.
+
 ### Anchoring
 
 `findAnchor` concatenates text nodes with **no separator** (block boundaries are invisible). When creating annotations from user selections, always use `doc.textBetween(from, to, '')` with an empty separator to match this flat model — never `'\n'`.

@@ -5,7 +5,7 @@ import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
-import type { Annotation, Sidecar } from './api'
+import type { Annotation, Sidecar, ThreadReply } from './api'
 import { putFolio } from './api'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
@@ -21,9 +21,14 @@ let annotationUndoStack: (Annotation[] | null)[] = []
 let annotationRedoStack: (Annotation[] | null)[] = []
 let pendingAnnotationSnapshot: Annotation[] | null = null
 
+// ─── Reply draft state ───────────────────────────────────────────────────────
+
+const replyDrafts = new Map<string, string>()
+
 // ─── Focus state ─────────────────────────────────────────────────────────────
 
 let focusedAnnotationId: string | null = null
+let shouldFocusReply = false
 let currentGutterEl: HTMLElement | null = null
 let focusChangeCallback: (() => void) | null = null
 let rebuildFn: (() => void) | null = null
@@ -47,6 +52,7 @@ export function updateSidecar(sidecar: Sidecar): void {
   annotationUndoStack = []
   annotationRedoStack = []
   pendingAnnotationSnapshot = null
+  replyDrafts.clear()
 }
 
 export function getSidecar(): Sidecar {
@@ -276,37 +282,23 @@ function makeHeader(ann: Annotation): HTMLElement {
   return header
 }
 
-function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
+function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement): HTMLElement {
   const card = document.createElement('div')
   card.className = 'ann-card'
   card.dataset.source = ann.source
   card.dataset.id = ann.id
 
+  card.appendChild(makeHeader(ann))
+
   if (ann.kind === 'comment') {
     const body = document.createElement('div')
     body.className = 'ann-card-body'
     body.textContent = ann.comment ?? ''
-
-    const actions = document.createElement('div')
-    actions.className = 'ann-card-actions'
-    const dismiss = document.createElement('button')
-    dismiss.className = 'ann-card-btn ann-card-dismiss'
-    dismiss.textContent = 'Resolve'
-    dismiss.addEventListener('mousedown', e => {
-      e.preventDefault()
-      resolveAnnotation(ann, 'dismissed', editor)
-    })
-    actions.appendChild(dismiss)
-
-    card.appendChild(makeHeader(ann))
     card.appendChild(body)
-    card.appendChild(actions)
   } else {
     const body = document.createElement('div')
     body.className = 'ann-card-body'
     body.textContent = formatBody(ann)
-
-    card.appendChild(makeHeader(ann))
     card.appendChild(body)
 
     if (ann.comment) {
@@ -317,11 +309,110 @@ function makeGutterCard(ann: Annotation, editor: Editor): HTMLElement {
     }
   }
 
+  if ((ann.replies ?? []).length > 0) {
+    const repliesSection = document.createElement('div')
+    repliesSection.className = 'ann-card-replies'
+    for (const reply of ann.replies!) {
+      const replyEl = document.createElement('div')
+      replyEl.className = 'ann-reply'
+      const replyHeader = document.createElement('div')
+      replyHeader.className = 'ann-reply-header'
+      const replyAuthor = document.createElement('strong')
+      replyAuthor.className = 'ann-reply-author'
+      replyAuthor.textContent = reply.author
+      const replyTime = document.createElement('span')
+      replyTime.className = 'ann-reply-time'
+      replyTime.textContent = formatTime(reply.created)
+      replyHeader.appendChild(replyAuthor)
+      replyHeader.appendChild(replyTime)
+      const replyBody = document.createElement('div')
+      replyBody.className = 'ann-reply-body'
+      replyBody.textContent = reply.body
+      replyEl.appendChild(replyHeader)
+      replyEl.appendChild(replyBody)
+      repliesSection.appendChild(replyEl)
+    }
+    card.appendChild(repliesSection)
+  }
+
+  // ── Actions: textarea + buttons (shown when focused) ──
+  const actions = document.createElement('div')
+  actions.className = 'ann-card-actions'
+
+  const textarea = document.createElement('textarea')
+  textarea.className = 'ann-reply-textarea'
+  textarea.placeholder = 'Reply…'
+  textarea.rows = 1
+  textarea.value = replyDrafts.get(ann.id) ?? ''
+  if (textarea.value) {
+    // restore height for non-empty drafts after rebuild
+    requestAnimationFrame(() => {
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+      repositionCards(gutterEl)
+    })
+  }
+  textarea.addEventListener('input', () => {
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+    replyDrafts.set(ann.id, textarea.value)
+    repositionCards(gutterEl)
+  })
+  actions.appendChild(textarea)
+
+  const btnRow = document.createElement('div')
+  btnRow.className = 'ann-card-action-row'
+
+  const replyBtn = document.createElement('button')
+  replyBtn.className = 'ann-card-btn ann-card-reply'
+  replyBtn.textContent = 'Reply'
+  replyBtn.addEventListener('mousedown', e => {
+    e.preventDefault()
+    const body = textarea.value.trim()
+    if (!body) return
+    const reply: ThreadReply = {
+      id: `reply-${Date.now()}`,
+      author: 'me',
+      source: 'local',
+      body,
+      created: new Date().toISOString(),
+    }
+    const updated: Sidecar = {
+      ...currentSidecar,
+      annotations: currentSidecar.annotations.map(a =>
+        a.id === ann.id ? { ...a, replies: [...(a.replies ?? []), reply] } : a,
+      ),
+    }
+    replyDrafts.delete(ann.id)
+    currentSidecar = updated
+    putFolio(updated)
+    sidecarUpdateCb?.()
+    editor.view.dispatch(editor.state.tr)
+  })
+  btnRow.appendChild(replyBtn)
+
+  if (ann.kind === 'comment') {
+    const dismiss = document.createElement('button')
+    dismiss.className = 'ann-card-btn ann-card-dismiss'
+    dismiss.textContent = 'Resolve'
+    dismiss.addEventListener('mousedown', e => {
+      e.preventDefault()
+      resolveAnnotation(ann, 'dismissed', editor)
+    })
+    btnRow.appendChild(dismiss)
+  }
+
+  actions.appendChild(btnRow)
+
+  card.appendChild(actions)
+
   card.addEventListener('mousedown', e => {
     if ((e.target as HTMLElement).closest('.ann-card-actions')) return
     e.preventDefault()
     focusedAnnotationId = ann.id
+    shouldFocusReply = true
     updateFocusedCard()
+    textarea.focus()
   })
 
   return card
@@ -378,7 +469,7 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
   entries.sort((a, b) => a.from - b.from)
 
   for (const { ann, top, from } of entries) {
-    const card = makeGutterCard(ann, editor)
+    const card = makeGutterCard(ann, editor, gutterEl)
     card.dataset.anchorTop = String(top)
     card.dataset.anchorFrom = String(from)
     card.style.top = `${top}px`
@@ -387,6 +478,14 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
 
   repositionCards(gutterEl)
   updateFocusedCard()
+
+  if (shouldFocusReply && focusedAnnotationId) {
+    shouldFocusReply = false
+    gutterEl
+      .querySelector<HTMLElement>(`[data-id="${focusedAnnotationId}"]`)
+      ?.querySelector<HTMLTextAreaElement>('.ann-reply-textarea')
+      ?.focus()
+  }
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -504,15 +603,25 @@ export function createAnnotationsExtension(): Extension {
             cfGutterForm.hidden = true
             gutterEl.appendChild(cfGutterForm)
 
+            const cfTitle = document.createElement('div')
+            cfTitle.className = 'cf-title'
+            cfTitle.textContent = 'New comment'
+            cfGutterForm.appendChild(cfTitle)
+
             const cfTextarea = document.createElement('textarea')
-            cfTextarea.className = 'cf-textarea'
+            cfTextarea.className = 'ann-reply-textarea'
             cfTextarea.placeholder = 'Add a comment…'
-            cfTextarea.rows = 3
+            cfTextarea.rows = 1
+            cfTextarea.addEventListener('input', () => {
+              cfTextarea.style.height = 'auto'
+              cfTextarea.style.height = `${cfTextarea.scrollHeight}px`
+              repositionCards(gutterEl)
+            })
 
             const cfActions = document.createElement('div')
-            cfActions.className = 'cf-actions'
+            cfActions.className = 'ann-card-action-row'
             const cfSubmit = document.createElement('button')
-            cfSubmit.className = 'cf-submit'
+            cfSubmit.className = 'ann-card-btn ann-card-reply'
             cfSubmit.textContent = 'Add'
             const cfCancel = document.createElement('button')
             cfCancel.className = 'cf-cancel'
@@ -528,6 +637,7 @@ export function createAnnotationsExtension(): Extension {
               floater.hidden = true
               cfGutterForm.hidden = true
               cfTextarea.value = ''
+              cfTextarea.style.height = ''
               savedSelection = null
               pendingCommentRange = null
               const { from } = pmView.state.selection

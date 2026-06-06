@@ -52,7 +52,16 @@ Every annotation, regardless of kind or source, shares a common envelope:
   "replacement":    "all gateway replicas and survive restarts",
   "comment":        "The original omitted restart durability, which is a key property.",
   "created":        "2026-05-29T10:00:00Z",
-  "resolved":       false
+  "resolved":       false,
+  "replies": [
+    {
+      "id":      "reply-1748908800000",
+      "author":  "me",
+      "source":  "local",
+      "body":    "Good catch — I'll check with the infra team first.",
+      "created": "2026-06-01T08:00:00Z"
+    }
+  ]
 }
 ```
 
@@ -72,6 +81,33 @@ Every annotation, regardless of kind or source, shares a common envelope:
 | `resolved`       | boolean | yes      | `false` while pending. `true` once accepted, rejected, or dismissed. |
 | `resolved_as`    | string  | no       | Set on resolution. One of `accepted`, `rejected`, `resolved`, `dismissed`. |
 | `resolved_at`    | string  | no       | ISO 8601 timestamp set on resolution. |
+| `replies`        | array   | no       | Ordered list of `ThreadReply` objects. Omitted from JSON when empty. |
+
+---
+
+## ThreadReply Object
+
+Each annotation can accumulate follow-up discussion in its `replies` array. A reply is not an annotation — it has no anchoring, kind, or resolution state. It is purely a message attached to an existing annotation.
+
+```json
+{
+  "id":      "reply-1748908800000",
+  "author":  "me",
+  "source":  "local",
+  "body":    "Good catch — I'll check with the infra team first.",
+  "created": "2026-06-01T08:00:00Z"
+}
+```
+
+| Field     | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `id`      | string | yes      | Unique identifier. Use a `reply-` prefix followed by a timestamp or random string. |
+| `author`  | string | yes      | Display name. `"me"` for replies written by the local user. |
+| `source`  | string | yes      | Origin: `local`, `agent`, `github`, or `gitlab`. |
+| `body`    | string | yes      | The reply text. |
+| `created` | string | yes      | ISO 8601 timestamp. |
+
+Replies are displayed in order below the annotation card body. The local user can add replies via the in-card reply form; agents can pre-populate `replies` when writing an annotation.
 
 ---
 
@@ -227,6 +263,8 @@ Minimal agent payload:
 
 The agent must not modify `resolved`, `resolved_as`, or `resolved_at` on existing entries.
 
+Agents may include a `replies` array when writing a new annotation to pre-populate the thread, or omit it entirely (the field defaults to empty).
+
 ---
 
 ## External Source Import (Future)
@@ -239,6 +277,8 @@ GitHub PR and GitLab MR comments will be imported as sidecar annotations by a se
 - Setting `author` to the reviewer's username
 
 Folio treats imported annotations identically to agent annotations for rendering purposes, distinguished only by the `source` field.
+
+PR review comment threads map naturally to `replies`: the top-level review comment becomes the annotation `comment` field, and subsequent replies in the thread map to `ThreadReply` objects with `source: "github"` or `source: "gitlab"`.
 
 ---
 

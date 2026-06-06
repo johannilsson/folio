@@ -20,6 +20,14 @@ export const putFolio = (sidecar: Sidecar): Promise<Response> =>
 export const getKrokiUrl = (): Promise<string> =>
   fetch('/api/kroki-url').then(r => r.json()).then(d => d.url)
 
+export interface ThreadReply {
+  id: string
+  author: string
+  source: 'local' | 'agent' | 'github' | 'gitlab'
+  body: string
+  created: string
+}
+
 export interface Annotation {
   id: string
   kind: 'replace' | 'delete' | 'insert' | 'comment' | 'highlight'
@@ -33,6 +41,7 @@ export interface Annotation {
   resolved: boolean
   resolved_as?: string | null
   resolved_at?: string | null
+  replies?: ThreadReply[]
 }
 
 export interface Sidecar {
