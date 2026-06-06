@@ -171,6 +171,42 @@ function applyAccept(ann: Annotation, editor: Editor): void {
   resolveAnnotation(ann, 'accepted', editor)
 }
 
+// ─── Annotation keyboard navigation ─────────────────────────────────────────
+
+function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
+  const pending = currentSidecar.annotations.filter(a => !a.resolved)
+  if (pending.length === 0) return false
+
+  const sorted: Array<{ ann: Annotation; from: number }> = []
+  for (const ann of pending) {
+    const anchor = findAnchor(view.state.doc, ann.context_before, ann.target)
+    if (anchor) sorted.push({ ann, from: anchor.from })
+  }
+  sorted.sort((a, b) => a.from - b.from)
+  if (sorted.length === 0) return false
+
+  const currentIdx = sorted.findIndex(e => e.ann.id === focusedAnnotationId)
+  const nextIdx =
+    currentIdx === -1
+      ? direction === 1 ? 0 : sorted.length - 1
+      : (currentIdx + direction + sorted.length) % sorted.length
+
+  const { ann, from } = sorted[nextIdx]
+  focusedAnnotationId = ann.id
+  updateFocusedCard()
+
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from)))
+  view.focus()
+
+  requestAnimationFrame(() => {
+    currentGutterEl
+      ?.querySelector<HTMLElement>(`[data-id="${ann.id}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+
+  return true
+}
+
 // ─── Inline decorations ───────────────────────────────────────────────────────
 
 function buildDecorations(doc: PMNode): DecorationSet {
@@ -506,6 +542,21 @@ export function createAnnotationsExtension(): Extension {
           props: {
             decorations(state) {
               return buildDecorations(state.doc)
+            },
+            handleKeyDown(view, event) {
+              if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+                if (event.key === 'j') return navigateAnnotation(1, view)
+                if (event.key === 'k') return navigateAnnotation(-1, view)
+                if (event.key === 'Enter' && focusedAnnotationId) {
+                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
+                  if (ann) { applyAccept(ann, editor); return true }
+                }
+                if (event.key === 'Backspace' && focusedAnnotationId) {
+                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
+                  if (ann) { resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor); return true }
+                }
+              }
+              return false
             },
             handleClick(view, pos) {
               const pending = currentSidecar.annotations.filter(a => !a.resolved)
