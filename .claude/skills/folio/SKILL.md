@@ -22,9 +22,11 @@ Folio is a local markdown editor with an AI annotation system. Your job as an ag
 ## Workflow
 
 1. Read the `.md` file and understand the content
-2. Read `<file>.folio` — if it doesn't exist, start with `{"version": 1, "annotations": []}`
-3. Build your annotation objects and append them to the `annotations` array
-4. Write the full updated sidecar back to `<file>.folio`
+2. Run `folio render <file.md>` to see the exact plain text the anchoring engine uses — derive all `context_before` and `target` values from this output, not from the raw markdown source
+3. Read `<file>.folio` — if it doesn't exist, start with `{"version": 1, "annotations": []}`
+4. Build your annotation objects and append them to the `annotations` array
+5. Write the full updated sidecar back to `<file>.folio`
+6. Run `folio accept <file.md> --all --source agent --dry-run` to verify every annotation anchors. If any fail, re-check the `folio render` output and fix the offending `context_before`/`target` values before finishing.
 
 ---
 
@@ -127,9 +129,13 @@ Generate IDs by combining random characters from `a-z0-9`. Check existing annota
 
 ## Verification (CLI)
 
-After writing the sidecar, you can verify with the `folio` CLI:
+After writing the sidecar, verify with the `folio` CLI:
 
 ```bash
+# Show the exact plain-text view the anchoring engine uses
+# Use this BEFORE writing annotations to derive correct context_before/target values
+folio render <file.md>
+
 # Create an empty sidecar (if one doesn't exist yet)
 folio init <file.md>
 
@@ -149,7 +155,7 @@ folio accept <file.md> --all --source agent
 folio reject <file.md> --all --source agent
 ```
 
-If `folio check` fails, your sidecar JSON is malformed. If `folio accept --dry-run` shows unexpected byte offsets, your `context_before` or `target` likely contains markdown syntax — strip it and use plain text.
+If `folio check` fails, your sidecar JSON is malformed. If `folio accept --dry-run` reports that an annotation failed to anchor, run `folio render <file.md>` and compare its output against your `context_before`/`target` — the rendered text is the ground truth.
 
 ---
 
