@@ -146,7 +146,12 @@ impl Annotation {
                 if let Some((match_ci, space)) = found {
                     let from_ci = match_ci + ctx_chars + space;
                     let to_ci = from_ci + tgt_chars;
-                    return Some((pos_map[from_ci], raw_end_from(to_ci)));
+                    let raw_start = if from_ci < pos_map.len() {
+                        pos_map[from_ci]
+                    } else {
+                        raw_end_from(from_ci)
+                    };
+                    return Some((raw_start, raw_end_from(to_ci)));
                 }
 
                 // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
@@ -196,13 +201,17 @@ impl Annotation {
 /// Block boundaries (newlines) are dropped; text is concatenated with no separator,
 /// matching the frontend's ProseMirror `findAnchor` behaviour.
 fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
+    strip_markdown_impl(doc, true)
+}
+
+fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) {
     let mut stripped = String::new();
     let mut pos_map: Vec<usize> = Vec::new();
 
     let chars: Vec<(usize, char)> = doc.char_indices().collect();
     let n = chars.len();
     let mut i = 0;
-    let mut at_line_start = true;
+    let mut at_line_start = at_block_start;
 
     while i < n {
         let (bp, ch) = chars[i];
@@ -327,7 +336,7 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                             let inner_byte_start = chars[content_start].0;
                             let inner_byte_end = chars[cs].0;
                             let (inner_stripped, inner_pos_map) =
-                                strip_markdown(&doc[inner_byte_start..inner_byte_end]);
+                                strip_markdown_impl(&doc[inner_byte_start..inner_byte_end], false);
                             stripped.push_str(&inner_stripped);
                             for offset in inner_pos_map {
                                 pos_map.push(inner_byte_start + offset);
@@ -370,7 +379,7 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                     let inner_byte_start = chars[content_start].0;
                     let inner_byte_end = chars[j].0;
                     let (inner_stripped, inner_pos_map) =
-                        strip_markdown(&doc[inner_byte_start..inner_byte_end]);
+                        strip_markdown_impl(&doc[inner_byte_start..inner_byte_end], false);
                     stripped.push_str(&inner_stripped);
                     for offset in inner_pos_map {
                         pos_map.push(inner_byte_start + offset);
@@ -730,6 +739,25 @@ mod tests {
         assert!(result.is_some(), "should anchor nested bold target");
         let (start, end) = result.unwrap();
         assert_eq!(&doc[start..end], "documented instructions");
+    }
+
+    #[test]
+    fn strip_list_marker_inside_inline_span() {
+        // Recursive strip_markdown_impl must start with at_line_start=false so that
+        // "- " at the start of span content is NOT stripped as a list marker.
+        let (s, _) = strip_markdown("*- list item*");
+        assert_eq!(s, "- list item");
+    }
+
+    #[test]
+    fn anchor_empty_target_at_doc_end_no_panic() {
+        // When target="" and context_before ends at the document end,
+        // from_ci == pos_map.len() — must not panic.
+        let doc = "hello";
+        let result = ann("hello", Some("")).anchor(doc);
+        assert!(result.is_some());
+        let (start, end) = result.unwrap();
+        assert_eq!(start, end); // insertion point at end of doc
     }
 
     #[test]

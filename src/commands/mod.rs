@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 
 fn sidecar_relative(file: &Path) -> PathBuf {
     let cwd = std::env::current_dir().expect("cannot read cwd");
+    let canonical_cwd = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
     let canonical = file
         .canonicalize()
         .unwrap_or_else(|_| if file.is_absolute() { file.to_path_buf() } else { cwd.join(file) });
     canonical
-        .strip_prefix(&cwd)
+        .strip_prefix(&canonical_cwd)
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|_| canonical.strip_prefix("/").unwrap_or(&canonical).to_path_buf())
 }
