@@ -102,10 +102,18 @@ export function findAnchor(
 
   if (fromIdx > charPos.length) return null
 
+  // For annotations with a target: from = position of first target char.
+  // For insert/comment (no target): position just after the last char of context_before,
+  // which keeps the anchor within the same block at block boundaries instead of
+  // jumping to charPos[fromIdx] (the first char of the next block).
   const from =
-    fromIdx < charPos.length
-      ? charPos[fromIdx]
-      : charPos[charPos.length - 1] + 1
+    toIdx > fromIdx
+      ? fromIdx < charPos.length
+        ? charPos[fromIdx]
+        : charPos[charPos.length - 1] + 1
+      : fromIdx > 0
+        ? charPos[fromIdx - 1] + 1
+        : charPos.length > 0 ? charPos[0] : 0
   const to =
     toIdx > fromIdx
       ? toIdx - 1 < charPos.length

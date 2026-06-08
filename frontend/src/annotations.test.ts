@@ -125,16 +125,35 @@ describe('findAnchor', () => {
       expect(result!.from).toBeGreaterThanOrEqual(11)
     })
 
-    it('handles an insert annotation (no target) at the start of the first bullet', () => {
-      // context_before = "Header" → insertion point must be inside the bullet (pos 11), not the heading.
+    it('insert/comment anchors just after context_before, staying in the same block', () => {
+      // context_before = "Header" → from = charPos[5]+1 = 7 (end of heading block),
+      // not charPos[6] = 11 (start of the next block). Consistent with how `to` is
+      // computed for annotated targets.
       const doc = mockDoc([
         { text: 'Header', pos: 1 },
         { text: 'First bullet text', pos: 11 },
       ])
       const result = findAnchor(doc as any, 'Header', null)
       expect(result).not.toBeNull()
-      expect(result!.from).toBe(11)
-      expect(result!.to).toBe(11)
+      expect(result!.from).toBe(7)
+      expect(result!.to).toBe(7)
+    })
+
+    it('insert/comment at a paragraph-to-table boundary stays in the paragraph', () => {
+      // Simulates "...several months.\n\n| Style |..." where "Style" is a table header.
+      // Old behaviour: from = charPos[n] = tableStart (inside table header) — wrong block.
+      // Fix:           from = charPos[n-1]+1 — stays inside the paragraph.
+      const paraText = 'can macerate for anywhere from a few days to several months.'
+      const tableStart = 1 + paraText.length + 5 // simulate table gap of 5 positions
+      const doc = mockDoc([
+        { text: paraText, pos: 1 },
+        { text: 'Style', pos: tableStart },
+      ])
+      const result = findAnchor(doc as any, paraText, null)
+      expect(result).not.toBeNull()
+      expect(result!.from).toBe(paraText.length + 1) // charPos[last para char] + 1
+      expect(result!.to).toBe(result!.from)
+      expect(result!.from).not.toBe(tableStart) // must not land in the table
     })
   })
 
