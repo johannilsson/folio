@@ -445,6 +445,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     dismiss.textContent = 'Resolve'
     dismiss.addEventListener('mousedown', e => {
       e.preventDefault()
+      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
       resolveAnnotation(ann, 'dismissed', editor)
     })
     btnRow.appendChild(dismiss)
@@ -641,7 +642,10 @@ export function createAnnotationsExtension(): Extension {
             afReject.addEventListener('mousedown', e => {
               e.preventDefault()
               const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId)
-              if (ann) resolveAnnotation(ann, 'rejected', editor)
+              if (ann) {
+                annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
+                resolveAnnotation(ann, 'rejected', editor)
+              }
             })
 
             actionFloater.appendChild(afAccept)
