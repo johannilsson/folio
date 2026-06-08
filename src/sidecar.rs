@@ -135,19 +135,48 @@ impl Annotation {
             Some(target) => {
                 let tgt = target.to_lowercase();
                 let tgt_chars = target.chars().count();
+
+                // Pass 3: exact search in stripped text
                 let exact = format!("{}{}", ctx, tgt);
                 let found = stripped_lower.find(&exact).map(|b| (byte_to_char(b), 0usize))
                     .or_else(|| {
                         let spaced = format!("{} {}", ctx, tgt);
                         stripped_lower.find(&spaced).map(|b| (byte_to_char(b), 1usize))
                     });
-                found.map(|(match_ci, space)| {
+                if let Some((match_ci, space)) = found {
                     let from_ci = match_ci + ctx_chars + space;
                     let to_ci = from_ci + tgt_chars;
-                    let raw_start = pos_map[from_ci];
-                    let raw_end = raw_end_from(to_ci);
-                    (raw_start, raw_end)
-                })
+                    return Some((pos_map[from_ci], raw_end_from(to_ci)));
+                }
+
+                // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
+                // then search again with a warning when this fallback is used.
+                let norm_ctx = normalize_for_fuzzy(&ctx);
+                let norm_tgt = normalize_for_fuzzy(&tgt);
+                let norm_ctx_chars = norm_ctx.chars().count();
+                let norm_tgt_chars = norm_tgt.chars().count();
+                let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
+                let norm_search = format!("{}{}", norm_ctx, norm_tgt);
+                if let Some(norm_byte) = norm_stripped.find(&norm_search) {
+                    let norm_from = norm_stripped[..norm_byte].chars().count() + norm_ctx_chars;
+                    let norm_to = norm_from + norm_tgt_chars;
+                    if let Some(&stripped_from) = norm_map.get(norm_from) {
+                        if stripped_from < pos_map.len() {
+                            let stripped_to = norm_map
+                                .get(norm_to)
+                                .copied()
+                                .unwrap_or_else(|| stripped.chars().count());
+                            let raw_start = pos_map[stripped_from];
+                            let raw_end = raw_end_from(stripped_to);
+                            eprintln!(
+                                "warning: strict anchor failed, matched via normalization at offset {}",
+                                raw_start
+                            );
+                            return Some((raw_start, raw_end));
+                        }
+                    }
+                }
+                None
             }
             None => {
                 stripped_lower.find(&ctx).map(|b| {
@@ -295,9 +324,13 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
                             j += 1;
                         }
                         if cl == mlen {
-                            for &(bp, ch) in &chars[content_start..cs] {
-                                stripped.push(ch);
-                                pos_map.push(bp);
+                            let inner_byte_start = chars[content_start].0;
+                            let inner_byte_end = chars[cs].0;
+                            let (inner_stripped, inner_pos_map) =
+                                strip_markdown(&doc[inner_byte_start..inner_byte_end]);
+                            stripped.push_str(&inner_stripped);
+                            for offset in inner_pos_map {
+                                pos_map.push(inner_byte_start + offset);
                             }
                             i = j;
                             closed = true;
@@ -334,9 +367,13 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
             let mut closed = false;
             while j + 1 < n && chars[j].1 != '\n' {
                 if chars[j].1 == '~' && chars[j + 1].1 == '~' {
-                    for &(bp, ch) in &chars[content_start..j] {
-                        stripped.push(ch);
-                        pos_map.push(bp);
+                    let inner_byte_start = chars[content_start].0;
+                    let inner_byte_end = chars[j].0;
+                    let (inner_stripped, inner_pos_map) =
+                        strip_markdown(&doc[inner_byte_start..inner_byte_end]);
+                    stripped.push_str(&inner_stripped);
+                    for offset in inner_pos_map {
+                        pos_map.push(inner_byte_start + offset);
                     }
                     i = j + 2;
                     closed = true;
@@ -361,6 +398,57 @@ fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
     }
 
     (stripped, pos_map)
+}
+
+/// Returns the plain-text representation of `doc` as seen by the anchoring engine.
+pub fn render_plain_text(doc: &str) -> String {
+    strip_markdown(doc).0
+}
+
+/// Strips formatting markers and collapses whitespace runs to a single space.
+fn normalize_for_fuzzy(s: &str) -> String {
+    let mut out = String::new();
+    let mut last_space = false;
+    for ch in s.chars() {
+        if matches!(ch, '*' | '_' | '~' | '`') {
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !last_space {
+                out.push(' ');
+            }
+            last_space = true;
+        } else {
+            out.push(ch);
+            last_space = false;
+        }
+    }
+    out
+}
+
+/// Same as `normalize_for_fuzzy` but also returns a map from normalized char index
+/// to original char index, for remapping positions back after a fuzzy match.
+fn normalize_with_map(s: &str) -> (String, Vec<usize>) {
+    let mut norm = String::new();
+    let mut map: Vec<usize> = Vec::new();
+    let mut last_space = false;
+    for (ci, ch) in s.chars().enumerate() {
+        if matches!(ch, '*' | '_' | '~' | '`') {
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !last_space {
+                norm.push(' ');
+                map.push(ci);
+            }
+            last_space = true;
+        } else {
+            norm.push(ch);
+            map.push(ci);
+            last_space = false;
+        }
+    }
+    (norm, map)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,6 +612,30 @@ mod tests {
         assert_eq!(map[5], 7); // 'b' of "bold"
     }
 
+    #[test]
+    fn strip_nested_bold_inside_italic() {
+        let (s, _) = strip_markdown("*italic with **bold** inside*");
+        assert_eq!(s, "italic with bold inside");
+    }
+
+    #[test]
+    fn strip_nested_italic_inside_bold() {
+        let (s, _) = strip_markdown("**bold with _italic_ inside**");
+        assert_eq!(s, "bold with italic inside");
+    }
+
+    #[test]
+    fn strip_nested_bold_pos_map() {
+        // "*a **b** c*" — 'b' is nested inside italic+bold.
+        // Raw bytes: 0:'*', 1:'a', 2:' ', 3:'*', 4:'*', 5:'b', 6:'*', 7:'*', 8:' ', 9:'c', 10:'*'
+        // Stripped: "a b c"
+        let (s, map) = strip_markdown("*a **b** c*");
+        assert_eq!(s, "a b c");
+        assert_eq!(map[0], 1); // 'a' at raw byte 1
+        assert_eq!(map[2], 5); // 'b' at raw byte 5
+        assert_eq!(map[4], 9); // 'c' at raw byte 9
+    }
+
     // ── Annotation::anchor ────────────────────────────────────────────────────
 
     #[test]
@@ -604,6 +716,32 @@ mod tests {
             ann("End of first.Start of ", Some("second.")).anchor(doc),
             Some((24, 31))
         );
+    }
+
+    #[test]
+    fn anchor_nested_bold_inside_italic() {
+        // The reported bug: agent targets "documented instructions" but the doc has
+        // *...**documented instructions**...* — nested bold inside italic.
+        // After the fix, Pass 3 (stripped) resolves correctly.
+        let doc = "*This paragraph has **documented instructions** inside it.*";
+        // Raw bytes: 0:'*', then "This paragraph has " (1-19), then "**" (20-21),
+        // then "documented instructions" (22-44), then "**" (45-46), ...
+        let result = ann("This paragraph has ", Some("documented instructions")).anchor(doc);
+        assert!(result.is_some(), "should anchor nested bold target");
+        let (start, end) = result.unwrap();
+        assert_eq!(&doc[start..end], "documented instructions");
+    }
+
+    #[test]
+    fn anchor_fuzzy_stray_markers() {
+        // If the target contains stray markers (e.g. agent forgot to strip them),
+        // Pass 4 normalized fuzzy match finds the annotation anyway.
+        let doc = "Some important text here.";
+        // Target has stray markers that should have been stripped; fuzzy removes them.
+        let result = ann("Some ", Some("**important**")).anchor(doc);
+        assert!(result.is_some(), "fuzzy pass should match stray-marker target");
+        let (start, end) = result.unwrap();
+        assert_eq!(&doc[start..end], "important");
     }
 
     // ── ThreadReply serialization ─────────────────────────────────────────────

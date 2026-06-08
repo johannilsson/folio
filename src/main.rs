@@ -77,6 +77,10 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Print the plain-text view used by the anchoring engine
+    Render {
+        file: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -109,6 +113,7 @@ async fn main() {
         }
         Commands::Init { file } => commands::init::run(&file),
         Commands::Check { file, json } => commands::check::run(&file, json),
+        Commands::Render { file } => commands::render::run(&file),
     };
 
     if let Err(e) = result {

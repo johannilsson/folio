@@ -2,6 +2,7 @@ pub mod accept;
 pub mod check;
 pub mod init;
 pub mod reject;
+pub mod render;
 pub mod review;
 pub mod serve;
 
