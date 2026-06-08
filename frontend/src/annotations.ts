@@ -20,6 +20,7 @@ let sidecarUpdateCb: (() => void) | null = null
 let annotationUndoStack: (Annotation[] | null)[] = []
 let annotationRedoStack: (Annotation[] | null)[] = []
 let pendingAnnotationSnapshot: Annotation[] | null = null
+let annotationKeyboardUndoStack: Array<{ snapshot: Annotation[]; pmDepth: number }> = []
 
 // ─── Reply draft state ───────────────────────────────────────────────────────
 
@@ -48,10 +49,13 @@ function updateFocusedCard(): void {
 }
 
 export function updateSidecar(sidecar: Sidecar): void {
+  const isEcho = JSON.stringify(sidecar) === JSON.stringify(currentSidecar)
   currentSidecar = sidecar
+  if (isEcho) return
   annotationUndoStack = []
   annotationRedoStack = []
   pendingAnnotationSnapshot = null
+  annotationKeyboardUndoStack = []
   replyDrafts.clear()
 }
 
@@ -544,16 +548,37 @@ export function createAnnotationsExtension(): Extension {
               return buildDecorations(state.doc)
             },
             handleKeyDown(view, event) {
+              if (event.key === 'z' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+                const top = annotationKeyboardUndoStack[annotationKeyboardUndoStack.length - 1]
+                if (top && top.pmDepth === undoDepth(view.state)) {
+                  annotationKeyboardUndoStack.pop()
+                  currentSidecar = { ...currentSidecar, annotations: top.snapshot }
+                  putFolio(currentSidecar)
+                  sidecarUpdateCb?.()
+                  editor.view.dispatch(editor.state.tr)
+                  return true
+                }
+              }
               if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
                 if (event.key === 'j') return navigateAnnotation(1, view)
                 if (event.key === 'k') return navigateAnnotation(-1, view)
                 if (event.key === 'Enter' && focusedAnnotationId) {
                   const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                  if (ann) { applyAccept(ann, editor); return true }
+                  if (ann) {
+                    if (ann.kind === 'highlight' || ann.kind === 'comment') {
+                      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(view.state) })
+                    }
+                    applyAccept(ann, editor)
+                    return true
+                  }
                 }
                 if (event.key === 'Backspace' && focusedAnnotationId) {
                   const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                  if (ann) { resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor); return true }
+                  if (ann) {
+                    annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(view.state) })
+                    resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
+                    return true
+                  }
                 }
               }
               return false
