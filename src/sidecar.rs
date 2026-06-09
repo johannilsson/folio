@@ -477,8 +477,24 @@ impl Sidecar {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("cannot read {}: {}", path.display(), e))?;
-        let sidecar: Self = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("invalid sidecar JSON: {}", e))?;
+        let sidecar: Self = serde_json::from_str(&content).map_err(|e| {
+            let line = e.line();
+            let col = e.column();
+            let lines: Vec<&str> = content.lines().collect();
+            if line > 0 && line <= lines.len() {
+                let bad_line = lines[line - 1];
+                let caret = format!("{}^-- here", " ".repeat(col.saturating_sub(1)));
+                anyhow::anyhow!(
+                    "invalid sidecar JSON: {}\n\n{:>4} | {}\n       {}",
+                    e,
+                    line,
+                    bad_line,
+                    caret
+                )
+            } else {
+                anyhow::anyhow!("invalid sidecar JSON: {}", e)
+            }
+        })?;
         if sidecar.version != 1 {
             anyhow::bail!(
                 "unsupported sidecar version {} (expected 1)",

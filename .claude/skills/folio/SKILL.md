@@ -22,17 +22,25 @@ Folio is a local markdown editor with an AI annotation system. Your job as an ag
 ## Workflow
 
 1. Read the `.md` file and understand the content
-2. Run `folio render <file.md>` to see the exact plain text the anchoring engine uses — derive all `context_before` and `target` values from this output, not from the raw markdown source
-3. Read `<file>.folio` — if it doesn't exist, start with `{"version": 1, "annotations": []}`
-4. Build your annotation objects and append them to the `annotations` array
-5. Write the full updated sidecar back to `<file>.folio`
-6. Run `folio accept <file.md> --all --source agent --dry-run` to verify every annotation anchors. If any fail, re-check the `folio render` output and fix the offending `context_before`/`target` values before finishing.
+2. Run `folio check <file.md>` to confirm the sidecar path — the output shows the exact `.folio` path the tool will read and write
+3. Run `folio render <file.md>` to see the exact plain text the anchoring engine uses — derive all `context_before` and `target` values from this output, not from the raw markdown source
+4. Read the sidecar at the path shown by `folio check` — if it doesn't exist, start with `{"version": 1, "annotations": []}`
+5. Build your annotation objects and append them to the `annotations` array
+6. Write the full updated sidecar back to the same path
+7. Run `folio accept <file.md> --all --source agent --dry-run` to verify every annotation anchors. If any fail, re-check the `folio render` output and fix the offending `context_before`/`target` values before finishing.
 
 ---
 
 ## Sidecar format
 
-The sidecar is a JSON file at `<document>.folio` (same directory as the `.md`):
+The sidecar is a JSON file inside the `.folio/` directory at the project root, mirroring the `.md` file's path:
+
+```
+docs/README.md  →  .folio/docs/README.md.folio
+report.md       →  .folio/report.md.folio
+```
+
+Run `folio check <file.md>` to see the exact resolved path. Never write to an adjacent `<document>.folio` — that location is not read by any Folio command.
 
 ```json
 {
@@ -142,6 +150,11 @@ folio init <file.md>
 # Check sidecar is valid JSON and schema is correct
 folio check <file.md>
 
+# Append a single annotation without editing JSON directly
+folio annotate <file.md> --kind replace --context-before "rendered text before" --target "old text" --replacement "new text" [--comment "explanation"] [--author your-name] [--source agent]
+folio annotate <file.md> --kind comment --context-before "rendered text before" --comment "your note"
+folio annotate <file.md> --kind insert --context-before "rendered text before" --replacement "text to insert"
+
 # List pending annotations (optionally filter by kind or source)
 folio review <file.md> [--kind replace] [--source agent] [--json]
 
@@ -188,8 +201,11 @@ The anchoring engine works on plain rendered text. If you write `"**word**"` in 
 **Adding newlines at block boundaries**
 The stripped view has no newlines between blocks — they are concatenated directly. Writing `"context_before": "heading text\n\n"` will not match. Use `"heading text"` (or `"heading textFirst word of next block"` if you need to bridge the gap).
 
-**Using pipe characters for table cell context**
-Markdown table pipes (`|`) are document structure in ProseMirror — they never appear as text. Writing `"context_before": "| Mousiness | Fault | "` will never anchor in the editor. For table cells, use the rendered text of the preceding cell(s) concatenated with no separator: `"context_before": "Lactic bacteria producing "` to target text within the same cell, or `"context_before": "MousinessFault"` to cross a cell boundary.
+**Table cell context includes pipes and padding spaces**
+The CLI anchoring engine (`folio render`) preserves table pipes and the space-padding that aligns columns. Copy `context_before` and `target` exactly from `folio render` output — including the pipes and spaces — rather than guessing at clean cell text. Example: to target `"Lactic bacteria producing THP; irreversible"` in a table row, `context_before` might be `"Mousiness                         | Fault             | "`.
+
+**Unescaped backslashes in JSON string values**
+Backslashes in text (e.g., in inline code or LaTeX) must be doubled inside JSON strings: `\\` not `\`. A single unescaped backslash is invalid JSON and will make `folio check` fail. Similarly, backtick characters in markdown source (`\``) are just `` ` `` in the rendered text — write them as a literal backtick in the JSON value, not as `\``.
 
 **Short `context_before` on repeated phrases**
 If "the" appears 50 times in the document, `context_before: "the"` will anchor to the first one. Use a long, unique slice of text.

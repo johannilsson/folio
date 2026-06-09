@@ -67,6 +67,24 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Append a single annotation to the sidecar
+    Annotate {
+        file: PathBuf,
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        context_before: String,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        replacement: Option<String>,
+        #[arg(long)]
+        comment: Option<String>,
+        #[arg(long, default_value = "cli")]
+        author: String,
+        #[arg(long, default_value = "local")]
+        source: String,
+    },
     /// Create an empty sidecar
     Init {
         file: PathBuf,
@@ -110,6 +128,18 @@ async fn main() {
         }
         Commands::Reject { file, id, all, source, dry_run } => {
             commands::reject::run(&file, id.as_deref(), all, source.as_deref(), dry_run)
+        }
+        Commands::Annotate { file, kind, context_before, target, replacement, comment, author, source } => {
+            commands::annotate::run(
+                &file,
+                &kind,
+                &context_before,
+                target.as_deref(),
+                replacement.as_deref(),
+                comment.as_deref(),
+                &author,
+                &source,
+            )
         }
         Commands::Init { file } => commands::init::run(&file),
         Commands::Check { file, json } => commands::check::run(&file, json),
