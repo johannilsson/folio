@@ -1,9 +1,9 @@
 import { Extension } from '@tiptap/core'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { undoDepth, redoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import type { Node as PMNode } from '@tiptap/pm/model'
+import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
 import { putFolio } from './api'
@@ -86,19 +86,24 @@ export function findAnchor(
     }
   })
 
+  // Strip newlines from search terms: the flat text uses no separator at block
+  // boundaries, so agent-written targets with \n between paragraphs won't match
+  // unless we normalize to the same flat representation.
+  const normCtx = contextBefore.replace(/\n/g, '')
+  const normTarget = (target ?? '').replace(/\n/g, '')
   const flat = flatText.toLowerCase()
-  const search = (contextBefore + (target ?? '')).toLowerCase()
+  const search = (normCtx + normTarget).toLowerCase()
   let idx = flat.indexOf(search)
   let spaceOffset = 0
   if (idx === -1 && target) {
-    const searchSpaced = (contextBefore + ' ' + target).toLowerCase()
+    const searchSpaced = (normCtx + ' ' + normTarget).toLowerCase()
     idx = flat.indexOf(searchSpaced)
     spaceOffset = 1
   }
   if (idx === -1) return null
 
-  const fromIdx = idx + contextBefore.length + spaceOffset
-  const toIdx = fromIdx + (target?.length ?? 0)
+  const fromIdx = idx + normCtx.length + spaceOffset
+  const toIdx = fromIdx + normTarget.length
 
   if (fromIdx > charPos.length) return null
 
@@ -221,7 +226,49 @@ function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
 
 // ─── Inline decorations ───────────────────────────────────────────────────────
 
-function buildDecorations(doc: PMNode): DecorationSet {
+function renderMarkdownContent(markdown: string, editor: Editor): Node {
+  try {
+    const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
+    const json = mgr.manager.parse(markdown)
+    const pmNode = PMNode.fromJSON(editor.state.schema, json)
+    return DOMSerializer.fromSchema(editor.state.schema).serializeFragment(pmNode.content)
+  } catch {
+    const frag = document.createDocumentFragment()
+    const span = document.createElement('span')
+    span.textContent = markdown
+    frag.appendChild(span)
+    return frag
+  }
+}
+
+function resolveAfterBlock(doc: PMNode, pos: number): number {
+  const clamped = Math.min(Math.max(pos, 0), doc.content.size)
+  const $pos = doc.resolve(clamped)
+  return $pos.depth > 0 ? $pos.after(1) : clamped
+}
+
+function buildInlinePreviewEl(replacement: string, editor: Editor): HTMLElement {
+  const el = document.createElement('span')
+  el.className = 'ann-insert-preview'
+  const tempDiv = document.createElement('div')
+  tempDiv.appendChild(renderMarkdownContent(replacement, editor))
+  const p = tempDiv.querySelector('p')
+  if (p) {
+    while (p.firstChild) el.appendChild(p.firstChild)
+  } else {
+    el.textContent = replacement
+  }
+  return el
+}
+
+function buildBlockPreviewEl(replacement: string, editor: Editor): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'ann-replace-preview'
+  el.appendChild(renderMarkdownContent(replacement, editor))
+  return el
+}
+
+function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
   const decos: Decoration[] = []
 
@@ -238,13 +285,14 @@ function buildDecorations(doc: PMNode): DecorationSet {
       case 'replace':
         decos.push(Decoration.inline(from, to, { class: 'ann-delete' }))
         if (ann.replacement) {
+          const replIsBlock = ann.replacement.includes('\n')
           decos.push(
             Decoration.widget(
-              to,
+              replIsBlock ? resolveAfterBlock(doc, to) : to,
               () => {
-                const el = document.createElement('span')
-                el.className = 'ann-insert-preview'
-                el.textContent = ann.replacement!
+                const el = replIsBlock
+                  ? buildBlockPreviewEl(ann.replacement!, editor)
+                  : buildInlinePreviewEl(ann.replacement!, editor)
                 el.addEventListener('mousedown', e => {
                   e.stopPropagation()
                   focusedAnnotationId = ann.id
@@ -258,23 +306,26 @@ function buildDecorations(doc: PMNode): DecorationSet {
         }
         break
       case 'insert':
-        decos.push(
-          Decoration.widget(
-            from,
-            () => {
-              const el = document.createElement('span')
-              el.className = 'ann-insert-preview'
-              el.textContent = ann.replacement ?? ''
-              el.addEventListener('mousedown', e => {
-                e.stopPropagation()
-                focusedAnnotationId = ann.id
-                updateFocusedCard()
-              })
-              return el
-            },
-            { side: -1, key: `${ann.id}-preview` },
-          ),
-        )
+        if (ann.replacement) {
+          const insIsBlock = ann.replacement.includes('\n')
+          decos.push(
+            Decoration.widget(
+              insIsBlock ? resolveAfterBlock(doc, from) : from,
+              () => {
+                const el = insIsBlock
+                  ? buildBlockPreviewEl(ann.replacement!, editor)
+                  : buildInlinePreviewEl(ann.replacement!, editor)
+                el.addEventListener('mousedown', e => {
+                  e.stopPropagation()
+                  focusedAnnotationId = ann.id
+                  updateFocusedCard()
+                })
+                return el
+              },
+              { side: -1, key: `${ann.id}-preview` },
+            ),
+          )
+        }
         break
       case 'highlight':
         decos.push(Decoration.inline(from, to, { class: 'ann-highlight' }))
@@ -297,7 +348,10 @@ function buildDecorations(doc: PMNode): DecorationSet {
 // ─── Gutter cards ─────────────────────────────────────────────────────────────
 
 function formatBody(ann: Annotation): string {
-  const t = (s: string, max = 28) => (s.length > max ? s.slice(0, max) + '…' : s)
+  const t = (s: string, max = 60) => {
+    const flat = s.replace(/\n/g, ' ')
+    return flat.length > max ? flat.slice(0, max) + '…' : flat
+  }
   switch (ann.kind) {
     case 'replace':
       return `"${t(ann.target ?? '')}" → "${t(ann.replacement ?? '')}"`
@@ -554,7 +608,7 @@ export function createAnnotationsExtension(): Extension {
 
           props: {
             decorations(state) {
-              return buildDecorations(state.doc)
+              return buildDecorations(state.doc, editor)
             },
             handleKeyDown(view, event) {
               if (event.key === 'z' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
