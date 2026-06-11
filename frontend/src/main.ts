@@ -30,26 +30,10 @@ async function boot(): Promise<void> {
     if (ed) ed.view.dispatch(ed.state.tr)
   })
 
-  // Theme toggle
-  const themeBtn = document.getElementById('toggle-theme')!
-
-  function isLight(): boolean {
-    const saved = document.documentElement.dataset.theme
-    if (saved === 'light') return true
-    if (saved === 'dark') return false
-    return window.matchMedia('(prefers-color-scheme: light)').matches
-  }
-
-  function applyTheme(light: boolean) {
-    document.documentElement.dataset.theme = light ? 'light' : 'dark'
-    localStorage.setItem('folio-theme', light ? 'light' : 'dark')
-    themeBtn.textContent = light ? '◑' : '☀'
-    setMermaidTheme(light ? 'default' : 'dark')
-  }
-
-  applyTheme(isLight())
-
-  themeBtn.addEventListener('click', () => applyTheme(!isLight()))
+  // Follow OS color scheme for mermaid diagrams
+  const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
+  setMermaidTheme(colorScheme.matches ? 'default' : 'dark')
+  colorScheme.addEventListener('change', e => setMermaidTheme(e.matches ? 'default' : 'dark'))
 
   // Toggle between WYSIWYG and raw markdown
   const thumb = document.getElementById('view-toggle-thumb') as HTMLElement
