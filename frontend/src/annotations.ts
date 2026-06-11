@@ -86,11 +86,13 @@ export function findAnchor(
     }
   })
 
-  // Strip newlines from search terms: the flat text uses no separator at block
-  // boundaries, so agent-written targets with \n between paragraphs won't match
-  // unless we normalize to the same flat representation.
-  const normCtx = contextBefore.replace(/\n/g, '')
-  const normTarget = (target ?? '').replace(/\n/g, '')
+  // Strip newlines and decode HTML entities from search terms. The flat text has
+  // no block separators and uses decoded characters (ProseMirror stores text
+  // decoded), so agent-written values with &amp; etc. must be normalised to match.
+  const decodeEntities = (s: string) =>
+    s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+  const normCtx = decodeEntities(contextBefore.replace(/\n/g, ''))
+  const normTarget = decodeEntities((target ?? '').replace(/\n/g, ''))
   const flat = flatText.toLowerCase()
   const search = (normCtx + normTarget).toLowerCase()
   let idx = flat.indexOf(search)

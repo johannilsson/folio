@@ -9,6 +9,16 @@ import { putFile } from './api'
 let editor: Editor | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+}
+
 export function initEditor(
   container: HTMLElement,
   initialContent: string,
@@ -20,7 +30,7 @@ export function initEditor(
     content: initialContent,
     contentType: 'markdown',
     onUpdate({ editor: ed }) {
-      const markdown = ed.getMarkdown()
+      const markdown = decodeHtmlEntities(ed.getMarkdown())
       if (saveTimer) clearTimeout(saveTimer)
       saveTimer = setTimeout(() => putFile(markdown), 300)
     },
@@ -29,12 +39,12 @@ export function initEditor(
 
 export function setContent(content: string): void {
   if (!editor) return
-  if (editor.getMarkdown() === content) return
+  if (decodeHtmlEntities(editor.getMarkdown()) === content) return
   editor.commands.setContent(content, { contentType: 'markdown', emitUpdate: false })
 }
 
 export function getMarkdown(): string {
-  return editor?.getMarkdown() ?? ''
+  return decodeHtmlEntities(editor?.getMarkdown() ?? '')
 }
 
 export function getEditor(): Editor | null {

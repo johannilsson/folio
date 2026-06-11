@@ -1,6 +1,6 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
-import { initEditor, setContent, getEditor } from './editor'
+import { initEditor, setContent, getEditor, getMarkdown } from './editor'
 import { createAnnotationsExtension, updateSidecar, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
@@ -52,27 +52,42 @@ async function boot(): Promise<void> {
   themeBtn.addEventListener('click', () => applyTheme(!isLight()))
 
   // Toggle between WYSIWYG and raw markdown
-  const toggleBtn = document.getElementById('toggle-raw')!
+  const thumb = document.getElementById('view-toggle-thumb') as HTMLElement
+  const previewBtn = document.getElementById('view-toggle-preview') as HTMLButtonElement
+  const sourceBtn = document.getElementById('view-toggle-source') as HTMLButtonElement
   const editorWrapper = document.getElementById('editor-wrapper')!
   const rawPane = document.getElementById('raw-pane')!
   const rawTextarea = rawPane.querySelector('textarea') as HTMLTextAreaElement
 
-  toggleBtn.addEventListener('click', () => {
-    const ed = getEditor()!
-    if (rawPane.hidden) {
-      rawTextarea.value = ed.getMarkdown()
-      editorWrapper.hidden = true
-      rawPane.hidden = false
-      toggleBtn.textContent = '¶'
-      toggleBtn.title = 'Switch to rich text'
-    } else {
+  function positionThumb(activeBtn: HTMLButtonElement, animate = true) {
+    if (!animate) thumb.style.transition = 'none'
+    thumb.style.width = activeBtn.offsetWidth + 'px'
+    thumb.style.transform = `translateX(${activeBtn === sourceBtn ? previewBtn.offsetWidth : 0}px)`
+    if (!animate) requestAnimationFrame(() => { thumb.style.transition = '' })
+    previewBtn.classList.toggle('active', activeBtn === previewBtn)
+    sourceBtn.classList.toggle('active', activeBtn === sourceBtn)
+  }
+
+  requestAnimationFrame(() => positionThumb(previewBtn, false))
+
+  previewBtn.addEventListener('click', () => {
+    if (!rawPane.hidden) {
+      const ed = getEditor()!
       ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
       editorWrapper.hidden = false
       rawPane.hidden = true
-      toggleBtn.textContent = '</>'
-      toggleBtn.title = 'Switch to Markdown source'
       scheduleGutterRebuild()
     }
+    positionThumb(previewBtn)
+  })
+
+  sourceBtn.addEventListener('click', () => {
+    if (rawPane.hidden) {
+      rawTextarea.value = getMarkdown()
+      editorWrapper.hidden = true
+      rawPane.hidden = false
+    }
+    positionThumb(sourceBtn)
   })
 }
 

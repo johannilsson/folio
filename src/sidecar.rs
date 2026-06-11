@@ -87,36 +87,59 @@ impl Annotation {
     ///
     /// For `insert`/`comment` (no target) both values are the same insertion point.
     pub fn anchor(&self, doc: &str) -> Option<(usize, usize)> {
+        // Decode HTML entities from annotation values so that agents who copied
+        // raw entity text (e.g. &amp;) match the same way as agents who used the
+        // rendered output (e.g. &).
+        let ctx_decoded = decode_html_entities(&self.context_before);
+        let tgt_decoded = self.target.as_ref().map(|t| decode_html_entities(t));
+        let has_entities = ctx_decoded != self.context_before
+            || tgt_decoded.as_deref() != self.target.as_deref();
+
         let doc_lower = doc.to_lowercase();
-        let ctx = self.context_before.to_lowercase();
+        let ctx = ctx_decoded.to_lowercase();
 
         // --- Passes 1 & 2: raw search ---
-        match &self.target {
-            Some(target) => {
-                let tgt = target.to_lowercase();
-                let exact = format!("{}{}", ctx, tgt);
-                if let Some(pos) = doc_lower.find(&exact) {
-                    let start = pos + self.context_before.len();
-                    return Some((start, start + target.len()));
+        // Skip when the annotation contained HTML entities: the decoded text may
+        // produce partial-entity matches against the raw bytes (e.g. "&" matching
+        // the "&" inside "&amp;"), so fall straight to the stripped pass instead.
+        if !has_entities {
+            match &tgt_decoded {
+                Some(target) => {
+                    let tgt = target.to_lowercase();
+                    let exact = format!("{}{}", ctx, tgt);
+                    if let Some(pos) = doc_lower.find(&exact) {
+                        let start = pos + ctx_decoded.len();
+                        let end = start + target.len();
+                        if !ends_at_partial_entity(&doc_lower, end) {
+                            return Some((start, end));
+                        }
+                    }
+                    let spaced = format!("{} {}", ctx, tgt);
+                    if let Some(pos) = doc_lower.find(&spaced) {
+                        let start = pos + ctx_decoded.len() + 1;
+                        let end = start + target.len();
+                        if !ends_at_partial_entity(&doc_lower, end) {
+                            return Some((start, end));
+                        }
+                    }
                 }
-                let spaced = format!("{} {}", ctx, tgt);
-                if let Some(pos) = doc_lower.find(&spaced) {
-                    let start = pos + self.context_before.len() + 1;
-                    return Some((start, start + target.len()));
-                }
-            }
-            None => {
-                if let Some(pos) = doc_lower.find(&ctx) {
-                    let offset = pos + self.context_before.len();
-                    return Some((offset, offset));
+                None => {
+                    if let Some(pos) = doc_lower.find(&ctx) {
+                        let offset = pos + ctx_decoded.len();
+                        return Some((offset, offset));
+                    }
                 }
             }
         }
 
         // --- Pass 3: stripped search ---
-        let (stripped, pos_map) = strip_markdown(doc);
+        // strip_markdown decodes HTML entities. raw_spans[i] holds the raw byte
+        // width of each stripped char (entity_len bytes for entities, char.len_utf8()
+        // otherwise), so raw_end_from gives the correct byte boundary even when a
+        // decoded entity is the last char of the matched range.
+        let (stripped, pos_map, raw_spans) = strip_markdown(doc);
         let stripped_lower = stripped.to_lowercase();
-        let ctx_chars = self.context_before.chars().count();
+        let ctx_chars = ctx_decoded.chars().count();
 
         // Convert a byte offset in stripped_lower to a char index.
         let byte_to_char = |b: usize| stripped_lower[..b].chars().count();
@@ -126,12 +149,10 @@ impl Annotation {
             if end_ci == 0 {
                 return 0;
             }
-            let last_raw = pos_map[end_ci - 1];
-            let last_char = stripped.chars().nth(end_ci - 1).unwrap_or('\0');
-            last_raw + last_char.len_utf8()
+            pos_map[end_ci - 1] + raw_spans[end_ci - 1]
         };
 
-        match &self.target {
+        match &tgt_decoded {
             Some(target) => {
                 let tgt = target.to_lowercase();
                 let tgt_chars = target.chars().count();
@@ -197,16 +218,19 @@ impl Annotation {
 /// Strip inline and block-level markdown markers from `doc`, returning:
 /// - the plain-text content as a `String`
 /// - a `pos_map` where `pos_map[i]` is the raw byte offset of the i-th char
+/// - a `raw_spans` where `raw_spans[i]` is the raw byte width of the i-th char
+///   (1 for regular ASCII, >1 for multi-byte Unicode or decoded HTML entities)
 ///
 /// Block boundaries (newlines) are dropped; text is concatenated with no separator,
 /// matching the frontend's ProseMirror `findAnchor` behaviour.
-fn strip_markdown(doc: &str) -> (String, Vec<usize>) {
+fn strip_markdown(doc: &str) -> (String, Vec<usize>, Vec<usize>) {
     strip_markdown_impl(doc, true)
 }
 
-fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) {
+fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, Vec<usize>) {
     let mut stripped = String::new();
     let mut pos_map: Vec<usize> = Vec::new();
+    let mut raw_spans: Vec<usize> = Vec::new();
 
     let chars: Vec<(usize, char)> = doc.char_indices().collect();
     let n = chars.len();
@@ -292,6 +316,7 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                         for &(bp, ch) in &chars[content_start..cs] {
                             stripped.push(ch);
                             pos_map.push(bp);
+                            raw_spans.push(ch.len_utf8());
                         }
                         i = j;
                         closed = true;
@@ -305,6 +330,7 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                 for &(bp, ch) in &chars[tick_start..j.min(n)] {
                     stripped.push(ch);
                     pos_map.push(bp);
+                    raw_spans.push(ch.len_utf8());
                 }
                 i = j.min(n);
             }
@@ -335,12 +361,13 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                         if cl == mlen {
                             let inner_byte_start = chars[content_start].0;
                             let inner_byte_end = chars[cs].0;
-                            let (inner_stripped, inner_pos_map) =
+                            let (inner_stripped, inner_pos_map, inner_raw_spans) =
                                 strip_markdown_impl(&doc[inner_byte_start..inner_byte_end], false);
                             stripped.push_str(&inner_stripped);
                             for offset in inner_pos_map {
                                 pos_map.push(inner_byte_start + offset);
                             }
+                            raw_spans.extend(inner_raw_spans);
                             i = j;
                             closed = true;
                             break;
@@ -354,6 +381,7 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                     for &(bp, ch) in &chars[open_start..j.min(n)] {
                         stripped.push(ch);
                         pos_map.push(bp);
+                        raw_spans.push(ch.len_utf8());
                     }
                     i = j.min(n);
                 }
@@ -363,6 +391,7 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
             for &(bp, ch) in &chars[open_start..i] {
                 stripped.push(ch);
                 pos_map.push(bp);
+                raw_spans.push(ch.len_utf8());
             }
             continue;
         }
@@ -378,12 +407,13 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                 if chars[j].1 == '~' && chars[j + 1].1 == '~' {
                     let inner_byte_start = chars[content_start].0;
                     let inner_byte_end = chars[j].0;
-                    let (inner_stripped, inner_pos_map) =
+                    let (inner_stripped, inner_pos_map, inner_raw_spans) =
                         strip_markdown_impl(&doc[inner_byte_start..inner_byte_end], false);
                     stripped.push_str(&inner_stripped);
                     for offset in inner_pos_map {
                         pos_map.push(inner_byte_start + offset);
                     }
+                    raw_spans.extend(inner_raw_spans);
                     i = j + 2;
                     closed = true;
                     break;
@@ -394,25 +424,112 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>) 
                 for &(bp, ch) in &chars[open_start..j.min(n)] {
                     stripped.push(ch);
                     pos_map.push(bp);
+                    raw_spans.push(ch.len_utf8());
                 }
                 i = j.min(n);
             }
             continue;
         }
 
+        // --- HTML entity: &amp; &lt; &gt; &quot; &apos; ---
+        // Decode so that pos_map[i+1] points past the full entity bytes, not just
+        // the single '&' byte. This keeps raw_end_from() correct for accept patches.
+        if ch == '&' {
+            if let Some((decoded, entity_len)) = decode_html_entity(&chars[i..]) {
+                // Compute the entity's raw byte span: all entity chars are ASCII so
+                // entity_len chars == entity_len bytes.
+                stripped.push(decoded);
+                pos_map.push(bp);
+                raw_spans.push(entity_len);
+                i += entity_len;
+                continue;
+            }
+        }
+
         // --- Regular character ---
         stripped.push(ch);
         pos_map.push(bp);
+        raw_spans.push(ch.len_utf8());
         i += 1;
     }
 
-    (stripped, pos_map)
+    (stripped, pos_map, raw_spans)
+}
+
+/// Returns true if a raw match ending at `raw_end` in `doc` ended at the `&`
+/// of an HTML entity (e.g. matched "&" but the doc has "&amp;").
+/// Used to reject partial-entity hits in the raw Pass 1/2 search.
+fn ends_at_partial_entity(doc: &str, raw_end: usize) -> bool {
+    if raw_end == 0 || raw_end > doc.len() {
+        return false;
+    }
+    if !doc[..raw_end].ends_with('&') {
+        return false;
+    }
+    let after = &doc[raw_end..];
+    after.starts_with("amp;")
+        || after.starts_with("lt;")
+        || after.starts_with("gt;")
+        || after.starts_with("quot;")
+        || after.starts_with("apos;")
+        || after.starts_with("nbsp;")
+        || after.starts_with("#39;")
+        || after.starts_with("#34;")
+}
+
+/// If `chars` starts with a named HTML entity, return `(decoded_char, entity_char_count)`.
+fn decode_html_entity(chars: &[(usize, char)]) -> Option<(char, usize)> {
+    if chars.first().map(|(_, c)| *c) != Some('&') {
+        return None;
+    }
+    let mut s = String::new();
+    for (idx, &(_, c)) in chars.iter().enumerate() {
+        s.push(c);
+        if idx > 0 && c == ';' {
+            let decoded = match s.as_str() {
+                "&amp;" => '&',
+                "&lt;" => '<',
+                "&gt;" => '>',
+                "&quot;" => '"',
+                "&apos;" | "&#39;" => '\'',
+                "&nbsp;" => '\u{00A0}',
+                _ => return None,
+            };
+            return Some((decoded, idx + 1));
+        }
+        if idx >= 9 {
+            break;
+        }
+    }
+    None
+}
+
+/// Decode common HTML entities in a string (used to normalise annotation fields).
+fn decode_html_entities(s: &str) -> String {
+    let chars: Vec<(usize, char)> = s.char_indices().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < n {
+        let (_, ch) = chars[i];
+        if ch == '&' {
+            if let Some((decoded, entity_len)) = decode_html_entity(&chars[i..]) {
+                out.push(decoded);
+                i += entity_len;
+                continue;
+            }
+        }
+        out.push(ch);
+        i += 1;
+    }
+    out
 }
 
 /// Returns the plain-text representation of `doc` as seen by the anchoring engine.
 pub fn render_plain_text(doc: &str) -> String {
     strip_markdown(doc).0
 }
+
 
 /// Strips formatting markers and collapses whitespace runs to a single space.
 fn normalize_for_fuzzy(s: &str) -> String {
@@ -586,44 +703,44 @@ mod tests {
 
     #[test]
     fn strip_heading_marker() {
-        let (s, _) = strip_markdown("## Hello world");
+        let (s, _, _) = strip_markdown("## Hello world");
         assert_eq!(s, "Hello world");
     }
 
     #[test]
     fn strip_bold_markers() {
-        let (s, _) = strip_markdown("Some **bold** text.");
+        let (s, _, _) = strip_markdown("Some **bold** text.");
         assert_eq!(s, "Some bold text.");
     }
 
     #[test]
     fn strip_italic_markers() {
-        let (s, _) = strip_markdown("Some *italic* text.");
+        let (s, _, _) = strip_markdown("Some *italic* text.");
         assert_eq!(s, "Some italic text.");
     }
 
     #[test]
     fn strip_list_marker() {
-        let (s, _) = strip_markdown("- List item text");
+        let (s, _, _) = strip_markdown("- List item text");
         assert_eq!(s, "List item text");
     }
 
     #[test]
     fn strip_preserves_inline_code_content() {
-        let (s, _) = strip_markdown("Use `foo()` here.");
+        let (s, _, _) = strip_markdown("Use `foo()` here.");
         assert_eq!(s, "Use foo() here.");
     }
 
     #[test]
     fn block_boundaries_concatenated_without_separator() {
-        let (s, _) = strip_markdown("First paragraph.\n\nSecond paragraph.");
+        let (s, _, _) = strip_markdown("First paragraph.\n\nSecond paragraph.");
         assert_eq!(s, "First paragraph.Second paragraph.");
     }
 
     #[test]
     fn pos_map_offset_for_heading() {
         // "## Hello world" → stripped "Hello world", 'H' is at raw byte 3
-        let (s, map) = strip_markdown("## Hello world");
+        let (s, map, _) = strip_markdown("## Hello world");
         assert_eq!(s, "Hello world");
         assert_eq!(map[0], 3); // 'H'
         assert_eq!(map[5], 8); // ' ' between Hello and world
@@ -632,20 +749,20 @@ mod tests {
     #[test]
     fn pos_map_offset_for_bold() {
         // "Some **bold** text." → stripped "Some bold text.", 'b' is at raw byte 7
-        let (s, map) = strip_markdown("Some **bold** text.");
+        let (s, map, _) = strip_markdown("Some **bold** text.");
         assert_eq!(s, "Some bold text.");
         assert_eq!(map[5], 7); // 'b' of "bold"
     }
 
     #[test]
     fn strip_nested_bold_inside_italic() {
-        let (s, _) = strip_markdown("*italic with **bold** inside*");
+        let (s, _, _) = strip_markdown("*italic with **bold** inside*");
         assert_eq!(s, "italic with bold inside");
     }
 
     #[test]
     fn strip_nested_italic_inside_bold() {
-        let (s, _) = strip_markdown("**bold with _italic_ inside**");
+        let (s, _, _) = strip_markdown("**bold with _italic_ inside**");
         assert_eq!(s, "bold with italic inside");
     }
 
@@ -654,7 +771,7 @@ mod tests {
         // "*a **b** c*" — 'b' is nested inside italic+bold.
         // Raw bytes: 0:'*', 1:'a', 2:' ', 3:'*', 4:'*', 5:'b', 6:'*', 7:'*', 8:' ', 9:'c', 10:'*'
         // Stripped: "a b c"
-        let (s, map) = strip_markdown("*a **b** c*");
+        let (s, map, _) = strip_markdown("*a **b** c*");
         assert_eq!(s, "a b c");
         assert_eq!(map[0], 1); // 'a' at raw byte 1
         assert_eq!(map[2], 5); // 'b' at raw byte 5
@@ -761,7 +878,7 @@ mod tests {
     fn strip_list_marker_inside_inline_span() {
         // Recursive strip_markdown_impl must start with at_line_start=false so that
         // "- " at the start of span content is NOT stripped as a list marker.
-        let (s, _) = strip_markdown("*- list item*");
+        let (s, _, _) = strip_markdown("*- list item*");
         assert_eq!(s, "- list item");
     }
 
@@ -786,6 +903,48 @@ mod tests {
         assert!(result.is_some(), "fuzzy pass should match stray-marker target");
         let (start, end) = result.unwrap();
         assert_eq!(&doc[start..end], "important");
+    }
+
+    // ── HTML entity handling ──────────────────────────────────────────────────
+
+    #[test]
+    fn strip_decodes_html_entities() {
+        let (s, _, _) = strip_markdown("cats &amp; dogs");
+        assert_eq!(s, "cats & dogs");
+    }
+
+    #[test]
+    fn anchor_entity_in_doc_decoded_annotation() {
+        // Doc has &amp; on disk; agent used folio render and wrote the decoded "&".
+        // Pass 3 (stripped) must find it and the accepted byte range must span
+        // all 5 bytes of &amp;, not just the leading "&".
+        let doc = "foo &amp; bar";
+        // "&amp;" occupies bytes 4-8; space after is byte 9.
+        let result = ann("foo ", Some("&")).anchor(doc);
+        assert!(result.is_some(), "decoded annotation should anchor against entity doc");
+        let (start, end) = result.unwrap();
+        assert_eq!(&doc[start..end], "&amp;");
+    }
+
+    #[test]
+    fn anchor_entity_annotation_against_entity_doc() {
+        // Agent copied &amp; literally from the raw file.
+        // Pass 1 raw search finds it; byte range spans the full entity.
+        let doc = "foo &amp; bar";
+        let result = ann("foo ", Some("&amp;")).anchor(doc);
+        assert!(result.is_some());
+        let (start, end) = result.unwrap();
+        assert_eq!(&doc[start..end], "&amp;");
+    }
+
+    #[test]
+    fn anchor_entity_in_context_before() {
+        // Entity appears in context_before, not target.
+        let doc = "foo &amp; bar baz";
+        let result = ann("foo &amp; bar ", Some("baz")).anchor(doc);
+        assert!(result.is_some());
+        let (start, end) = result.unwrap();
+        assert_eq!(&doc[start..end], "baz");
     }
 
     // ── ThreadReply serialization ─────────────────────────────────────────────
