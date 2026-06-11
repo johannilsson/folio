@@ -170,6 +170,24 @@ function addCommentAnnotation(contextBefore: string, target: string, comment: st
   editor.view.dispatch(editor.state.tr)
 }
 
+function parseReplacementContent(markdown: string, editor: Editor): JSONContent | JSONContent[] {
+  try {
+    const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
+    const json = mgr.manager.parse(markdown)
+    const blocks = (json.content ?? []) as JSONContent[]
+    // Single paragraph: lift inline nodes out so the replacement doesn't wrap in
+    // a new block, and so explicit marks override any inherited surrounding marks.
+    if (blocks.length === 1 && blocks[0].type === 'paragraph') {
+      const inlineNodes = (blocks[0].content ?? []) as JSONContent[]
+      if (inlineNodes.length === 0) return { type: 'text', text: '' }
+      return inlineNodes.length === 1 ? inlineNodes[0] : inlineNodes
+    }
+    return blocks.length === 1 ? blocks[0] : blocks
+  } catch {
+    return { type: 'text', text: markdown }
+  }
+}
+
 function applyAccept(ann: Annotation, editor: Editor): void {
   const anchor = findAnchor(editor.state.doc, ann.context_before, ann.target)
   if (anchor) {
@@ -177,14 +195,16 @@ function applyAccept(ann: Annotation, editor: Editor): void {
     const { from, to } = anchor
     if (ann.kind === 'replace') {
       if (ann.replacement) {
-        editor.commands.insertContentAt({ from, to }, ann.replacement)
+        editor.commands.insertContentAt({ from, to }, parseReplacementContent(ann.replacement, editor))
       } else {
         editor.commands.deleteRange({ from, to })
       }
     } else if (ann.kind === 'delete') {
       editor.commands.deleteRange({ from, to })
     } else if (ann.kind === 'insert') {
-      editor.commands.insertContentAt(from, ann.replacement ?? '')
+      if (ann.replacement) {
+        editor.commands.insertContentAt(from, parseReplacementContent(ann.replacement, editor))
+      }
     }
   }
   resolveAnnotation(ann, 'accepted', editor)

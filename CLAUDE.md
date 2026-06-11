@@ -22,8 +22,10 @@ cd frontend && pnpm install && pnpm build
 # Rust binary (skip frontend rebuild)
 FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
 
-# After frontend-only changes, force binary to re-embed:
-touch src/main.rs && FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
+# After frontend-only changes (index.html, *.ts, *.css):
+# MUST run pnpm build first — rust-embed embeds from dist/, not the source files.
+# Skipping pnpm build causes the binary to re-embed stale dist/ output.
+cd frontend && pnpm build && cd .. && touch src/main.rs && FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
 
 # Full build (build.rs runs pnpm install + build automatically)
 cargo build
