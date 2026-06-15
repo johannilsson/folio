@@ -276,9 +276,12 @@ function buildInlinePreviewEl(replacement: string, editor: Editor): HTMLElement 
   el.className = 'ann-insert-preview'
   const tempDiv = document.createElement('div')
   tempDiv.appendChild(renderMarkdownContent(replacement, editor))
-  const p = tempDiv.querySelector('p')
-  if (p) {
-    while (p.firstChild) el.appendChild(p.firstChild)
+  const blocks = Array.from(tempDiv.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6'))
+  if (blocks.length > 0) {
+    blocks.forEach((block, i) => {
+      if (i > 0) el.appendChild(document.createElement('br'))
+      while (block.firstChild) el.appendChild(block.firstChild)
+    })
   } else {
     el.textContent = replacement
   }
@@ -331,14 +334,11 @@ function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
         break
       case 'insert':
         if (ann.replacement) {
-          const insIsBlock = ann.replacement.includes('\n')
           decos.push(
             Decoration.widget(
-              insIsBlock ? resolveAfterBlock(doc, from) : from,
+              from,
               () => {
-                const el = insIsBlock
-                  ? buildBlockPreviewEl(ann.replacement!, editor)
-                  : buildInlinePreviewEl(ann.replacement!, editor)
+                const el = buildInlinePreviewEl(ann.replacement!, editor)
                 el.addEventListener('mousedown', e => {
                   e.stopPropagation()
                   focusedAnnotationId = ann.id
