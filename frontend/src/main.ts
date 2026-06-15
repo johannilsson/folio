@@ -56,20 +56,26 @@ async function boot(): Promise<void> {
 
   previewBtn.addEventListener('click', () => {
     if (!rawPane.hidden) {
+      const fraction = rawTextarea.scrollTop / (rawTextarea.scrollHeight - rawTextarea.clientHeight || 1)
       const ed = getEditor()!
       ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
       editorWrapper.hidden = false
       rawPane.hidden = true
       scheduleGutterRebuild()
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        editorWrapper.scrollTop = fraction * (editorWrapper.scrollHeight - editorWrapper.clientHeight)
+      }))
     }
     positionThumb(previewBtn)
   })
 
   sourceBtn.addEventListener('click', () => {
     if (rawPane.hidden) {
+      const fraction = editorWrapper.scrollTop / (editorWrapper.scrollHeight - editorWrapper.clientHeight || 1)
       rawTextarea.value = getMarkdown()
       editorWrapper.hidden = true
       rawPane.hidden = false
+      rawTextarea.scrollTop = fraction * (rawTextarea.scrollHeight - rawTextarea.clientHeight)
     }
     positionThumb(sourceBtn)
   })
