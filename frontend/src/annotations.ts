@@ -271,11 +271,19 @@ function resolveAfterBlock(doc: PMNode, pos: number): number {
   return $pos.depth > 0 ? $pos.after(1) : clamped
 }
 
-function buildInlinePreviewEl(replacement: string, editor: Editor): HTMLElement {
-  const el = document.createElement('span')
-  el.className = 'ann-insert-preview'
+function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
   const tempDiv = document.createElement('div')
   tempDiv.appendChild(renderMarkdownContent(replacement, editor))
+
+  if (tempDiv.querySelector('table, pre')) {
+    const el = document.createElement('div')
+    el.className = 'ann-replace-preview'
+    while (tempDiv.firstChild) el.appendChild(tempDiv.firstChild)
+    return el
+  }
+
+  const el = document.createElement('span')
+  el.className = 'ann-insert-preview'
   const blocks = Array.from(tempDiv.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6'))
   if (blocks.length > 0) {
     blocks.forEach((block, i) => {
@@ -288,12 +296,6 @@ function buildInlinePreviewEl(replacement: string, editor: Editor): HTMLElement 
   return el
 }
 
-function buildBlockPreviewEl(replacement: string, editor: Editor): HTMLElement {
-  const el = document.createElement('div')
-  el.className = 'ann-replace-preview'
-  el.appendChild(renderMarkdownContent(replacement, editor))
-  return el
-}
 
 function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
@@ -312,14 +314,11 @@ function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
       case 'replace':
         decos.push(Decoration.inline(from, to, { class: 'ann-delete' }))
         if (ann.replacement) {
-          const replIsBlock = ann.replacement.includes('\n')
           decos.push(
             Decoration.widget(
-              replIsBlock ? resolveAfterBlock(doc, to) : to,
+              to,
               () => {
-                const el = replIsBlock
-                  ? buildBlockPreviewEl(ann.replacement!, editor)
-                  : buildInlinePreviewEl(ann.replacement!, editor)
+                const el = buildPreviewEl(ann.replacement!, editor)
                 el.addEventListener('mousedown', e => {
                   e.stopPropagation()
                   focusedAnnotationId = ann.id
@@ -338,7 +337,7 @@ function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
             Decoration.widget(
               from,
               () => {
-                const el = buildInlinePreviewEl(ann.replacement!, editor)
+                const el = buildPreviewEl(ann.replacement!, editor)
                 el.addEventListener('mousedown', e => {
                   e.stopPropagation()
                   focusedAnnotationId = ann.id
