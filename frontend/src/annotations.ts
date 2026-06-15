@@ -203,7 +203,9 @@ function applyAccept(ann: Annotation, editor: Editor): void {
       editor.commands.deleteRange({ from, to })
     } else if (ann.kind === 'insert') {
       if (ann.replacement) {
-        editor.commands.insertContentAt(from, parseReplacementContent(ann.replacement, editor))
+        const insIsBlock = ann.replacement.includes('\n')
+        const insertPos = insIsBlock ? resolveAfterBlock(editor.state.doc, from) : from
+        editor.commands.insertContentAt(insertPos, parseReplacementContent(ann.replacement, editor))
       }
     }
   }
