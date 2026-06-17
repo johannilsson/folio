@@ -77,6 +77,13 @@ export function triggerSidecarUpdate(ed: Editor): void {
   ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
 
+// Call after setContent() replaces the entire document. Clears stale anchor
+// positions (which would otherwise be mapped to position 0 by ProseMirror's
+// full-document replacement step) and triggers a fresh re-anchor.
+export function triggerContentReplaced(ed: Editor): void {
+  ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'content-replaced' }))
+}
+
 // ─── Plugin state ─────────────────────────────────────────────────────────────
 
 interface AnnotationsPluginState {
@@ -693,6 +700,18 @@ export function createAnnotationsExtension(): Extension {
                 // External sidecar change: signal the view to fetch fresh anchors.
                 // Keep existing anchors visible until the server response arrives.
                 return { ...value, needsReanchor: true, anchorVersion: value.anchorVersion + 1 }
+              }
+
+              if (meta?.type === 'content-replaced') {
+                // The entire document was replaced (e.g. switching back from source
+                // view). Any mapped positions are invalid — clear them immediately so
+                // decorations don't render at position 0, then re-anchor from scratch.
+                return {
+                  anchors: new Map(),
+                  decoSet: DecorationSet.empty,
+                  needsReanchor: true,
+                  anchorVersion: value.anchorVersion + 1,
+                }
               }
 
               if (meta?.type === 'anchors-ready') {

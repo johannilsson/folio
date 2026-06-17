@@ -1,7 +1,7 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor, getMarkdown } from './editor'
-import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, scheduleGutterRebuild } from './annotations'
+import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 
@@ -68,6 +68,7 @@ async function boot(): Promise<void> {
       ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
       editorWrapper.hidden = false
       rawPane.hidden = true
+      triggerContentReplaced(ed)
       scheduleGutterRebuild()
       requestAnimationFrame(() => requestAnimationFrame(() => {
         editorWrapper.scrollTop = fraction * (editorWrapper.scrollHeight - editorWrapper.clientHeight)
