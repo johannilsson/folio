@@ -157,6 +157,22 @@ describe('findAnchor', () => {
     })
   })
 
+  describe('markdown link syntax in annotations', () => {
+    it('matches target containing markdown link syntax against rendered link text', () => {
+      // Tiptap stores [REF-001](url) as a text node "REF-001" with a link mark.
+      // The agent wrote the raw markdown form in the annotation target.
+      const doc = paragraphs('see REF-001 for details')
+      const result = findAnchor(doc as any, 'see ', '[REF-001](docs/other.md) for details')
+      expect(result).not.toBeNull()
+    })
+
+    it('matches context_before containing markdown link syntax', () => {
+      const doc = paragraphs('see REF-001 for details and more text')
+      const result = findAnchor(doc as any, 'see [REF-001](docs/other.md) for details and ', 'more text')
+      expect(result).not.toBeNull()
+    })
+  })
+
   describe('targets spanning multiple text nodes in one block', () => {
     it('handles bold text followed by regular text in the same paragraph', () => {
       // Simulates <strong>Cover crops</strong> between rows:

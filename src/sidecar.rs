@@ -431,6 +431,39 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
             continue;
         }
 
+        // --- Markdown link: [text](url) → emit only the link text ---
+        if ch == '[' {
+            // Scan forward for the closing ']', stopping at newline.
+            let mut j = i + 1;
+            while j < n && chars[j].1 != ']' && chars[j].1 != '\n' {
+                j += 1;
+            }
+            if j < n && chars[j].1 == ']' && j + 1 < n && chars[j + 1].1 == '(' {
+                // Scan for the closing ')', stopping at newline.
+                let mut k = j + 2;
+                while k < n && chars[k].1 != ')' && chars[k].1 != '\n' {
+                    k += 1;
+                }
+                if k < n && chars[k].1 == ')' {
+                    // Valid [text](url): recursively strip the link text.
+                    if i + 1 < j {
+                        let text_byte_start = chars[i + 1].0;
+                        let text_byte_end = chars[j].0;
+                        let (inner_stripped, inner_pos_map, inner_raw_spans) =
+                            strip_markdown_impl(&doc[text_byte_start..text_byte_end], false);
+                        stripped.push_str(&inner_stripped);
+                        for offset in inner_pos_map {
+                            pos_map.push(text_byte_start + offset);
+                        }
+                        raw_spans.extend(inner_raw_spans);
+                    }
+                    i = k + 1;
+                    continue;
+                }
+            }
+            // Not a valid link pattern: fall through and emit '[' literally.
+        }
+
         // --- HTML entity: &amp; &lt; &gt; &quot; &apos; ---
         // Decode so that pos_map[i+1] points past the full entity bytes, not just
         // the single '&' byte. This keeps raw_end_from() correct for accept patches.
@@ -735,6 +768,24 @@ mod tests {
     fn block_boundaries_concatenated_without_separator() {
         let (s, _, _) = strip_markdown("First paragraph.\n\nSecond paragraph.");
         assert_eq!(s, "First paragraph.Second paragraph.");
+    }
+
+    #[test]
+    fn strip_markdown_link_to_text() {
+        let (s, _, _) = strip_markdown("see [REF-001](docs/other.md) for details");
+        assert_eq!(s, "see REF-001 for details");
+    }
+
+    #[test]
+    fn strip_markdown_incomplete_link_emits_literally() {
+        let (s, _, _) = strip_markdown("not a [link");
+        assert_eq!(s, "not a [link");
+    }
+
+    #[test]
+    fn strip_markdown_bracket_without_paren_emits_literally() {
+        let (s, _, _) = strip_markdown("[not a link] (space before paren)");
+        assert_eq!(s, "[not a link] (space before paren)");
     }
 
     #[test]

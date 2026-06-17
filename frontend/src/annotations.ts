@@ -100,6 +100,8 @@ function stripMarkdownSyntax(s: string): string {
       .replace(/^\d+\.\s+/, '')
       .replace(/^>\s+/, '')
   ).join('\n')
+  // Links: [text](url) → text (mirrors Tiptap's link mark: text nodes hold only the visible text)
+  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
   // Inline markers — longest match first to avoid partial strip
   s = s.replace(/\*\*\*(.+?)\*\*\*/g, '$1')
   s = s.replace(/\*\*(.+?)\*\*/g, '$1')
