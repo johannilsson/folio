@@ -634,10 +634,26 @@ pub fn anchor_chars(
 
             None
         }
-        None => stripped_lower.find(&ctx).map(|b| {
-            let end_ci = byte_to_char(b) + ctx_chars;
-            (end_ci, end_ci)
-        }),
+        None => {
+            if let Some(b) = stripped_lower.find(&ctx) {
+                let end_ci = byte_to_char(b) + ctx_chars;
+                return Some((end_ci, end_ci));
+            }
+            // Fuzzy fallback: handles padding spaces in table rows, etc.
+            let norm_ctx = normalize_for_fuzzy(&ctx);
+            let norm_ctx_chars = norm_ctx.chars().count();
+            let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
+            if let Some(norm_byte) = norm_stripped.find(&norm_ctx) {
+                let norm_ci = norm_stripped[..norm_byte].chars().count();
+                let norm_end = norm_ci + norm_ctx_chars;
+                let end_ci = norm_map
+                    .get(norm_end)
+                    .copied()
+                    .unwrap_or_else(|| stripped_doc.chars().count());
+                return Some((end_ci, end_ci));
+            }
+            None
+        }
     }
 }
 
@@ -866,6 +882,16 @@ mod tests {
         let (from, to) = anchor_chars(doc, "see ", Some("[REF-001](docs/other.md) for details")).unwrap();
         assert_eq!(from, 4);
         assert_eq!(to, 23);
+    }
+
+    #[test]
+    fn anchor_chars_no_target_fuzzy_table_spacing() {
+        // Table rows use padding spaces for column alignment; context_before is
+        // typically written with minimal spacing. Fuzzy pass must bridge the gap.
+        let doc = "| Orange wine    | 1 week – 6 months          | Result |\n| Next row | x | y |";
+        let ctx = "| Orange wine | 1 week – 6 months | Result |";
+        let (from, to) = anchor_chars(doc, ctx, None).unwrap();
+        assert_eq!(from, to); // insert/comment — no range
     }
 
     #[test]
