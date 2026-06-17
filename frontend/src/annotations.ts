@@ -799,6 +799,41 @@ export function createAnnotationsExtension(): Extension {
             let pendingRequest = false
             let pendingVersion = -1
 
+            // Fire an anchor fetch if one is needed and none is already in flight.
+            // Called on initial mount (update() is not called on first creation in
+            // ProseMirror) and on each subsequent state update.
+            function tryFetchAnchors(view: EditorView) {
+              if (pendingRequest) return
+              const pluginState = annotationsKey.getState(view.state)
+              if (!pluginState?.needsReanchor) return
+
+              pendingRequest = true
+              pendingVersion = pluginState.anchorVersion
+              const charPos = buildCharPos(view.state.doc)
+              const items = currentSidecar.annotations
+                .filter(a => !a.resolved)
+                .map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
+
+              postAnchor(items)
+                .then(results => {
+                  pendingRequest = false
+                  if (annotationsKey.getState(view.state)?.anchorVersion !== pendingVersion) {
+                    // A newer sidecar arrived while we were waiting — dispatch a no-op
+                    // so update() runs again and fires a fresh request.
+                    view.dispatch(view.state.tr)
+                    return
+                  }
+                  const anchors = new Map<string, { from: number; to: number }>()
+                  for (const result of results) {
+                    if (result.char_from != null && result.char_to != null) {
+                      anchors.set(result.id, charIndexToRange(charPos, result.char_from, result.char_to))
+                    }
+                  }
+                  view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'anchors-ready', anchors }))
+                })
+                .catch(() => { pendingRequest = false })
+            }
+
             const gutterEl = document.createElement('div')
             gutterEl.id = 'annotation-gutter'
             currentGutterEl = gutterEl
@@ -963,39 +998,12 @@ export function createAnnotationsExtension(): Extension {
             rebuildFn = () => buildGutterCards(pmView, gutterEl, editor)
             requestAnimationFrame(() => rebuildFn && requestAnimationFrame(rebuildFn))
 
+            // Trigger the initial fetch — update() is not called on first mount.
+            tryFetchAnchors(pmView)
+
             return {
               update(view, prevState) {
-                // Fire async anchor fetch whenever the sidecar has changed.
-                if (!pendingRequest) {
-                  const pluginState = annotationsKey.getState(view.state)
-                  if (pluginState?.needsReanchor) {
-                    pendingRequest = true
-                    pendingVersion = pluginState.anchorVersion
-                    const charPos = buildCharPos(view.state.doc)
-                    const items = currentSidecar.annotations
-                      .filter(a => !a.resolved)
-                      .map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
-
-                    postAnchor(items)
-                      .then(results => {
-                        pendingRequest = false
-                        if (annotationsKey.getState(view.state)?.anchorVersion !== pendingVersion) {
-                          // A newer sidecar arrived while we were waiting — dispatch a
-                          // no-op so update() runs again and fires a fresh request.
-                          view.dispatch(view.state.tr)
-                          return
-                        }
-                        const anchors = new Map<string, { from: number; to: number }>()
-                        for (const result of results) {
-                          if (result.char_from != null && result.char_to != null) {
-                            anchors.set(result.id, charIndexToRange(charPos, result.char_from, result.char_to))
-                          }
-                        }
-                        view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'anchors-ready', anchors }))
-                      })
-                      .catch(() => { pendingRequest = false })
-                  }
-                }
+                tryFetchAnchors(view)
 
                 if (prevState) {
                   const undoBefore = undoDepth(prevState)
