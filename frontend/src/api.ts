@@ -20,6 +20,25 @@ export const putFolio = (sidecar: Sidecar): Promise<Response> =>
 export const getKrokiUrl = (): Promise<string> =>
   fetch('/api/kroki-url').then(r => r.json()).then(d => d.url)
 
+export interface AnchorRequestItem {
+  id: string
+  context_before: string
+  target?: string
+}
+
+export interface AnchorResultItem {
+  id: string
+  char_from?: number
+  char_to?: number
+}
+
+export const postAnchor = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
+  fetch('/api/anchor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  }).then(r => r.json())
+
 export interface ThreadReply {
   id: string
   author: string

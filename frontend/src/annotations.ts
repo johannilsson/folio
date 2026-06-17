@@ -6,7 +6,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
-import { putFolio } from './api'
+import { putFolio, postAnchor } from './api'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
@@ -82,141 +82,55 @@ export function triggerSidecarUpdate(ed: Editor): void {
 interface AnnotationsPluginState {
   anchors: Map<string, { from: number; to: number }>
   decoSet: DecorationSet
+  needsReanchor: boolean
+  anchorVersion: number
 }
 
 const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
 
 // ─── Anchoring ───────────────────────────────────────────────────────────────
 
-// Strip markdown syntax from annotation context/target fields. Agents sometimes
-// include formatting markers (**, *, ## etc.) in these fields; ProseMirror's
-// flat text has no such markers, so we must remove them before searching.
-function stripMarkdownSyntax(s: string): string {
-  // Block markers per line
-  s = s.split('\n').map(line =>
-    line
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/^[-*+]\s+/, '')
-      .replace(/^\d+\.\s+/, '')
-      .replace(/^>\s+/, '')
-  ).join('\n')
-  // Links: [text](url) → text (mirrors Tiptap's link mark: text nodes hold only the visible text)
-  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-  // Inline markers — longest match first to avoid partial strip
-  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '$1')
-  s = s.replace(/\*\*(.+?)\*\*/g, '$1')
-  s = s.replace(/\*(.+?)\*/g, '$1')
-  s = s.replace(/___(.+?)___/g, '$1')
-  s = s.replace(/__(.+?)__/g, '$1')
-  s = s.replace(/_(.+?)_/g, '$1')
-  s = s.replace(/~~(.+?)~~/g, '$1')
-  s = s.replace(/`([^`\n]+)`/g, '$1')
-  return s
-}
-
-function collapseWhitespace(s: string): { norm: string; map: number[] } {
-  let norm = '', map: number[] = [], lastWs = false
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === ' ' || s[i] === '\t') {
-      if (!lastWs) { norm += ' '; map.push(i) }
-      lastWs = true
-    } else { norm += s[i]; map.push(i); lastWs = false }
-  }
-  return { norm, map }
-}
-
-export function findAnchor(
-  doc: PMNode,
-  contextBefore: string,
-  target: string | null | undefined,
-): { from: number; to: number } | null {
-  let flatText = ''
+// Build a map from each character's index in the document's rendered plain text
+// to its ProseMirror position. Used to convert server-returned char indices to
+// PM positions for decorations.
+export function buildCharPos(doc: PMNode): number[] {
   const charPos: number[] = []
-
   doc.descendants((node, pos) => {
     if (node.isText) {
       for (let i = 0; i < node.text!.length; i++) {
         charPos.push(pos + i)
       }
-      flatText += node.text
     }
   })
-
-  // Decode HTML entities, strip markdown syntax, then remove newlines.
-  // ProseMirror stores text already-parsed (no markdown markers), so annotation
-  // fields that contain markdown syntax must be normalised before searching.
-  const decodeEntities = (s: string) =>
-    s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
-  const normCtx = stripMarkdownSyntax(decodeEntities(contextBefore)).replace(/\n/g, '')
-  const normTarget = stripMarkdownSyntax(decodeEntities(target ?? '')).replace(/\n/g, '')
-  const flat = flatText.toLowerCase()
-
-  // Convert from/to indices in flat text to ProseMirror positions.
-  const toRange = (fromIdx: number, toIdx: number): { from: number; to: number } => {
-    const from =
-      toIdx > fromIdx
-        ? fromIdx < charPos.length
-          ? charPos[fromIdx]
-          : charPos[charPos.length - 1] + 1
-        : fromIdx > 0
-          ? charPos[fromIdx - 1] + 1
-          : charPos.length > 0 ? charPos[0] : 0
-    const to =
-      toIdx > fromIdx
-        ? toIdx - 1 < charPos.length
-          ? charPos[toIdx - 1] + 1
-          : charPos[charPos.length - 1] + 1
-        : from
-    return { from, to }
-  }
-
-  // Pass 1: exact; Pass 2: with a space between context and target.
-  const search = (normCtx + normTarget).toLowerCase()
-  let idx = flat.indexOf(search)
-  let spaceOffset = 0
-  if (idx === -1 && target) {
-    const searchSpaced = (normCtx + ' ' + normTarget).toLowerCase()
-    idx = flat.indexOf(searchSpaced)
-    spaceOffset = 1
-  }
-  if (idx !== -1) {
-    const fromIdx = idx + normCtx.length + spaceOffset
-    if (fromIdx > charPos.length) return null
-    return toRange(fromIdx, fromIdx + normTarget.length)
-  }
-
-  // Pass 3: fuzzy — collapse whitespace runs in both flat text and search strings
-  // so that minor spacing differences (double spaces, newlines in agent output)
-  // don't prevent anchoring.
-  const { norm: flatFuzzy, map: fuzzyFlatMap } = collapseWhitespace(flat)
-  const fuzzyCtx = normCtx.toLowerCase().replace(/\s+/g, ' ')
-  const fuzzyTgt = normTarget.toLowerCase().replace(/\s+/g, ' ')
-
-  for (const sep of ['', ' '] as const) {
-    if (sep && !target) continue
-    const fuzzyIdx = flatFuzzy.indexOf(fuzzyCtx + sep + fuzzyTgt)
-    if (fuzzyIdx === -1) continue
-    const fuzzyFrom = fuzzyIdx + fuzzyCtx.length + sep.length
-    const fuzzyTo = fuzzyFrom + fuzzyTgt.length
-    const flatFrom = fuzzyFrom < fuzzyFlatMap.length ? fuzzyFlatMap[fuzzyFrom] : flat.length
-    const flatTo = fuzzyTgt.length === 0
-      ? flatFrom
-      : fuzzyTo - 1 < fuzzyFlatMap.length ? fuzzyFlatMap[fuzzyTo - 1] + 1 : flat.length
-    return toRange(flatFrom, flatTo)
-  }
-
-  return null
+  return charPos
 }
 
-// Anchor all unresolved annotations against `doc` via text search.
-// Called once on boot and whenever a genuine external sidecar update arrives.
-function buildAnchors(doc: PMNode): Map<string, { from: number; to: number }> {
-  const anchors = new Map<string, { from: number; to: number }>()
-  for (const ann of currentSidecar.annotations.filter(a => !a.resolved)) {
-    const anchor = findAnchor(doc, ann.context_before, ann.target)
-    if (anchor) anchors.set(ann.id, anchor)
-  }
-  return anchors
+// Convert char indices (from, to) in the rendered plain text to ProseMirror
+// positions using the charPos map produced by buildCharPos.
+//
+// When fromIdx === toIdx (insert/comment — no target), the result is a single
+// point just after the last char of context_before, staying inside the same
+// block rather than jumping to the next one.
+export function charIndexToRange(
+  charPos: number[],
+  fromIdx: number,
+  toIdx: number,
+): { from: number; to: number } {
+  const from =
+    toIdx > fromIdx
+      ? fromIdx < charPos.length
+        ? charPos[fromIdx]
+        : charPos[charPos.length - 1] + 1
+      : fromIdx > 0
+        ? charPos[fromIdx - 1] + 1
+        : charPos.length > 0 ? charPos[0] : 0
+  const to =
+    toIdx > fromIdx
+      ? toIdx - 1 < charPos.length
+        ? charPos[toIdx - 1] + 1
+        : charPos[charPos.length - 1] + 1
+      : from
+  return { from, to }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -759,18 +673,36 @@ export function createAnnotationsExtension(): Extension {
           key: annotationsKey,
 
           state: {
-            init(_, state): AnnotationsPluginState {
-              const anchors = buildAnchors(state.doc)
-              return { anchors, decoSet: buildDecosFromAnchors(anchors, state.doc, editor) }
+            init(): AnnotationsPluginState {
+              // Anchors are populated asynchronously via the plugin view;
+              // start with empty anchors and signal that a fetch is needed.
+              return {
+                anchors: new Map(),
+                decoSet: DecorationSet.empty,
+                needsReanchor: true,
+                anchorVersion: 0,
+              }
             },
 
             apply(tr, value): AnnotationsPluginState {
-              const meta = tr.getMeta(annotationsKey) as { type: string; id?: string } | undefined
+              const meta = tr.getMeta(annotationsKey) as
+                | { type: string; id?: string; anchors?: Map<string, { from: number; to: number }> }
+                | undefined
 
               if (meta?.type === 'sidecar-updated') {
-                // External sidecar change: re-anchor all annotations from scratch.
-                const anchors = buildAnchors(tr.doc)
-                return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+                // External sidecar change: signal the view to fetch fresh anchors.
+                // Keep existing anchors visible until the server response arrives.
+                return { ...value, needsReanchor: true, anchorVersion: value.anchorVersion + 1 }
+              }
+
+              if (meta?.type === 'anchors-ready') {
+                const anchors = meta.anchors!
+                return {
+                  anchors,
+                  decoSet: buildDecosFromAnchors(anchors, tr.doc, editor),
+                  needsReanchor: false,
+                  anchorVersion: value.anchorVersion,
+                }
               }
 
               if (meta?.type === 'resolve' && meta.id) {
@@ -779,12 +711,12 @@ export function createAnnotationsExtension(): Extension {
                 // doc-change transaction that ran just before this one.
                 const anchors = new Map(value.anchors)
                 anchors.delete(meta.id)
-                return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+                return { ...value, anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
               }
 
               if (meta?.type === 'refresh') {
                 // Rebuild decorations from existing anchors (e.g. pendingCommentRange changed).
-                return { anchors: value.anchors, decoSet: buildDecosFromAnchors(value.anchors, tr.doc, editor) }
+                return { ...value, decoSet: buildDecosFromAnchors(value.anchors, tr.doc, editor) }
               }
 
               if (!tr.docChanged) return value
@@ -800,7 +732,7 @@ export function createAnnotationsExtension(): Extension {
                   to: tr.mapping.map(pos.to, -1),
                 })
               }
-              return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+              return { ...value, anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
             },
           },
 
@@ -864,6 +796,9 @@ export function createAnnotationsExtension(): Extension {
           },
 
           view(pmView) {
+            let pendingRequest = false
+            let pendingVersion = -1
+
             const gutterEl = document.createElement('div')
             gutterEl.id = 'annotation-gutter'
             currentGutterEl = gutterEl
@@ -1030,6 +965,38 @@ export function createAnnotationsExtension(): Extension {
 
             return {
               update(view, prevState) {
+                // Fire async anchor fetch whenever the sidecar has changed.
+                if (!pendingRequest) {
+                  const pluginState = annotationsKey.getState(view.state)
+                  if (pluginState?.needsReanchor) {
+                    pendingRequest = true
+                    pendingVersion = pluginState.anchorVersion
+                    const charPos = buildCharPos(view.state.doc)
+                    const items = currentSidecar.annotations
+                      .filter(a => !a.resolved)
+                      .map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
+
+                    postAnchor(items)
+                      .then(results => {
+                        pendingRequest = false
+                        if (annotationsKey.getState(view.state)?.anchorVersion !== pendingVersion) {
+                          // A newer sidecar arrived while we were waiting — dispatch a
+                          // no-op so update() runs again and fires a fresh request.
+                          view.dispatch(view.state.tr)
+                          return
+                        }
+                        const anchors = new Map<string, { from: number; to: number }>()
+                        for (const result of results) {
+                          if (result.char_from != null && result.char_to != null) {
+                            anchors.set(result.id, charIndexToRange(charPos, result.char_from, result.char_to))
+                          }
+                        }
+                        view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'anchors-ready', anchors }))
+                      })
+                      .catch(() => { pendingRequest = false })
+                  }
+                }
+
                 if (prevState) {
                   const undoBefore = undoDepth(prevState)
                   const undoAfter = undoDepth(view.state)

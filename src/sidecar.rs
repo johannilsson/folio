@@ -563,6 +563,84 @@ pub fn render_plain_text(doc: &str) -> String {
     strip_markdown(doc).0
 }
 
+/// Search `doc` for an annotation identified by `context_before` + `target`,
+/// returning `(from_ci, to_ci)` — character indices of the target in the
+/// rendered plain text (i.e. what `render_plain_text` produces).
+///
+/// Both the document and annotation fields are stripped of markdown syntax
+/// before searching, so the returned indices correspond directly to the
+/// character sequence that `buildCharPos` constructs in the frontend.
+///
+/// Returns `None` if no match is found.
+pub fn anchor_chars(
+    doc: &str,
+    context_before: &str,
+    target: Option<&str>,
+) -> Option<(usize, usize)> {
+    let (ctx_stripped, _, _) = strip_markdown(context_before);
+    let ctx = ctx_stripped.to_lowercase();
+    let ctx_chars = ctx.chars().count();
+
+    let tgt_stripped = target.map(|t| strip_markdown(t).0);
+
+    let (stripped_doc, _, _) = strip_markdown(doc);
+    let stripped_lower = stripped_doc.to_lowercase();
+
+    let byte_to_char = |b: usize| stripped_lower[..b].chars().count();
+
+    match tgt_stripped.as_deref() {
+        Some(tgt_str) => {
+            let tgt = tgt_str.to_lowercase();
+            let tgt_chars = tgt.chars().count();
+
+            // Exact then spaced search in stripped text
+            let found = stripped_lower
+                .find(&format!("{}{}", ctx, tgt))
+                .map(|b| (byte_to_char(b), 0usize))
+                .or_else(|| {
+                    stripped_lower
+                        .find(&format!("{} {}", ctx, tgt))
+                        .map(|b| (byte_to_char(b), 1usize))
+                });
+
+            if let Some((match_ci, space)) = found {
+                let from_ci = match_ci + ctx_chars + space;
+                let to_ci = from_ci + tgt_chars;
+                return Some((from_ci, to_ci));
+            }
+
+            // Fuzzy: strip stray markers, collapse whitespace, try both separators
+            let norm_ctx = normalize_for_fuzzy(&ctx);
+            let norm_tgt = normalize_for_fuzzy(&tgt);
+            let norm_ctx_chars = norm_ctx.chars().count();
+            let norm_tgt_chars = norm_tgt.chars().count();
+            let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
+
+            for sep in &["", " "] {
+                let needle = format!("{}{}{}", norm_ctx, sep, norm_tgt);
+                if let Some(norm_byte) = norm_stripped.find(&needle) {
+                    let norm_ci = norm_stripped[..norm_byte].chars().count();
+                    let norm_from = norm_ci + norm_ctx_chars + sep.len();
+                    let norm_to = norm_from + norm_tgt_chars;
+                    if let Some(&from_ci) = norm_map.get(norm_from) {
+                        let to_ci = norm_map
+                            .get(norm_to)
+                            .copied()
+                            .unwrap_or_else(|| stripped_doc.chars().count());
+                        return Some((from_ci, to_ci));
+                    }
+                }
+            }
+
+            None
+        }
+        None => stripped_lower.find(&ctx).map(|b| {
+            let end_ci = byte_to_char(b) + ctx_chars;
+            (end_ci, end_ci)
+        }),
+    }
+}
+
 
 /// Strips formatting markers and collapses whitespace runs to a single space.
 fn normalize_for_fuzzy(s: &str) -> String {
@@ -768,6 +846,32 @@ mod tests {
     fn block_boundaries_concatenated_without_separator() {
         let (s, _, _) = strip_markdown("First paragraph.\n\nSecond paragraph.");
         assert_eq!(s, "First paragraph.Second paragraph.");
+    }
+
+    #[test]
+    fn anchor_chars_returns_char_indices() {
+        // "## Heading\n\nThe target sentence here."
+        // stripped: "HeadingThe target sentence here."
+        // ctx = "HeadingThe " (11 chars), tgt = "target" (6 chars)
+        // → from_ci = 11, to_ci = 17
+        let doc = "## Heading\n\nThe target sentence here.";
+        let (from, to) = anchor_chars(doc, "HeadingThe ", Some("target")).unwrap();
+        assert_eq!(from, 11);
+        assert_eq!(to, 17);
+    }
+
+    #[test]
+    fn anchor_chars_strips_link_syntax_in_annotation() {
+        let doc = "see REF-001 for details";
+        let (from, to) = anchor_chars(doc, "see ", Some("[REF-001](docs/other.md) for details")).unwrap();
+        assert_eq!(from, 4);
+        assert_eq!(to, 23);
+    }
+
+    #[test]
+    fn anchor_chars_returns_none_on_no_match() {
+        let result = anchor_chars("Hello world", "missing ", Some("text"));
+        assert!(result.is_none());
     }
 
     #[test]

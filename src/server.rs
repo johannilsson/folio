@@ -2,15 +2,17 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message, WebSocket},
-        State, WebSocketUpgrade,
+        Json, State, WebSocketUpgrade,
     },
     http::{Response, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Json},
-    routing::get,
+    response::IntoResponse,
+    routing::{get, post},
     Router,
 };
+use crate::sidecar::anchor_chars;
 use rust_embed::RustEmbed;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     path::PathBuf,
@@ -169,11 +171,51 @@ async fn handle_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<String>) {
     }
 }
 
+#[derive(Deserialize)]
+struct AnchorRequestItem {
+    id: String,
+    context_before: String,
+    #[serde(default)]
+    target: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AnchorResultItem {
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    char_from: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    char_to: Option<usize>,
+}
+
+async fn post_anchor(
+    State(state): State<AppState>,
+    Json(items): Json<Vec<AnchorRequestItem>>,
+) -> impl IntoResponse {
+    let doc = match tokio::fs::read_to_string(&state.doc_path).await {
+        Ok(content) => content,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let results: Vec<AnchorResultItem> = items
+        .iter()
+        .map(|item| {
+            let result = anchor_chars(&doc, &item.context_before, item.target.as_deref());
+            AnchorResultItem {
+                id: item.id.clone(),
+                char_from: result.map(|(f, _)| f),
+                char_to: result.map(|(_, t)| t),
+            }
+        })
+        .collect();
+    axum::Json(results).into_response()
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(serve_index))
         .route("/assets/{*path}", get(serve_asset))
         .route("/api/file", get(get_file).put(put_file))
+        .route("/api/anchor", post(post_anchor))
         .route("/api/folio", get(get_folio).put(put_folio))
         .route("/api/info", get(get_info))
         .route("/api/kroki-url", get(get_kroki_url))
