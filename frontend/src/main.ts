@@ -1,7 +1,7 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor, getMarkdown } from './editor'
-import { createAnnotationsExtension, updateSidecar, scheduleGutterRebuild } from './annotations'
+import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 
@@ -25,9 +25,16 @@ async function boot(): Promise<void> {
 
   on('folio:changed', async () => {
     const updated = await getFolio()
-    updateSidecar(updated)
+    const isEcho = updateSidecar(updated)
     const ed = getEditor()
-    if (ed) ed.view.dispatch(ed.state.tr)
+    if (!ed) return
+    if (isEcho) {
+      // Our own PUT echoed back — positions already tracked via tr.mapping; just rebuild gutter.
+      ed.view.dispatch(ed.state.tr)
+    } else {
+      // Genuine external update (new agent annotations) — re-anchor from scratch.
+      triggerSidecarUpdate(ed)
+    }
   })
 
   // Follow OS color scheme for mermaid diagrams

@@ -48,15 +48,19 @@ function updateFocusedCard(): void {
   focusChangeCallback?.()
 }
 
-export function updateSidecar(sidecar: Sidecar): void {
+// Returns true when the incoming sidecar is an echo of what we last wrote
+// (i.e. a WebSocket round-trip of our own PUT). On echo, undo stacks are left
+// intact; on genuine external updates they are cleared.
+export function updateSidecar(sidecar: Sidecar): boolean {
   const isEcho = JSON.stringify(sidecar) === JSON.stringify(currentSidecar)
   currentSidecar = sidecar
-  if (isEcho) return
+  if (isEcho) return true
   annotationUndoStack = []
   annotationRedoStack = []
   pendingAnnotationSnapshot = null
   annotationKeyboardUndoStack = []
   replyDrafts.clear()
+  return false
 }
 
 export function getSidecar(): Sidecar {
@@ -67,7 +71,57 @@ export function onSidecarUpdate(cb: () => void): void {
   sidecarUpdateCb = cb
 }
 
+// Dispatch a full re-anchor. Call after an external sidecar change (new agent
+// annotations); do NOT call for echoes of our own PUTs.
+export function triggerSidecarUpdate(ed: Editor): void {
+  ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
+}
+
+// ─── Plugin state ─────────────────────────────────────────────────────────────
+
+interface AnnotationsPluginState {
+  anchors: Map<string, { from: number; to: number }>
+  decoSet: DecorationSet
+}
+
+const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
+
 // ─── Anchoring ───────────────────────────────────────────────────────────────
+
+// Strip markdown syntax from annotation context/target fields. Agents sometimes
+// include formatting markers (**, *, ## etc.) in these fields; ProseMirror's
+// flat text has no such markers, so we must remove them before searching.
+function stripMarkdownSyntax(s: string): string {
+  // Block markers per line
+  s = s.split('\n').map(line =>
+    line
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^[-*+]\s+/, '')
+      .replace(/^\d+\.\s+/, '')
+      .replace(/^>\s+/, '')
+  ).join('\n')
+  // Inline markers — longest match first to avoid partial strip
+  s = s.replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+  s = s.replace(/\*\*(.+?)\*\*/g, '$1')
+  s = s.replace(/\*(.+?)\*/g, '$1')
+  s = s.replace(/___(.+?)___/g, '$1')
+  s = s.replace(/__(.+?)__/g, '$1')
+  s = s.replace(/_(.+?)_/g, '$1')
+  s = s.replace(/~~(.+?)~~/g, '$1')
+  s = s.replace(/`([^`\n]+)`/g, '$1')
+  return s
+}
+
+function collapseWhitespace(s: string): { norm: string; map: number[] } {
+  let norm = '', map: number[] = [], lastWs = false
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === ' ' || s[i] === '\t') {
+      if (!lastWs) { norm += ' '; map.push(i) }
+      lastWs = true
+    } else { norm += s[i]; map.push(i); lastWs = false }
+  }
+  return { norm, map }
+}
 
 export function findAnchor(
   doc: PMNode,
@@ -86,14 +140,35 @@ export function findAnchor(
     }
   })
 
-  // Strip newlines and decode HTML entities from search terms. The flat text has
-  // no block separators and uses decoded characters (ProseMirror stores text
-  // decoded), so agent-written values with &amp; etc. must be normalised to match.
+  // Decode HTML entities, strip markdown syntax, then remove newlines.
+  // ProseMirror stores text already-parsed (no markdown markers), so annotation
+  // fields that contain markdown syntax must be normalised before searching.
   const decodeEntities = (s: string) =>
     s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
-  const normCtx = decodeEntities(contextBefore.replace(/\n/g, ''))
-  const normTarget = decodeEntities((target ?? '').replace(/\n/g, ''))
+  const normCtx = stripMarkdownSyntax(decodeEntities(contextBefore)).replace(/\n/g, '')
+  const normTarget = stripMarkdownSyntax(decodeEntities(target ?? '')).replace(/\n/g, '')
   const flat = flatText.toLowerCase()
+
+  // Convert from/to indices in flat text to ProseMirror positions.
+  const toRange = (fromIdx: number, toIdx: number): { from: number; to: number } => {
+    const from =
+      toIdx > fromIdx
+        ? fromIdx < charPos.length
+          ? charPos[fromIdx]
+          : charPos[charPos.length - 1] + 1
+        : fromIdx > 0
+          ? charPos[fromIdx - 1] + 1
+          : charPos.length > 0 ? charPos[0] : 0
+    const to =
+      toIdx > fromIdx
+        ? toIdx - 1 < charPos.length
+          ? charPos[toIdx - 1] + 1
+          : charPos[charPos.length - 1] + 1
+        : from
+    return { from, to }
+  }
+
+  // Pass 1: exact; Pass 2: with a space between context and target.
   const search = (normCtx + normTarget).toLowerCase()
   let idx = flat.indexOf(search)
   let spaceOffset = 0
@@ -102,33 +177,44 @@ export function findAnchor(
     idx = flat.indexOf(searchSpaced)
     spaceOffset = 1
   }
-  if (idx === -1) return null
+  if (idx !== -1) {
+    const fromIdx = idx + normCtx.length + spaceOffset
+    if (fromIdx > charPos.length) return null
+    return toRange(fromIdx, fromIdx + normTarget.length)
+  }
 
-  const fromIdx = idx + normCtx.length + spaceOffset
-  const toIdx = fromIdx + normTarget.length
+  // Pass 3: fuzzy — collapse whitespace runs in both flat text and search strings
+  // so that minor spacing differences (double spaces, newlines in agent output)
+  // don't prevent anchoring.
+  const { norm: flatFuzzy, map: fuzzyFlatMap } = collapseWhitespace(flat)
+  const fuzzyCtx = normCtx.toLowerCase().replace(/\s+/g, ' ')
+  const fuzzyTgt = normTarget.toLowerCase().replace(/\s+/g, ' ')
 
-  if (fromIdx > charPos.length) return null
+  for (const sep of ['', ' '] as const) {
+    if (sep && !target) continue
+    const fuzzyIdx = flatFuzzy.indexOf(fuzzyCtx + sep + fuzzyTgt)
+    if (fuzzyIdx === -1) continue
+    const fuzzyFrom = fuzzyIdx + fuzzyCtx.length + sep.length
+    const fuzzyTo = fuzzyFrom + fuzzyTgt.length
+    const flatFrom = fuzzyFrom < fuzzyFlatMap.length ? fuzzyFlatMap[fuzzyFrom] : flat.length
+    const flatTo = fuzzyTgt.length === 0
+      ? flatFrom
+      : fuzzyTo - 1 < fuzzyFlatMap.length ? fuzzyFlatMap[fuzzyTo - 1] + 1 : flat.length
+    return toRange(flatFrom, flatTo)
+  }
 
-  // For annotations with a target: from = position of first target char.
-  // For insert/comment (no target): position just after the last char of context_before,
-  // which keeps the anchor within the same block at block boundaries instead of
-  // jumping to charPos[fromIdx] (the first char of the next block).
-  const from =
-    toIdx > fromIdx
-      ? fromIdx < charPos.length
-        ? charPos[fromIdx]
-        : charPos[charPos.length - 1] + 1
-      : fromIdx > 0
-        ? charPos[fromIdx - 1] + 1
-        : charPos.length > 0 ? charPos[0] : 0
-  const to =
-    toIdx > fromIdx
-      ? toIdx - 1 < charPos.length
-        ? charPos[toIdx - 1] + 1
-        : charPos[charPos.length - 1] + 1
-      : from
+  return null
+}
 
-  return { from, to }
+// Anchor all unresolved annotations against `doc` via text search.
+// Called once on boot and whenever a genuine external sidecar update arrives.
+function buildAnchors(doc: PMNode): Map<string, { from: number; to: number }> {
+  const anchors = new Map<string, { from: number; to: number }>()
+  for (const ann of currentSidecar.annotations.filter(a => !a.resolved)) {
+    const anchor = findAnchor(doc, ann.context_before, ann.target)
+    if (anchor) anchors.set(ann.id, anchor)
+  }
+  return anchors
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -145,7 +231,9 @@ export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): 
   currentSidecar = updated
   putFolio(updated)
   sidecarUpdateCb?.()
-  editor.view.dispatch(editor.state.tr)
+  // Remove this annotation from the plugin's anchors map; remaining positions
+  // were already updated via tr.mapping when the doc-change transaction ran.
+  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'resolve', id: ann.id }))
 }
 
 function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): void {
@@ -167,7 +255,8 @@ function addCommentAnnotation(contextBefore: string, target: string, comment: st
   currentSidecar = updated
   putFolio(updated)
   sidecarUpdateCb?.()
-  editor.view.dispatch(editor.state.tr)
+  // New annotation needs to be anchored from scratch.
+  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
 
 function parseReplacementContent(markdown: string, editor: Editor): JSONContent | JSONContent[] {
@@ -189,7 +278,9 @@ function parseReplacementContent(markdown: string, editor: Editor): JSONContent 
 }
 
 function applyAccept(ann: Annotation, editor: Editor): void {
-  const anchor = findAnchor(editor.state.doc, ann.context_before, ann.target)
+  // Read position from plugin state — already mapped through previous transactions,
+  // so it remains correct even after other annotations were accepted earlier.
+  const anchor = annotationsKey.getState(editor.state)?.anchors.get(ann.id)
   if (anchor) {
     pendingAnnotationSnapshot = [...currentSidecar.annotations]
     const { from, to } = anchor
@@ -218,9 +309,10 @@ function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
   if (pending.length === 0) return false
 
+  const pluginAnchors = annotationsKey.getState(view.state)?.anchors
   const sorted: Array<{ ann: Annotation; from: number }> = []
   for (const ann of pending) {
-    const anchor = findAnchor(view.state.doc, ann.context_before, ann.target)
+    const anchor = pluginAnchors?.get(ann.id)
     if (anchor) sorted.push({ ann, from: anchor.from })
   }
   sorted.sort((a, b) => a.from - b.from)
@@ -303,13 +395,16 @@ function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
   return el
 }
 
-
-function buildDecorations(doc: PMNode, editor: Editor): DecorationSet {
+function buildDecosFromAnchors(
+  anchors: Map<string, { from: number; to: number }>,
+  doc: PMNode,
+  editor: Editor,
+): DecorationSet {
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
   const decos: Decoration[] = []
 
   for (const ann of pending) {
-    const anchor = findAnchor(doc, ann.context_before, ann.target)
+    const anchor = anchors.get(ann.id)
     if (!anchor) continue
 
     const { from, to } = anchor
@@ -595,18 +690,20 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
   if (!wrapper) return
 
   const wrapperRect = wrapper.getBoundingClientRect()
+  const pluginAnchors = annotationsKey.getState(pmView.state)?.anchors
 
   const entries: Array<{ ann: Annotation; top: number; from: number }> = []
   for (const ann of pending) {
-    const anchor = findAnchor(pmView.state.doc, ann.context_before, ann.target)
+    const anchor = pluginAnchors?.get(ann.id)
     if (!anchor) continue
+    let top = 0
     try {
       const coords = pmView.coordsAtPos(anchor.from)
-      const top = coords.top - wrapperRect.top + wrapper.scrollTop
-      entries.push({ ann, top, from: anchor.from })
+      top = coords.top - wrapperRect.top + wrapper.scrollTop
     } catch {
-      // Position currently off-screen — skip
+      // View not yet laid out — card appears at top and repositions on next update
     }
+    entries.push({ ann, top, from: anchor.from })
   }
 
   entries.sort((a, b) => a.from - b.from)
@@ -616,6 +713,21 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
     card.dataset.anchorTop = String(top)
     card.dataset.anchorFrom = String(from)
     card.style.top = `${top}px`
+    gutterEl.appendChild(card)
+  }
+
+  const anchoredIds = new Set(entries.map(e => e.ann.id))
+  for (const ann of pending) {
+    if (anchoredIds.has(ann.id)) continue
+    const card = makeGutterCard(ann, editor, gutterEl)
+    card.classList.add('ann-card-unanchored')
+    card.dataset.anchorTop = '0'
+    card.dataset.anchorFrom = '-1'
+    card.style.top = '0px'
+    const badge = document.createElement('span')
+    badge.className = 'ann-card-lost-badge'
+    badge.textContent = 'Not found in document'
+    card.insertBefore(badge, card.firstChild)
     gutterEl.appendChild(card)
   }
 
@@ -633,8 +745,6 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
-const annotationsKey = new PluginKey<DecorationSet>('folioAnnotations')
-
 export function createAnnotationsExtension(): Extension {
   return Extension.create({
     name: 'folioAnnotations',
@@ -646,9 +756,55 @@ export function createAnnotationsExtension(): Extension {
         new Plugin({
           key: annotationsKey,
 
+          state: {
+            init(_, state): AnnotationsPluginState {
+              const anchors = buildAnchors(state.doc)
+              return { anchors, decoSet: buildDecosFromAnchors(anchors, state.doc, editor) }
+            },
+
+            apply(tr, value): AnnotationsPluginState {
+              const meta = tr.getMeta(annotationsKey) as { type: string; id?: string } | undefined
+
+              if (meta?.type === 'sidecar-updated') {
+                // External sidecar change: re-anchor all annotations from scratch.
+                const anchors = buildAnchors(tr.doc)
+                return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+              }
+
+              if (meta?.type === 'resolve' && meta.id) {
+                // One annotation was accepted/rejected: remove it from the map.
+                // Positions of remaining annotations were already updated by the
+                // doc-change transaction that ran just before this one.
+                const anchors = new Map(value.anchors)
+                anchors.delete(meta.id)
+                return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+              }
+
+              if (meta?.type === 'refresh') {
+                // Rebuild decorations from existing anchors (e.g. pendingCommentRange changed).
+                return { anchors: value.anchors, decoSet: buildDecosFromAnchors(value.anchors, tr.doc, editor) }
+              }
+
+              if (!tr.docChanged) return value
+
+              // Doc changed: map every stored position through the transaction mapping.
+              // This keeps annotation positions correct without any text search —
+              // critical when an accept modifies text that other annotations reference
+              // in their context_before fields.
+              const anchors = new Map<string, { from: number; to: number }>()
+              for (const [id, pos] of value.anchors) {
+                anchors.set(id, {
+                  from: tr.mapping.map(pos.from),
+                  to: tr.mapping.map(pos.to, -1),
+                })
+              }
+              return { anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
+            },
+          },
+
           props: {
             decorations(state) {
-              return buildDecorations(state.doc, editor)
+              return annotationsKey.getState(state)!.decoSet
             },
             handleKeyDown(view, event) {
               if (event.key === 'z' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
@@ -658,7 +814,7 @@ export function createAnnotationsExtension(): Extension {
                   currentSidecar = { ...currentSidecar, annotations: top.snapshot }
                   putFolio(currentSidecar)
                   sidecarUpdateCb?.()
-                  editor.view.dispatch(editor.state.tr)
+                  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
                   return true
                 }
               }
@@ -688,9 +844,10 @@ export function createAnnotationsExtension(): Extension {
             },
             handleClick(view, pos) {
               const pending = currentSidecar.annotations.filter(a => !a.resolved)
+              const pluginAnchors = annotationsKey.getState(view.state)?.anchors
               let found: string | null = null
               for (const ann of pending) {
-                const anchor = findAnchor(view.state.doc, ann.context_before, ann.target)
+                const anchor = pluginAnchors?.get(ann.id)
                 if (anchor && pos >= anchor.from && pos <= anchor.to) {
                   found = ann.id
                   break
@@ -751,7 +908,7 @@ export function createAnnotationsExtension(): Extension {
                 ? currentSidecar.annotations.find(a => a.id === focusedAnnotationId && a.kind !== 'comment')
                 : null
               if (!ann || !scrollContainer) { actionFloater.hidden = true; return }
-              const anchor = findAnchor(pmView.state.doc, ann.context_before, ann.target)
+              const anchor = annotationsKey.getState(pmView.state)?.anchors.get(ann.id)
               if (!anchor) { actionFloater.hidden = true; return }
               try {
                 const containerRect = scrollContainer.getBoundingClientRect()
@@ -823,7 +980,11 @@ export function createAnnotationsExtension(): Extension {
               savedSelection = null
               pendingCommentRange = null
               const { from } = pmView.state.selection
-              pmView.dispatch(pmView.state.tr.setSelection(TextSelection.create(pmView.state.doc, from)))
+              pmView.dispatch(
+                pmView.state.tr
+                  .setSelection(TextSelection.create(pmView.state.doc, from))
+                  .setMeta(annotationsKey, { type: 'refresh' }),
+              )
               repositionCards(gutterEl)
             }
 
@@ -836,7 +997,7 @@ export function createAnnotationsExtension(): Extension {
               cfGutterForm.hidden = false
               floater.hidden = true
               pendingCommentRange = savedSelection
-              pmView.dispatch(pmView.state.tr)
+              pmView.dispatch(pmView.state.tr.setMeta(annotationsKey, { type: 'refresh' }))
               repositionCards(gutterEl)
               cfTextarea.focus()
             })
@@ -863,7 +1024,7 @@ export function createAnnotationsExtension(): Extension {
             scrollContainer?.addEventListener('scroll', onScroll)
 
             rebuildFn = () => buildGutterCards(pmView, gutterEl, editor)
-            requestAnimationFrame(rebuildFn)
+            requestAnimationFrame(() => rebuildFn && requestAnimationFrame(rebuildFn))
 
             return {
               update(view, prevState) {
@@ -882,7 +1043,9 @@ export function createAnnotationsExtension(): Extension {
                         currentSidecar = { ...currentSidecar, annotations: snapshot }
                         putFolio(currentSidecar)
                         sidecarUpdateCb?.()
-                        requestAnimationFrame(() => view.dispatch(view.state.tr))
+                        requestAnimationFrame(() =>
+                          view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
+                        )
                       } else {
                         annotationRedoStack.push(null)
                       }
@@ -897,7 +1060,9 @@ export function createAnnotationsExtension(): Extension {
                           currentSidecar = { ...currentSidecar, annotations: snapshot }
                           putFolio(currentSidecar)
                           sidecarUpdateCb?.()
-                          requestAnimationFrame(() => view.dispatch(view.state.tr))
+                          requestAnimationFrame(() =>
+                            view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
+                          )
                         } else {
                           annotationUndoStack.push(null)
                         }
