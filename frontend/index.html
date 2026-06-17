@@ -362,6 +362,12 @@
       box-decoration-break: clone;
     }
 
+    div.ann-insert-preview {
+      padding: 4px 8px;
+    }
+    div.ann-insert-preview > :first-child { margin-top: 0; }
+    div.ann-insert-preview > :last-child { margin-bottom: 0; }
+
     .ann-replace-preview {
       background: var(--ann-ins-bg);
       color: var(--ann-ins-text);
@@ -481,7 +487,6 @@
       color: var(--card-body);
       line-height: 1.55;
       word-break: break-word;
-      white-space: pre-wrap;
     }
 
     .ann-card-comment {
@@ -490,9 +495,22 @@
       color: var(--text-3);
       line-height: 1.55;
       word-break: break-word;
-      white-space: pre-wrap;
       border-top: 1px solid var(--border);
       padding-top: 5px;
+    }
+
+    /* ── Markdown inside card text fields ── */
+
+    :is(.ann-card-body, .ann-card-comment, .ann-reply-body) > p { margin: 0; }
+    :is(.ann-card-body, .ann-card-comment, .ann-reply-body) > p + p { margin-top: 0.4em; }
+    :is(.ann-card-body, .ann-card-comment, .ann-reply-body) :is(ul, ol) { margin: 0.2em 0; padding-left: 1.4em; }
+    :is(.ann-card-body, .ann-card-comment, .ann-reply-body) li + li { margin-top: 0.15em; }
+    :is(.ann-card-body, .ann-card-comment, .ann-reply-body) code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.9em;
+      background: var(--code-bg, rgba(0,0,0,0.07));
+      padding: 0 3px;
+      border-radius: 3px;
     }
 
     /* ── Reply thread ── */
@@ -534,7 +552,6 @@
       color: var(--card-body);
       line-height: 1.55;
       word-break: break-word;
-      white-space: pre-wrap;
       padding-left: 2px;
     }
 
