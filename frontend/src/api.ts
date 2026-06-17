@@ -14,7 +14,7 @@ export const putFolio = (sidecar: Sidecar): Promise<Response> =>
   fetch('/api/folio', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sidecar),
+    body: JSON.stringify(sidecar, null, 2),
   })
 
 export const getKrokiUrl = (): Promise<string> =>
