@@ -282,9 +282,16 @@ function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
     return el
   }
 
+  if (tempDiv.querySelector('h1, h2, h3, h4, h5, h6')) {
+    const el = document.createElement('div')
+    el.className = 'ann-insert-preview'
+    while (tempDiv.firstChild) el.appendChild(tempDiv.firstChild)
+    return el
+  }
+
   const el = document.createElement('span')
   el.className = 'ann-insert-preview'
-  const blocks = Array.from(tempDiv.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6'))
+  const blocks = Array.from(tempDiv.querySelectorAll('p, li'))
   if (blocks.length > 0) {
     blocks.forEach((block, i) => {
       if (i > 0) el.appendChild(document.createElement('br'))
@@ -418,7 +425,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
   if (ann.kind === 'comment') {
     const body = document.createElement('div')
     body.className = 'ann-card-body'
-    body.textContent = ann.comment ?? ''
+    body.appendChild(renderMarkdownContent(ann.comment ?? '', editor))
     card.appendChild(body)
   } else {
     const body = document.createElement('div')
@@ -429,7 +436,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     if (ann.comment) {
       const commentEl = document.createElement('div')
       commentEl.className = 'ann-card-comment'
-      commentEl.textContent = ann.comment
+      commentEl.appendChild(renderMarkdownContent(ann.comment, editor))
       card.appendChild(commentEl)
     }
   }
@@ -452,7 +459,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
       replyHeader.appendChild(replyTime)
       const replyBody = document.createElement('div')
       replyBody.className = 'ann-reply-body'
-      replyBody.textContent = reply.body
+      replyBody.appendChild(renderMarkdownContent(reply.body, editor))
       replyEl.appendChild(replyHeader)
       replyEl.appendChild(replyBody)
       repliesSection.appendChild(replyEl)
@@ -488,11 +495,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
   const btnRow = document.createElement('div')
   btnRow.className = 'ann-card-action-row'
 
-  const replyBtn = document.createElement('button')
-  replyBtn.className = 'ann-card-btn ann-card-reply'
-  replyBtn.textContent = 'Reply'
-  replyBtn.addEventListener('mousedown', e => {
-    e.preventDefault()
+  const submitReply = () => {
     const body = textarea.value.trim()
     if (!body) return
     const reply: ThreadReply = {
@@ -513,8 +516,14 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     putFolio(updated)
     sidecarUpdateCb?.()
     editor.view.dispatch(editor.state.tr)
+  }
+
+  textarea.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      submitReply()
+    }
   })
-  btnRow.appendChild(replyBtn)
 
   if (ann.kind === 'comment') {
     const dismiss = document.createElement('button')
@@ -527,6 +536,15 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     })
     btnRow.appendChild(dismiss)
   }
+
+  const replyBtn = document.createElement('button')
+  replyBtn.className = 'ann-card-btn ann-card-reply'
+  replyBtn.textContent = 'Reply'
+  replyBtn.addEventListener('mousedown', e => {
+    e.preventDefault()
+    submitReply()
+  })
+  btnRow.appendChild(replyBtn)
 
   actions.appendChild(btnRow)
 
@@ -544,7 +562,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
   return card
 }
 
-function repositionCards(gutterEl: HTMLElement): void {
+function repositionCards(gutterEl: HTMLElement, floorHeight = 0): void {
   const items = Array.from(gutterEl.querySelectorAll<HTMLElement>('.ann-card, .cf-gutter-form'))
   items.sort((a, b) => parseFloat(a.dataset.anchorFrom ?? '0') - parseFloat(b.dataset.anchorFrom ?? '0'))
 
@@ -559,23 +577,22 @@ function repositionCards(gutterEl: HTMLElement): void {
     minTop = top + item.offsetHeight + GAP
   }
 
-  if (minTop > 0) {
-    const needed = minTop + BOTTOM_PAD
-    const current = parseFloat(gutterEl.style.minHeight) || 0
-    if (needed > current) gutterEl.style.minHeight = `${needed}px`
-  }
+  const needed = Math.max(minTop > 0 ? minTop + BOTTOM_PAD : 0, floorHeight)
+  const current = parseFloat(gutterEl.style.minHeight) || 0
+  if (needed > current) gutterEl.style.minHeight = `${needed}px`
 }
 
 function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Editor): void {
   for (const el of gutterEl.querySelectorAll('.ann-card')) el.remove()
 
   const pending = currentSidecar.annotations.filter(a => !a.resolved)
-  if (pending.length === 0) return
+  if (pending.length === 0) {
+    gutterEl.style.minHeight = `${pmView.dom.scrollHeight}px`
+    return
+  }
 
   const wrapper = gutterEl.parentElement
   if (!wrapper) return
-
-  gutterEl.style.minHeight = `${pmView.dom.scrollHeight}px`
 
   const wrapperRect = wrapper.getBoundingClientRect()
 
@@ -602,7 +619,7 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
     gutterEl.appendChild(card)
   }
 
-  repositionCards(gutterEl)
+  repositionCards(gutterEl, pmView.dom.scrollHeight)
   updateFocusedCard()
 
   if (shouldFocusReply && focusedAnnotationId) {
