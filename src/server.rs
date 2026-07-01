@@ -124,7 +124,10 @@ async fn put_folio(State(state): State<AppState>, body: String) -> impl IntoResp
         }
     }
     match tokio::fs::write(&state.folio_path, &body).await {
-        Ok(_) => StatusCode::OK.into_response(),
+        Ok(_) => {
+            let _ = state.tx.send(r#"{"type":"folio:changed"}"#.to_string());
+            StatusCode::OK.into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
