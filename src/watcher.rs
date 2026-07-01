@@ -24,6 +24,11 @@ pub fn start(
     if let Some(parent) = folio_path.parent() {
         watcher.watch(parent, RecursiveMode::NonRecursive)?;
     }
+    // Also watch the folio file directly if it exists — kqueue directory watches
+    // fire only on entry create/delete, not on file content changes.
+    if folio_path.exists() {
+        let _ = watcher.watch(&folio_path, RecursiveMode::NonRecursive);
+    }
 
     tokio::spawn(async move {
         const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -47,7 +52,9 @@ pub fn start(
                     if !skip {
                         let _ = tx.send(r#"{"type":"md:changed"}"#.to_string());
                     }
-                } else if path == &folio_path_clone {
+                } else if path == &folio_path_clone
+                    || folio_path_clone.parent().map_or(false, |p| path == p)
+                {
                     let _ = tx.send(r#"{"type":"folio:changed"}"#.to_string());
                 }
             }
