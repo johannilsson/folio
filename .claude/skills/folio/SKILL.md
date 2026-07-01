@@ -87,13 +87,15 @@ Folio finds your annotation by searching for `context_before + target` in the do
 Write `context_before` and `target` as the text looks to a reader, not as it appears in the raw source. Strip all markdown syntax: heading markers, bold/italic delimiters, list markers, backticks.
 
 ```
-## Introduction         →  context_before: "Introduction"    ✓
-**bold word**           →  target: "bold word"               ✓
-`inline code`           →  target: "inline code"             ✓
+## Introduction                  →  context_before: "Introduction"                  ✓
+**bold word**                    →  target: "bold word"                             ✓
+`inline code`                    →  target: "inline code"                           ✓
+[REF-001](other-doc.md)          →  target: "REF-001"                              ✓
 
-## Introduction         →  context_before: "## Introduction" ✗
-**bold word**           →  target: "**bold word**"           ✗
-`inline code`           →  target: "`inline code`"           ✗
+## Introduction                  →  context_before: "## Introduction"               ✗
+**bold word**                    →  target: "**bold word**"                         ✗
+`inline code`                    →  target: "`inline code`"                         ✗
+[REF-001](other-doc.md)          →  target: "[REF-001](other-doc.md)"              ✗
 ```
 
 The anchoring engine strips markdown from the document before searching, so your plain-text context and target will match even if the document contains heavy formatting.
@@ -203,6 +205,9 @@ The stripped view has no newlines between blocks — they are concatenated direc
 
 **Table cell context includes pipes and padding spaces**
 The CLI anchoring engine (`folio render`) preserves table pipes and the space-padding that aligns columns. Copy `context_before` and `target` exactly from `folio render` output — including the pipes and spaces — rather than guessing at clean cell text. Example: to target `"Lactic bacteria producing THP; irreversible"` in a table row, `context_before` might be `"Mousiness                         | Fault             | "`.
+
+**Inline link syntax in `context_before` or `target`**
+Write only the visible link text, not the markdown `[text](url)` wrapper. `folio render` shows `REF-001` for a `[REF-001](other-doc.md)` link; use that. Writing the raw brackets and URL will cause `folio accept --dry-run` to fail to anchor the annotation.
 
 **Unescaped backslashes in JSON string values**
 Backslashes in text (e.g., in inline code or LaTeX) must be doubled inside JSON strings: `\\` not `\`. A single unescaped backslash is invalid JSON and will make `folio check` fail. Similarly, backtick characters in markdown source (`\``) are just `` ` `` in the rendered text — write them as a literal backtick in the JSON value, not as `\``.
