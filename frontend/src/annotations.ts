@@ -7,6 +7,7 @@ import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
 import { putFolio, postAnchor } from './api'
+import { flushSave } from './editor'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
@@ -182,6 +183,16 @@ function addCommentAnnotation(contextBefore: string, target: string, comment: st
   editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
 
+// ProseMirror's `code` mark excludes all other marks. Strip conflicting marks
+// from text nodes so insertContentAt doesn't throw on combinations like bold+code.
+function sanitizeMarks(node: JSONContent): JSONContent {
+  if (node.content) node = { ...node, content: node.content.map(sanitizeMarks) }
+  if (!node.marks || node.marks.length < 2) return node
+  const hasCode = node.marks.some(m => m.type === 'code')
+  if (hasCode) return { ...node, marks: node.marks.filter(m => m.type === 'code') }
+  return node
+}
+
 function parseReplacementContent(markdown: string, editor: Editor): JSONContent | JSONContent[] {
   try {
     const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
@@ -190,11 +201,12 @@ function parseReplacementContent(markdown: string, editor: Editor): JSONContent 
     // Single paragraph: lift inline nodes out so the replacement doesn't wrap in
     // a new block, and so explicit marks override any inherited surrounding marks.
     if (blocks.length === 1 && blocks[0].type === 'paragraph') {
-      const inlineNodes = (blocks[0].content ?? []) as JSONContent[]
+      const inlineNodes = (blocks[0].content ?? []).map(sanitizeMarks) as JSONContent[]
       if (inlineNodes.length === 0) return { type: 'text', text: '' }
       return inlineNodes.length === 1 ? inlineNodes[0] : inlineNodes
     }
-    return blocks.length === 1 ? blocks[0] : blocks
+    const sanitized = blocks.map(sanitizeMarks)
+    return sanitized.length === 1 ? sanitized[0] : sanitized
   } catch {
     return { type: 'text', text: markdown }
   }
@@ -224,6 +236,7 @@ function applyAccept(ann: Annotation, editor: Editor): void {
     }
   }
   resolveAnnotation(ann, 'accepted', editor)
+  flushSave()
 }
 
 // ─── Annotation keyboard navigation ─────────────────────────────────────────

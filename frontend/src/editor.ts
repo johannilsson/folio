@@ -50,3 +50,12 @@ export function getMarkdown(): string {
 export function getEditor(): Editor | null {
   return editor
 }
+
+export function flushSave(): void {
+  if (!editor) return
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  putFile(decodeHtmlEntities(editor.getMarkdown()))
+}
