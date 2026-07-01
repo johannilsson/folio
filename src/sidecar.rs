@@ -264,6 +264,35 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
                 }
                 continue;
             }
+            // Horizontal rule: "---", "***", "___" or spaced "- - -" etc.
+            // Checked before list markers so "- - -" is caught here rather than as "- " + stray chars.
+            if matches!(ch, '-' | '*' | '_') {
+                let line_end = {
+                    let mut j = i;
+                    while j < n && chars[j].1 != '\n' {
+                        j += 1;
+                    }
+                    j
+                };
+                let is_hr = {
+                    let mut cnt = 0usize;
+                    let mut only_hr = true;
+                    for &(_, c) in &chars[i..line_end] {
+                        if c == ch {
+                            cnt += 1;
+                        } else if c != ' ' {
+                            only_hr = false;
+                            break;
+                        }
+                    }
+                    only_hr && cnt >= 3
+                };
+                if is_hr {
+                    i = line_end;
+                    continue;
+                }
+                // Not a horizontal rule — fall through to list-marker / inline checks.
+            }
             // Unordered list: "- ", "+ "  (and "* " handled below)
             if matches!(ch, '-' | '+') && i + 1 < n && chars[i + 1].1 == ' ' {
                 i += 2;
@@ -289,6 +318,68 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
             // Blockquote: "> "
             if ch == '>' && i + 1 < n && chars[i + 1].1 == ' ' {
                 i += 2;
+                continue;
+            }
+            // Table row: "| cell | cell |"
+            // Alignment rows (|---|---|) are skipped; data rows emit trimmed cell text only.
+            if ch == '|' {
+                let line_end = {
+                    let mut j = i;
+                    while j < n && chars[j].1 != '\n' {
+                        j += 1;
+                    }
+                    j
+                };
+                let is_alignment = {
+                    let line_str: String =
+                        chars[i..line_end].iter().map(|&(_, c)| c).collect();
+                    let inner = line_str.trim_start_matches('|').trim_end_matches('|');
+                    inner.split('|').filter(|c| !c.trim().is_empty()).all(|cell| {
+                        let t = cell.trim();
+                        !t.is_empty() && t.chars().all(|c| matches!(c, '-' | ':'))
+                    })
+                };
+                if is_alignment {
+                    i = line_end;
+                    continue;
+                }
+                // Data row: iterate cells, strip inline markdown from each trimmed cell.
+                let mut cell_start = i + 1; // skip the leading '|'
+                while cell_start <= line_end {
+                    let cell_end = {
+                        let mut j = cell_start;
+                        while j < line_end && chars[j].1 != '|' {
+                            j += 1;
+                        }
+                        j
+                    };
+                    if cell_end > cell_start {
+                        let mut ts = cell_start;
+                        while ts < cell_end && chars[ts].1 == ' ' {
+                            ts += 1;
+                        }
+                        let mut te = cell_end;
+                        while te > ts && chars[te - 1].1 == ' ' {
+                            te -= 1;
+                        }
+                        if te > ts {
+                            let bstart = chars[ts].0;
+                            let bend = if te < n { chars[te].0 } else { doc.len() };
+                            let (is, ip, ir) =
+                                strip_markdown_impl(&doc[bstart..bend], false);
+                            stripped.push_str(&is);
+                            for off in ip {
+                                pos_map.push(bstart + off);
+                            }
+                            raw_spans.extend(ir);
+                        }
+                    }
+                    if cell_end >= line_end {
+                        break;
+                    }
+                    cell_start = cell_end + 1;
+                }
+                i = line_end;
                 continue;
             }
         }
@@ -429,6 +520,25 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
                 i = j.min(n);
             }
             continue;
+        }
+
+        // --- Image: ![alt](url) → emit only the alt text (same as a regular link) ---
+        if ch == '!' && i + 1 < n && chars[i + 1].1 == '[' {
+            let mut j = i + 2;
+            while j < n && chars[j].1 != ']' && chars[j].1 != '\n' {
+                j += 1;
+            }
+            if j < n && chars[j].1 == ']' && j + 1 < n && chars[j + 1].1 == '(' {
+                let mut k = j + 2;
+                while k < n && chars[k].1 != ')' && chars[k].1 != '\n' {
+                    k += 1;
+                }
+                if k < n && chars[k].1 == ')' {
+                    i += 1; // skip '!'; next iteration processes '[alt](url)' as a regular link
+                    continue;
+                }
+            }
+            // Not a valid image pattern — fall through and emit '!' literally.
         }
 
         // --- Markdown link: [text](url) → emit only the link text ---
@@ -886,12 +996,69 @@ mod tests {
 
     #[test]
     fn anchor_chars_no_target_fuzzy_table_spacing() {
-        // Table rows use padding spaces for column alignment; context_before is
-        // typically written with minimal spacing. Fuzzy pass must bridge the gap.
+        // Table pipes and padding are stripped, so a context_before that uses pipes
+        // ("| Orange wine |...") matches the stripped cell text via the exact pass.
         let doc = "| Orange wine    | 1 week – 6 months          | Result |\n| Next row | x | y |";
         let ctx = "| Orange wine | 1 week – 6 months | Result |";
         let (from, to) = anchor_chars(doc, ctx, None).unwrap();
         assert_eq!(from, to); // insert/comment — no range
+    }
+
+    #[test]
+    fn strip_markdown_horizontal_rule_skipped() {
+        let (s, _, _) = strip_markdown("---");
+        assert_eq!(s, "");
+        let (s, _, _) = strip_markdown("***");
+        assert_eq!(s, "");
+        let (s, _, _) = strip_markdown("- - -");
+        assert_eq!(s, "");
+        // Text before and after a horizontal rule is preserved.
+        let (s, _, _) = strip_markdown("Before.\n\n---\n\nAfter.");
+        assert_eq!(s, "Before.After.");
+    }
+
+    #[test]
+    fn strip_markdown_image_emits_alt_only() {
+        let (s, _, _) = strip_markdown("see ![diagram](img.png) here");
+        assert_eq!(s, "see diagram here");
+        // Lone '!' without a valid image pattern is emitted literally.
+        let (s, _, _) = strip_markdown("not an image !");
+        assert_eq!(s, "not an image !");
+    }
+
+    #[test]
+    fn strip_markdown_table_alignment_row_skipped() {
+        let (s, _, _) = strip_markdown("| --- | --- |");
+        assert_eq!(s, "");
+        // Colon-aligned variants are also skipped.
+        let (s, _, _) = strip_markdown("| :---: | ---: |");
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn strip_markdown_table_data_row_extracts_cells() {
+        let (s, map, _) = strip_markdown("| Cell1 | Cell2 |");
+        assert_eq!(s, "Cell1Cell2");
+        // 'C' of Cell1 is at raw byte 2; 'C' of Cell2 is at raw byte 10.
+        assert_eq!(map[0], 2);
+        assert_eq!(map[5], 10);
+    }
+
+    #[test]
+    fn strip_markdown_table_inline_formatting_in_cell() {
+        let (s, _, _) = strip_markdown("| **Bold** | `code` |");
+        assert_eq!(s, "Boldcode");
+    }
+
+    #[test]
+    fn anchor_chars_after_table_correct_char_indices() {
+        // stripped: "Section ACol1Col2ABTarget sentence here."
+        //            9         8      2  21                   = 40 chars total
+        // "AB" ends at char 19; target starts at 19, ends at 40.
+        let doc = "## Section A\n\n| Col1 | Col2 |\n|------|------|\n| A    | B    |\n\nTarget sentence here.";
+        let (from, to) = anchor_chars(doc, "AB", Some("Target sentence here.")).unwrap();
+        assert_eq!(from, 19);
+        assert_eq!(to, 40);
     }
 
     #[test]
