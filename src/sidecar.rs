@@ -382,6 +382,47 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
                 i = line_end;
                 continue;
             }
+            // Fenced code block: ```lang\n...\n``` or ~~~lang\n...\n~~~
+            // Skip the entire block so diagram source (mermaid, plantuml, etc.)
+            // is not included in the stripped text and does not shift offsets.
+            if ch == '`' || ch == '~' {
+                let fence_char = ch;
+                let mut j = i;
+                let mut fence_len = 0usize;
+                while j < n && chars[j].1 == fence_char {
+                    fence_len += 1;
+                    j += 1;
+                }
+                if fence_len >= 3 {
+                    // skip info string / language tag on opening line
+                    while j < n && chars[j].1 != '\n' {
+                        j += 1;
+                    }
+                    // find matching closing fence
+                    'fence: while j < n {
+                        j += 1; // step past '\n'
+                        let mut close_len = 0usize;
+                        while j < n && chars[j].1 == fence_char {
+                            close_len += 1;
+                            j += 1;
+                        }
+                        if close_len >= fence_len {
+                            // skip trailing content on closing fence line
+                            while j < n && chars[j].1 != '\n' {
+                                j += 1;
+                            }
+                            break 'fence;
+                        }
+                        // not a closing fence — skip rest of line
+                        while j < n && chars[j].1 != '\n' {
+                            j += 1;
+                        }
+                    }
+                    i = j;
+                    continue;
+                }
+                // fewer than 3 fence chars — fall through to inline code handler
+            }
         }
 
         // --- Inline code: `text` or ``text`` ---
@@ -1059,6 +1100,32 @@ mod tests {
         let (from, to) = anchor_chars(doc, "AB", Some("Target sentence here.")).unwrap();
         assert_eq!(from, 19);
         assert_eq!(to, 40);
+    }
+
+    #[test]
+    fn strip_markdown_fenced_code_block_skipped() {
+        let (s, _, _) = strip_markdown("```mermaid\ngraph TD\nA --> B\n```");
+        assert_eq!(s, "");
+        // Tilde fences also skipped.
+        let (s, _, _) = strip_markdown("~~~\nsome code\n~~~");
+        assert_eq!(s, "");
+        // Text before and after the block is preserved.
+        let (s, _, _) = strip_markdown("Before.\n\n```\ncode\n```\n\nAfter.");
+        assert_eq!(s, "Before.After.");
+    }
+
+    #[test]
+    fn anchor_chars_after_mermaid_diagram() {
+        // Diagram source must not appear in stripped text so char indices after it are correct.
+        // anchor_chars returns char indices into the stripped text, not byte offsets into doc.
+        let doc = "## Intro\n\n```mermaid\ngraph TD\n    A --> B\n    B --> C\n```\n\nThis sentence follows the diagram.";
+        let (stripped, _, _) = strip_markdown(doc);
+        assert!(!stripped.contains("graph"), "diagram source should be stripped");
+        // stripped = "IntroThis sentence follows the diagram." — 39 chars total
+        let (from, to) = anchor_chars(doc, "Intro", Some("This sentence follows the diagram.")).unwrap();
+        let chars: Vec<char> = stripped.chars().collect();
+        let extracted: String = chars[from..to].iter().collect();
+        assert_eq!(extracted, "This sentence follows the diagram.");
     }
 
     #[test]
