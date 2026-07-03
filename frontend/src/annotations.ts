@@ -104,6 +104,9 @@ const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
 export function buildCharPos(doc: PMNode): number[] {
   const charPos: number[] = []
   doc.descendants((node, pos) => {
+    // Skip code block content — strip_markdown skips fenced blocks too,
+    // so both sides must agree on what counts as rendered text.
+    if (node.type.name === 'codeBlock') return false
     if (node.isText) {
       for (let i = 0; i < node.text!.length; i++) {
         charPos.push(pos + i)
