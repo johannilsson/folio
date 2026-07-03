@@ -51,6 +51,15 @@ pub fn run(
         replies: vec![],
     };
 
+    let content = std::fs::read_to_string(file)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
+    if annotation.anchor(&content).is_none() {
+        anyhow::bail!(
+            "annotation cannot be anchored: context_before + target not found in {}",
+            file.display()
+        );
+    }
+
     sidecar.annotations.push(annotation);
     sidecar.save(&folio_path)?;
     println!("{}", id);

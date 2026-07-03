@@ -1,6 +1,7 @@
 use crate::sidecar::Sidecar;
 use std::path::Path;
 use std::process;
+use serde_json::json;
 
 fn warn_adjacent_sidecar(file: &Path, folio_path: &Path) {
     let ext = file.extension().unwrap_or_default().to_string_lossy();
@@ -21,32 +22,52 @@ fn warn_adjacent_sidecar(file: &Path, folio_path: &Path) {
 pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
     let folio_path = super::folio_path(file);
     warn_adjacent_sidecar(file, &folio_path);
-    match Sidecar::load(&folio_path) {
-        Ok(s) => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "valid": true,
-                        "annotations": s.annotations.len()
-                    })
-                );
-            } else {
-                println!(
-                    "{}  valid  ({} annotations)",
-                    folio_path.display(),
-                    s.annotations.len()
-                );
-            }
-            Ok(())
-        }
+    let s = match Sidecar::load(&folio_path) {
+        Ok(s) => s,
         Err(e) => {
             if json {
-                println!("{}", serde_json::json!({ "valid": false, "error": e.to_string() }));
+                println!("{}", json!({ "valid": false, "error": e.to_string() }));
             } else {
                 eprintln!("error: {}", e);
             }
             process::exit(3);
         }
+    };
+
+    // Check that every unresolved annotation can anchor in the source document.
+    let unanchorable: Vec<(String, String)> = if let Ok(content) = std::fs::read_to_string(file) {
+        s.annotations
+            .iter()
+            .filter(|a| !a.resolved && a.anchor(&content).is_none())
+            .map(|a| (a.id.clone(), a.kind.to_string()))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    if unanchorable.is_empty() {
+        if json {
+            println!("{}", json!({ "valid": true, "annotations": s.annotations.len() }));
+        } else {
+            println!(
+                "{}  valid  ({} annotations)",
+                folio_path.display(),
+                s.annotations.len()
+            );
+        }
+        Ok(())
+    } else {
+        if json {
+            let ids: Vec<&str> = unanchorable.iter().map(|(id, _)| id.as_str()).collect();
+            println!(
+                "{}",
+                json!({ "valid": false, "annotations": s.annotations.len(), "unanchorable": ids })
+            );
+        } else {
+            for (id, kind) in &unanchorable {
+                eprintln!("error: {} ({}): cannot anchor — context_before + target not found in rendered document", id, kind);
+            }
+        }
+        process::exit(3);
     }
 }
