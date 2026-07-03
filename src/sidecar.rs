@@ -1129,6 +1129,30 @@ mod tests {
     }
 
     #[test]
+    fn anchor_chars_repro_italic_target_across_bullet_boundary() {
+        // Reproducer from bug report: replace annotation whose target contains
+        // *primary* (italic) and whose context_before ends at the previous bullet.
+        let doc = "# Repro\n\n### Section\n\n\
+- Bullet Alpha ends with the word widget because the widget layer is what matters, not the wrapper by itself.\n\
+- Bullet Beta describes the *primary* control path and how it interacts with the wrapper before any downstream call. Without this ordering, a stale wrapper could cause the first call after startup to fail against the widget once the switch to *primary* has happened.\n\
+- Bullet Gamma plans for the eventual widget change.";
+
+        let context_before = "the widget layer is what matters, not the wrapper by itself.";
+        let target = "Bullet Beta describes the *primary* control path and how it interacts with the wrapper before any downstream call. Without this ordering, a stale wrapper could cause the first call after startup to fail against the widget once the switch to *primary* has happened.";
+
+        let (stripped, _, _) = strip_markdown(doc);
+        let (from_ci, to_ci) = anchor_chars(doc, context_before, Some(target)).unwrap();
+        let chars: Vec<char> = stripped.chars().collect();
+
+        // from_ci must land on 'B' of "Bullet Beta", not somewhere inside Bullet Alpha.
+        assert_eq!(chars[from_ci], 'B', "from_ci={} should be 'B' (start of Bullet Beta), got '{}'", from_ci, chars[from_ci]);
+        let extracted: String = chars[from_ci..to_ci].iter().collect();
+        // The extracted range should match the stripped target (asterisks removed).
+        let expected = "Bullet Beta describes the primary control path and how it interacts with the wrapper before any downstream call. Without this ordering, a stale wrapper could cause the first call after startup to fail against the widget once the switch to primary has happened.";
+        assert_eq!(extracted, expected);
+    }
+
+    #[test]
     fn anchor_chars_returns_none_on_no_match() {
         let result = anchor_chars("Hello world", "missing ", Some("text"));
         assert!(result.is_none());
