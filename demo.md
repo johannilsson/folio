@@ -63,7 +63,7 @@ For red wines and some whites, extended skin contact extracts tannin, colour, an
 
 ## Cellar Work
 
-The cellar philosophy is restraint. The winemaker's job is to not get in the way.
+The cellar philosophy is restraint. 
 
 - **Vessel choice**: clay amphorae, old oak, or stainless. New oak masks the fruit.
 - **No fining**: egg whites, bentonite, and isinglass are all excluded.

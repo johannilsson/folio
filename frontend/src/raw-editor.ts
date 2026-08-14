@@ -1,56 +1,26 @@
-import { EditorState, StateField, StateEffect, Annotation as CmTxAnnotation } from '@codemirror/state'
-import { EditorView, Decoration } from '@codemirror/view'
-import type { DecorationSet, ViewUpdate } from '@codemirror/view'
+import { EditorState, Annotation as CmTxAnnotation } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import type { ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
-import type { Annotation as FolioAnnotation } from './api'
-import { putFile, postAnchorRaw } from './api'
-import { getSidecar } from './annotations'
+import { putFile } from './api'
+import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor } from './raw-annotations'
 
 // Marks a transaction as a programmatic content replacement (setRawContent),
 // as opposed to a real user keystroke — the CM6 analog of Tiptap's
 // `emitUpdate: false`, so the save listener never re-saves/loops on it.
 const externalUpdate = CmTxAnnotation.define<boolean>()
 
-interface RawAnchor {
-  from: number
-  to: number
-  kind: FolioAnnotation['kind']
-}
-
-const setAnnotationDecos = StateEffect.define<RawAnchor[]>()
-
-function cssClassFor(kind: FolioAnnotation['kind']): string {
-  switch (kind) {
-    case 'delete':
-    case 'replace':
-      return 'cm-ann-delete'
-    case 'comment':
-      return 'cm-ann-comment-target'
-    case 'highlight':
-    default:
-      return 'cm-ann-highlight'
-  }
-}
-
-const annotationField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(decos, tr) {
-    decos = decos.map(tr.changes)
-    for (const e of tr.effects) {
-      if (e.is(setAnnotationDecos)) {
-        const marks = e.value
-          .filter(a => a.from !== a.to)
-          .map(a => Decoration.mark({ class: cssClassFor(a.kind) }).range(a.from, a.to))
-        decos = Decoration.set(marks, true)
-      }
-    }
-    return decos
-  },
-  provide: f => EditorView.decorations.from(f),
+// CM6 scrolls internally by default (.cm-scroller{overflow:auto}). The gutter
+// needs to scroll in lockstep with the text (CLAUDE.md's documented gutter
+// pattern), so #raw-editor-wrapper is the real scroll container instead.
+const nonScrollingTheme = EditorView.theme({
+  '&': { height: 'auto' },
+  '.cm-scroller': { overflow: 'visible' },
 })
 
 let view: EditorView | null = null
+let wrapperEl: HTMLElement | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function updateListener(update: ViewUpdate): void {
@@ -65,19 +35,34 @@ function updateListener(update: ViewUpdate): void {
 
 export function initRawEditor(container: HTMLElement, initialContent: string): void {
   if (view) return
+
+  const wrapper = document.createElement('div')
+  wrapper.id = 'raw-editor-wrapper'
+  const mount = document.createElement('div')
+  mount.id = 'raw-editor-mount'
+  const gutter = document.createElement('div')
+  gutter.id = 'raw-annotation-gutter'
+  wrapper.appendChild(mount)
+  wrapper.appendChild(gutter)
+  container.appendChild(wrapper)
+  wrapperEl = wrapper
+
   view = new EditorView({
-    parent: container,
+    parent: mount,
     state: EditorState.create({
       doc: initialContent,
       extensions: [
         basicSetup,
         markdown(),
         EditorView.lineWrapping,
-        annotationField,
+        nonScrollingTheme,
+        ...rawAnnotationExtensions(),
         EditorView.updateListener.of(updateListener),
       ],
     }),
   })
+
+  mountRawGutter(view, wrapper, gutter)
 }
 
 export function setRawContent(content: string): void {
@@ -102,28 +87,10 @@ export function flushRawSave(): void {
   putFile(view.state.doc.toString())
 }
 
-export function getRawScrollDOM(): HTMLElement | null {
-  return view?.scrollDOM ?? null
+export function getRawWrapperEl(): HTMLElement | null {
+  return wrapperEl
 }
 
 export function refreshRawAnnotations(): void {
-  if (!view) return
-  const pending = getSidecar().annotations.filter(a => !a.resolved)
-  if (pending.length === 0) {
-    view.dispatch({ effects: setAnnotationDecos.of([]) })
-    return
-  }
-  const items = pending.map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
-  postAnchorRaw(items).then(results => {
-    if (!view) return
-    const byId = new Map(results.map(r => [r.id, r]))
-    const anchors: RawAnchor[] = []
-    for (const ann of pending) {
-      const r = byId.get(ann.id)
-      if (r?.char_from != null && r?.char_to != null) {
-        anchors.push({ from: r.char_from, to: r.char_to, kind: ann.kind })
-      }
-    }
-    view.dispatch({ effects: setAnnotationDecos.of(anchors) })
-  })
+  if (view) refreshRawAnnotationsFor(view)
 }

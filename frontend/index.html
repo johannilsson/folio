@@ -327,9 +327,22 @@
     }
     #raw-pane[hidden] { display: none; }
 
-    #raw-pane .cm-editor {
+    /* Editor + gutter side by side, scrolling together — mirrors #editor-wrapper */
+    #raw-editor-wrapper {
       flex: 1;
-      height: 100%;
+      display: flex;
+      align-items: flex-start;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    #raw-editor-mount {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #raw-pane .cm-editor {
+      outline: none;
     }
     #raw-pane .cm-scroller {
       font-family: 'SF Mono', 'Fira Code', monospace;
@@ -414,6 +427,10 @@
     .tiptap .ann-insert-preview *, .tiptap .ann-replace-preview *,
     .tiptap .ann-delete *, .tiptap .ann-comment-target *, .tiptap .ann-highlight * { color: inherit; }
 
+    /* Same, for the CM6 raw pane — .ann-insert-preview/.ann-replace-preview
+       reused as-is there (see below), so they need the same override. */
+    #raw-pane .ann-insert-preview *, #raw-pane .ann-replace-preview * { color: inherit; }
+
     /* ── CM6 raw-pane annotation decorations (read-only) ──
        No `padding` here (unlike the .ann-* classes above): padding on an
        arbitrary sub-line range can shift character alignment/line-wrapping
@@ -443,7 +460,7 @@
 
     /* ── Annotation gutter (scrolls with document) ── */
 
-    #annotation-gutter {
+    #annotation-gutter, #raw-annotation-gutter {
       width: 280px;
       flex-shrink: 0;
       position: relative;
@@ -869,10 +886,10 @@
         </div>
         <span id="filename-display"></span>
       </div>
-      <div id="editor-wrapper">
+      <div id="editor-wrapper" hidden>
         <div id="editor-tiptap"></div>
       </div>
-      <div id="raw-pane" hidden></div>
+      <div id="raw-pane"></div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

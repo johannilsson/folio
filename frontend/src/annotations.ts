@@ -163,7 +163,7 @@ export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): 
   editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'resolve', id: ann.id }))
 }
 
-function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): void {
+export function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): void {
   const ann: Annotation = {
     id: `ann-${Date.now()}`,
     kind: 'comment',
@@ -281,7 +281,7 @@ function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
 
 // ─── Inline decorations ───────────────────────────────────────────────────────
 
-function renderMarkdownContent(markdown: string, editor: Editor): Node {
+export function renderMarkdownContent(markdown: string, editor: Editor): Node {
   try {
     const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
     const json = mgr.manager.parse(markdown)
@@ -302,7 +302,7 @@ function resolveAfterBlock(doc: PMNode, pos: number): number {
   return $pos.depth > 0 ? $pos.after(1) : clamped
 }
 
-function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
+export function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
   const tempDiv = document.createElement('div')
   tempDiv.appendChild(renderMarkdownContent(replacement, editor))
 
@@ -411,7 +411,7 @@ function buildDecosFromAnchors(
 
 // ─── Gutter cards ─────────────────────────────────────────────────────────────
 
-function formatBody(ann: Annotation): string {
+export function formatBody(ann: Annotation): string {
   const t = (s: string, max = 60) => {
     const flat = s.replace(/\n/g, ' ')
     return flat.length > max ? flat.slice(0, max) + '…' : flat
@@ -430,11 +430,11 @@ function formatBody(ann: Annotation): string {
   }
 }
 
-function formatTime(iso: string): string {
+export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function makeHeader(ann: Annotation): HTMLElement {
+export function makeHeader(ann: Annotation): HTMLElement {
   const header = document.createElement('div')
   header.className = 'ann-card-header'
   const author = document.createElement('strong')
@@ -596,7 +596,7 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
   return card
 }
 
-function repositionCards(gutterEl: HTMLElement, floorHeight = 0): void {
+export function repositionCards(gutterEl: HTMLElement, floorHeight = 0): void {
   const items = Array.from(gutterEl.querySelectorAll<HTMLElement>('.ann-card, .cf-gutter-form'))
   items.sort((a, b) => parseFloat(a.dataset.anchorFrom ?? '0') - parseFloat(b.dataset.anchorFrom ?? '0'))
 

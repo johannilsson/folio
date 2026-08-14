@@ -4,7 +4,7 @@ import { initEditor, setContent, getEditor } from './editor'
 import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawScrollDOM } from './raw-editor'
+import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -22,7 +22,10 @@ async function boot(): Promise<void> {
   on('md:changed', async () => {
     const content = await getFile()
     setContent(content)
-    if (!rawPane.hidden) setRawContent(content)
+    if (!rawPane.hidden) {
+      setRawContent(content)
+      refreshRawAnnotations()
+    }
   })
 
   on('folio:changed', async () => {
@@ -62,12 +65,16 @@ async function boot(): Promise<void> {
     sourceBtn.classList.toggle('active', activeBtn === sourceBtn)
   }
 
-  requestAnimationFrame(() => positionThumb(previewBtn, false))
+  // Default to source/raw mode — CM6 edits the file directly with no
+  // reformat-on-save round trip, so it's the primary editing surface now.
+  initRawEditor(rawPane, initialContent)
+  refreshRawAnnotations()
+  requestAnimationFrame(() => positionThumb(sourceBtn, false))
 
   previewBtn.addEventListener('click', () => {
     if (!rawPane.hidden) {
-      const scrollDOM = getRawScrollDOM()
-      const fraction = scrollDOM ? scrollDOM.scrollTop / (scrollDOM.scrollHeight - scrollDOM.clientHeight || 1) : 0
+      const wrapperEl = getRawWrapperEl()
+      const fraction = wrapperEl ? wrapperEl.scrollTop / (wrapperEl.scrollHeight - wrapperEl.clientHeight || 1) : 0
       flushRawSave()
       const ed = getEditor()!
       // emitUpdate: false — switching to preview must be a pure render step,
@@ -94,8 +101,8 @@ async function boot(): Promise<void> {
         editorWrapper.hidden = true
         rawPane.hidden = false
         refreshRawAnnotations()
-        const scrollDOM = getRawScrollDOM()
-        if (scrollDOM) scrollDOM.scrollTop = fraction * (scrollDOM.scrollHeight - scrollDOM.clientHeight)
+        const wrapperEl = getRawWrapperEl()
+        if (wrapperEl) wrapperEl.scrollTop = fraction * (wrapperEl.scrollHeight - wrapperEl.clientHeight)
       })
     }
     positionThumb(sourceBtn)
