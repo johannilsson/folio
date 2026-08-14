@@ -87,13 +87,22 @@ impl Annotation {
     ///
     /// For `insert`/`comment` (no target) both values are the same insertion point.
     pub fn anchor(&self, doc: &str) -> Option<(usize, usize)> {
-        // Decode HTML entities from annotation values so that agents who copied
-        // raw entity text (e.g. &amp;) match the same way as agents who used the
-        // rendered output (e.g. &).
-        let ctx_decoded = decode_html_entities(&self.context_before);
-        let tgt_decoded = self.target.as_ref().map(|t| decode_html_entities(t));
-        let has_entities = ctx_decoded != self.context_before
-            || tgt_decoded.as_deref() != self.target.as_deref();
+        anchor_raw_bytes(doc, &self.context_before, self.target.as_deref())
+    }
+}
+
+/// Search `doc` for `context_before` + `target`, returning `(raw_start, raw_end)`
+/// byte offsets into `doc`. Shared by `Annotation::anchor` (CLI patching) and
+/// `anchor_raw_chars` (browser raw-mode anchoring) so both work off the same
+/// proven 4-pass matcher without requiring a full `Annotation` in hand.
+fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    // Decode HTML entities from annotation values so that agents who copied
+    // raw entity text (e.g. &amp;) match the same way as agents who used the
+    // rendered output (e.g. &).
+    let ctx_decoded = decode_html_entities(context_before);
+    let tgt_decoded = target.map(decode_html_entities);
+    let has_entities =
+        ctx_decoded != context_before || tgt_decoded.as_deref() != target;
 
         let doc_lower = doc.to_lowercase();
         let ctx = ctx_decoded.to_lowercase();
@@ -213,6 +222,17 @@ impl Annotation {
             }
         }
     }
+
+/// Char-offset variant of `anchor_raw_bytes`, for the browser's CM6 raw-mode editor.
+/// Like `anchor_raw_bytes`, but converts the result to **char** indices (JS
+/// string offsets are per-code-unit, not per-byte) into the raw, unstripped
+/// `doc` — i.e. offsets that cover the literal source text including `**`,
+/// `#`, list markers, table pipes, etc.
+pub fn anchor_raw_chars(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    let (byte_from, byte_to) = anchor_raw_bytes(doc, context_before, target)?;
+    let char_from = doc[..byte_from].chars().count();
+    let char_to = char_from + doc[byte_from..byte_to].chars().count();
+    Some((char_from, char_to))
 }
 
 /// Strip inline and block-level markdown markers from `doc`, returning:
@@ -1033,6 +1053,31 @@ mod tests {
         let (from, to) = anchor_chars(doc, "see ", Some("[REF-001](docs/other.md) for details")).unwrap();
         assert_eq!(from, 4);
         assert_eq!(to, 23);
+    }
+
+    #[test]
+    fn anchor_raw_chars_returns_raw_char_indices() {
+        // Unlike anchor_chars, markdown syntax counts toward the offsets: the
+        // returned range covers the literal raw text "target", including the
+        // fact that context_before itself contains "## " and "**".
+        let doc = "## Heading\n\nThe **target** sentence here.";
+        let (from, to) = anchor_raw_chars(doc, "## Heading\n\nThe **", Some("target")).unwrap();
+        assert_eq!(from, 18);
+        assert_eq!(to, 24);
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, "target");
+    }
+
+    #[test]
+    fn anchor_raw_chars_handles_multibyte_before_target() {
+        // Regression guard for byte-vs-char: a multibyte café/em-dash prefix
+        // must not throw off char indices the way raw byte offsets would.
+        let doc = "café — the target word";
+        let (from, to) = anchor_raw_chars(doc, "café — the ", Some("target")).unwrap();
+        assert_eq!(from, "café — the ".chars().count());
+        assert_eq!(to, from + "target".chars().count());
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, "target");
     }
 
     #[test]

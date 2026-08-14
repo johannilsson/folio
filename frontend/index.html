@@ -327,17 +327,25 @@
     }
     #raw-pane[hidden] { display: none; }
 
-    #raw-pane textarea {
+    #raw-pane .cm-editor {
       flex: 1;
-      padding: 2rem;
-      background: var(--bg);
-      color: var(--text-raw);
+      height: 100%;
+    }
+    #raw-pane .cm-scroller {
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 13px;
       line-height: 1.6;
+    }
+    #raw-pane .cm-content {
+      padding: 2rem 2rem 2rem 0;
+      background: var(--bg);
+      color: var(--text-raw);
+    }
+    #raw-pane .cm-gutters {
+      background: var(--bg);
       border: none;
-      outline: none;
-      resize: none;
+      color: var(--border-mid);
+      padding-left: 1rem;
     }
 
     /* ── Annotation decorations (inline) ── */
@@ -405,6 +413,33 @@
        Needs .tiptap parent to beat .tiptap strong/a/blockquote (specificity 0,1,1). */
     .tiptap .ann-insert-preview *, .tiptap .ann-replace-preview *,
     .tiptap .ann-delete *, .tiptap .ann-comment-target *, .tiptap .ann-highlight * { color: inherit; }
+
+    /* ── CM6 raw-pane annotation decorations (read-only) ──
+       No `padding` here (unlike the .ann-* classes above): padding on an
+       arbitrary sub-line range can shift character alignment/line-wrapping
+       in CM6's monospace line-rendering model, which prose spans don't hit. */
+
+    .cm-ann-delete {
+      background: var(--ann-del-bg);
+      text-decoration: line-through;
+      text-decoration-color: var(--ann-del-bdr);
+      color: var(--ann-del-text);
+      border-bottom: 2px solid var(--ann-del-bdr);
+      border-radius: 3px;
+    }
+
+    .cm-ann-highlight {
+      text-decoration: underline dotted var(--ann-hi);
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+      border-radius: 3px;
+    }
+
+    .cm-ann-comment-target {
+      background: var(--ann-com-bg);
+      border-bottom: 2px solid var(--ann-com-bdr);
+      border-radius: 3px;
+    }
 
     /* ── Annotation gutter (scrolls with document) ── */
 
@@ -837,9 +872,7 @@
       <div id="editor-wrapper">
         <div id="editor-tiptap"></div>
       </div>
-      <div id="raw-pane" hidden>
-        <textarea spellcheck="false" placeholder="Markdown source…"></textarea>
-      </div>
+      <div id="raw-pane" hidden></div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

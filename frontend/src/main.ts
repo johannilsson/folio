@@ -1,9 +1,10 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
-import { initEditor, setContent, getEditor, getMarkdown } from './editor'
+import { initEditor, setContent, getEditor } from './editor'
 import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
+import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawScrollDOM } from './raw-editor'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -21,20 +22,23 @@ async function boot(): Promise<void> {
   on('md:changed', async () => {
     const content = await getFile()
     setContent(content)
+    if (!rawPane.hidden) setRawContent(content)
   })
 
   on('folio:changed', async () => {
     const updated = await getFolio()
     const isEcho = updateSidecar(updated)
     const ed = getEditor()
-    if (!ed) return
-    if (isEcho) {
-      // Our own PUT echoed back — positions already tracked via tr.mapping; just rebuild gutter.
-      ed.view.dispatch(ed.state.tr)
-    } else {
-      // Genuine external update (new agent annotations) — re-anchor from scratch.
-      triggerSidecarUpdate(ed)
+    if (ed) {
+      if (isEcho) {
+        // Our own PUT echoed back — positions already tracked via tr.mapping; just rebuild gutter.
+        ed.view.dispatch(ed.state.tr)
+      } else {
+        // Genuine external update (new agent annotations) — re-anchor from scratch.
+        triggerSidecarUpdate(ed)
+      }
     }
+    if (!rawPane.hidden && !isEcho) refreshRawAnnotations()
   })
 
   // Follow OS color scheme for mermaid diagrams
@@ -48,7 +52,6 @@ async function boot(): Promise<void> {
   const sourceBtn = document.getElementById('view-toggle-source') as HTMLButtonElement
   const editorWrapper = document.getElementById('editor-wrapper')!
   const rawPane = document.getElementById('raw-pane')!
-  const rawTextarea = rawPane.querySelector('textarea') as HTMLTextAreaElement
 
   function positionThumb(activeBtn: HTMLButtonElement, animate = true) {
     if (!animate) thumb.style.transition = 'none'
@@ -63,9 +66,14 @@ async function boot(): Promise<void> {
 
   previewBtn.addEventListener('click', () => {
     if (!rawPane.hidden) {
-      const fraction = rawTextarea.scrollTop / (rawTextarea.scrollHeight - rawTextarea.clientHeight || 1)
+      const scrollDOM = getRawScrollDOM()
+      const fraction = scrollDOM ? scrollDOM.scrollTop / (scrollDOM.scrollHeight - scrollDOM.clientHeight || 1) : 0
+      flushRawSave()
       const ed = getEditor()!
-      ed.commands.setContent(rawTextarea.value, { contentType: 'markdown' })
+      // emitUpdate: false — switching to preview must be a pure render step,
+      // never a save trigger (Tiptap's onUpdate would otherwise re-serialize
+      // and reformat the whole file the moment you switch back).
+      ed.commands.setContent(getRawContent(), { contentType: 'markdown', emitUpdate: false })
       editorWrapper.hidden = false
       rawPane.hidden = true
       triggerContentReplaced(ed)
@@ -80,10 +88,15 @@ async function boot(): Promise<void> {
   sourceBtn.addEventListener('click', () => {
     if (rawPane.hidden) {
       const fraction = editorWrapper.scrollTop / (editorWrapper.scrollHeight - editorWrapper.clientHeight || 1)
-      rawTextarea.value = getMarkdown()
-      editorWrapper.hidden = true
-      rawPane.hidden = false
-      rawTextarea.scrollTop = fraction * (rawTextarea.scrollHeight - rawTextarea.clientHeight)
+      getFile().then(content => {
+        initRawEditor(rawPane, content)
+        setRawContent(content)
+        editorWrapper.hidden = true
+        rawPane.hidden = false
+        refreshRawAnnotations()
+        const scrollDOM = getRawScrollDOM()
+        if (scrollDOM) scrollDOM.scrollTop = fraction * (scrollDOM.scrollHeight - scrollDOM.clientHeight)
+      })
     }
     positionThumb(sourceBtn)
   })

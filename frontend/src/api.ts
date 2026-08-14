@@ -39,6 +39,13 @@ export const postAnchor = (items: AnchorRequestItem[]): Promise<AnchorResultItem
     body: JSON.stringify(items),
   }).then(r => r.json())
 
+export const postAnchorRaw = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
+  fetch('/api/anchor-raw', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  }).then(r => r.json())
+
 export interface ThreadReply {
   id: string
   author: string
