@@ -52,12 +52,14 @@ sequenceDiagram
 
 For red wines and some whites, extended skin contact extracts tannin, colour, and texture. Orange wines — whites fermented with skins — can macerate for anywhere from a few days to several months.
 
-| Style | Maceration | Result |
-|---|---|---|
-| Light red | 5–10 days | Fresh, low tannin |
-| Structured red | 20–40 days | Grip, ageing potential |
-| Orange wine | 1 week – 6 months | Amber colour, texture, phenolic bite |
-| Pét-nat | None (bottled mid-ferment) | Sparkling, hazy, low alcohol |
+
+| Style          | Maceration                 | Result                               |
+| -------------- | -------------------------- | ------------------------------------ |
+| Light red      | 5–10 days                  | Fresh, low tannin                    |
+| Structured red | 20–40 days                 | Grip, ageing potential               |
+| Orange wine    | 1 week – 6 months          | Amber colour, texture, phenolic bite |
+| Pét-nat        | None (bottled mid-ferment) | Sparkling, hazy, low alcohol         |
+
 
 ## Cellar Work
 
@@ -104,14 +106,16 @@ PN --> F5
 
 Natural wine tolerates a degree of variation that would be considered defective in conventional wine. Knowing the difference between a fault and a feature is part of the experience.
 
-| Characteristic | Feature or fault? | Notes |
-|---|---|---|
-| Light haze | Feature | Unfined/unfiltered; harmless |
-| Slight petillance in a still wine | Usually feature | Residual CO₂ from fermentation |
-| Volatile acidity (vinegar note) | Fault if dominant | A hint adds complexity; pronounced VA is a flaw |
-| Mousiness | Fault | Lactic bacteria producing THP; irreversible |
-| Oxidation | Context-dependent | Intentional in some styles (Jura); unintentional elsewhere |
-| Sediment | Feature | Lees and tartrates; decant or embrace |
+
+| Characteristic                    | Feature or fault? | Notes                                                      |
+| --------------------------------- | ----------------- | ---------------------------------------------------------- |
+| Light haze                        | Feature           | Unfined/unfiltered; harmless                               |
+| Slight petillance in a still wine | Usually feature   | Residual CO₂ from fermentation                             |
+| Volatile acidity (vinegar note)   | Fault if dominant | A hint adds complexity; pronounced VA is a flaw            |
+| Mousiness                         | Fault             | Lactic bacteria producing THP; irreversible                |
+| Oxidation                         | Context-dependent | Intentional in some styles (Jura); unintentional elsewhere |
+| Sediment                          | Feature           | Lees and tartrates; decant or embrace                      |
+
 
 ## Serving
 
