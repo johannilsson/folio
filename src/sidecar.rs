@@ -194,8 +194,12 @@ fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Op
 
                 // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
                 // then search again with a warning when this fallback is used.
-                let norm_ctx = normalize_for_fuzzy(&ctx_stripped_lower);
-                let norm_tgt = normalize_for_fuzzy(&tgt_stripped_lower);
+                // Also strip a stray leading/trailing table pipe: context_before
+                // can end mid-row (e.g. "...text |") without the row's own "|"
+                // prefix, so strip_markdown never recognizes it as table syntax
+                // and leaves the pipe (and its padding space) in place.
+                let norm_ctx = normalize_for_fuzzy(strip_trailing_table_pipe(&ctx_stripped_lower));
+                let norm_tgt = normalize_for_fuzzy(strip_leading_table_pipe(&tgt_stripped_lower));
                 let norm_ctx_chars = norm_ctx.chars().count();
                 let norm_tgt_chars = norm_tgt.chars().count();
                 let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
@@ -838,6 +842,29 @@ pub fn anchor_chars(
 
 
 /// Strips formatting markers and collapses whitespace runs to a single space.
+/// Strips a stray trailing "|" (and any padding space before it) — the
+/// closing pipe of a table row that ended up in context_before without the
+/// leading "|" strip_markdown needs to recognize it as table syntax in the
+/// first place. Leaves ordinary trailing whitespace (e.g. a context_before
+/// ending "Some ") untouched — only strings that actually end in "|" are
+/// affected.
+fn strip_trailing_table_pipe(s: &str) -> &str {
+    let trimmed = s.trim_end();
+    match trimmed.strip_suffix('|') {
+        Some(without_pipe) => without_pipe.trim_end(),
+        None => s,
+    }
+}
+
+/// Mirror of `strip_trailing_table_pipe`, for a stray leading "|".
+fn strip_leading_table_pipe(s: &str) -> &str {
+    let trimmed = s.trim_start();
+    match trimmed.strip_prefix('|') {
+        Some(without_pipe) => without_pipe.trim_start(),
+        None => s,
+    }
+}
+
 fn normalize_for_fuzzy(s: &str) -> String {
     let mut out = String::new();
     let mut last_space = false;
@@ -1099,6 +1126,23 @@ mod tests {
         let ctx = "| Orange wine | 1 week – 6 months | Result |";
         let (from, to) = anchor_raw_chars(doc, ctx, None).unwrap();
         assert_eq!(from, to); // comment/insert — insertion point, no range
+    }
+
+    #[test]
+    fn anchor_raw_chars_context_ends_mid_table_row_stray_trailing_pipe() {
+        // Regression for ann_demo005: context_before ends with the closing "|"
+        // of the PREVIOUS table row ("...is a flaw |\n") but doesn't start with
+        // "|" itself, so strip_markdown never enters table-row parsing for that
+        // fragment and leaves the pipe (plus its padding space) in place —
+        // mismatching the fully-stripped document, which has zero characters
+        // between "flaw" and the next row's first cell.
+        let doc = "| A | B | pronounced VA is a flaw |\n\
+                   | Mousiness | Fault | Lactic bacteria producing THP; irreversible |\n";
+        let ctx = "pronounced VA is a flaw |\n";
+        let target = "| Mousiness | Fault | Lactic bacteria producing THP; irreversible |";
+        let (from, to) = anchor_raw_chars(doc, ctx, Some(target)).unwrap();
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, target);
     }
 
     #[test]
