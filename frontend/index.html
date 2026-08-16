@@ -47,6 +47,7 @@
       --ann-hi: rgb(247,253,73);
       --ann-com-bg: rgba(250,204,21,.28);
       --ann-com-bdr: rgba(250,204,21,.9);
+      --cm-selection: rgba(125,211,252,.25);
     }
 
     @media (prefers-color-scheme: light) {
@@ -90,6 +91,7 @@
         --ann-hi: rgb(202,138,4);
         --ann-com-bg: rgba(250,204,21,.18);
         --ann-com-bdr: rgba(250,204,21,.7);
+        --cm-selection: rgba(37,99,235,.18);
       }
     }
 
@@ -343,15 +345,21 @@
 
     #raw-pane .cm-editor {
       outline: none;
+      background: var(--bg);
     }
     #raw-pane .cm-scroller {
       font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 13px;
       line-height: 1.6;
     }
+    /* No `background` here deliberately: .cm-content is a flex sibling of
+       .cm-selectionLayer/.cm-cursorLayer (not their parent), and CM6 relies
+       on .cm-content staying transparent so those layers, rendered behind
+       it, show through. An opaque background here paints over the selection
+       highlight entirely — that's what was making it invisible. The editor
+       background lives on #raw-pane .cm-editor above instead. */
     #raw-pane .cm-content {
       padding: 2rem 2rem 2rem 0;
-      background: var(--bg);
       color: var(--text-raw);
     }
     #raw-pane .cm-gutters {
@@ -359,6 +367,15 @@
       border: none;
       color: var(--border-mid);
       padding-left: 1rem;
+    }
+
+    /* CM6's built-in selection color is hardcoded for a light background
+       (#d9d9d9/#d7d4f0) since it's never told our app is dark by default —
+       nearly invisible against --bg here. Override with a themed color that
+       works in both modes, beating CM6's rule via the #raw-pane id selector. */
+    #raw-pane .cm-selectionBackground,
+    #raw-pane .cm-focused .cm-selectionBackground {
+      background: var(--cm-selection) !important;
     }
 
     /* ── Annotation decorations (inline) ── */

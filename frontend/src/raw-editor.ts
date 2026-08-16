@@ -5,6 +5,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
 import { putFile } from './api'
 import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor } from './raw-annotations'
+import { rawFormattingKeymap } from './raw-formatting'
 
 // Marks a transaction as a programmatic content replacement (setRawContent),
 // as opposed to a real user keystroke — the CM6 analog of Tiptap's
@@ -56,6 +57,7 @@ export function initRawEditor(container: HTMLElement, initialContent: string): v
         markdown(),
         EditorView.lineWrapping,
         nonScrollingTheme,
+        rawFormattingKeymap(),
         ...rawAnnotationExtensions(),
         EditorView.updateListener.of(updateListener),
       ],
