@@ -2,10 +2,12 @@ import { StateField, StateEffect } from '@codemirror/state'
 import type { Extension, Range } from '@codemirror/state'
 import { EditorView, Decoration, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
+import { invertedEffects, isolateHistory } from '@codemirror/commands'
 import type { Annotation as FolioAnnotation, Sidecar, ThreadReply } from './api'
 import { postAnchorRaw, putFolio, putFile } from './api'
 import {
   getSidecar,
+  updateSidecar,
   resolveAnnotation,
   addCommentAnnotation,
   repositionCards,
@@ -16,6 +18,64 @@ import {
   buildPreviewEl,
 } from './annotations'
 import { getEditor } from './editor'
+
+// ─── Undo/redo for sidecar-side action effects ─────────────────────────────
+// CM6's own history already undoes text edits for free. Accept/reject/resolve/
+// comment/reply also mutate the .folio sidecar outside CM6's document model —
+// this makes that mutation ride along with the same undo/redo step via
+// invertedEffects, confirmed (by reading @codemirror/commands' source) to
+// record effect-only transactions (e.g. reject, which has no text change) in
+// history as long as this provider returns a non-empty effect for them.
+
+interface AnnotationActionPayload {
+  id: string
+  before: FolioAnnotation | undefined // undefined = didn't exist yet (comment creation)
+  after: FolioAnnotation | undefined
+}
+
+const annotationActionEffect = StateEffect.define<AnnotationActionPayload>()
+
+// Called again on the stored undo event when it's later pushed onto the redo
+// branch, so this must invert in either direction — swapping before/after is
+// its own inverse (an involution), which makes that automatic.
+const annotationActionInverter = invertedEffects.of(tr =>
+  tr.effects
+    .filter((e): e is StateEffect<AnnotationActionPayload> => e.is(annotationActionEffect))
+    .map(e => annotationActionEffect.of({ id: e.value.id, before: e.value.after, after: e.value.before })),
+)
+
+function applySidecarSnapshot(id: string, snapshot: FolioAnnotation | undefined, view: EditorView): void {
+  const current = getSidecar()
+  const exists = current.annotations.some(a => a.id === id)
+  let annotations: FolioAnnotation[]
+  if (snapshot === undefined) {
+    annotations = current.annotations.filter(a => a.id !== id)
+  } else if (exists) {
+    annotations = current.annotations.map(a => (a.id === id ? snapshot : a))
+  } else {
+    annotations = [...current.annotations, snapshot]
+  }
+  const updated: Sidecar = { ...current, annotations }
+  updateSidecar(updated)
+  putFolio(updated)
+  const tiptapEditor = getEditor()
+  if (tiptapEditor) tiptapEditor.view.dispatch(tiptapEditor.state.tr)
+  refreshRawAnnotations(view)
+}
+
+// Reacts only to undo/redo — the original "do" action already applied its
+// mutation directly via resolveAnnotation/addCommentAnnotation/putFolio, so
+// reacting unconditionally here would double-apply it.
+function undoRedoListener(update: ViewUpdate): void {
+  for (const tr of update.transactions) {
+    if (!tr.isUserEvent('undo') && !tr.isUserEvent('redo')) continue
+    for (const e of tr.effects) {
+      if (e.is(annotationActionEffect)) {
+        applySidecarSnapshot(e.value.id, e.value.after, update.view)
+      }
+    }
+  }
+}
 
 // ─── Anchor bookkeeping ─────────────────────────────────────────────────────
 // A maintained list of resolved positions, remapped through every transaction
@@ -276,7 +336,13 @@ function buildFloaterDOM(): void {
     const target = docStr.slice(from, to)
     const contextBefore = docStr.slice(Math.max(0, from - 30), from)
     const tiptapEditor = getEditor()
-    if (tiptapEditor) addCommentAnnotation(contextBefore, target, comment, tiptapEditor)
+    if (tiptapEditor) {
+      const after = addCommentAnnotation(contextBefore, target, comment, tiptapEditor)
+      currentView.dispatch({
+        effects: [annotationActionEffect.of({ id: after.id, before: undefined, after })],
+        annotations: isolateHistory.of('full'),
+      })
+    }
     hideCommentForm()
     refreshRawAnnotations(currentView)
   })
@@ -307,7 +373,11 @@ function buildFloaterDOM(): void {
     const ann = focusedAnnotationId ? getSidecar().annotations.find(a => a.id === focusedAnnotationId) : null
     const tiptapEditor = getEditor()
     if (ann && tiptapEditor && currentView) {
-      resolveAnnotation(ann, 'rejected', tiptapEditor)
+      const after = resolveAnnotation(ann, 'rejected', tiptapEditor)
+      currentView.dispatch({
+        effects: [annotationActionEffect.of({ id: ann.id, before: ann, after })],
+        annotations: isolateHistory.of('full'),
+      })
       refreshRawAnnotations(currentView)
     }
   })
@@ -321,18 +391,24 @@ function buildFloaterDOM(): void {
 
 function applyAcceptRaw(ann: FolioAnnotation, view: EditorView): void {
   const anchor = getRawAnchor(ann.id)
+  let changes: { from: number; to: number; insert: string } | undefined
   if (anchor) {
     const { from, to } = anchor
     if (ann.kind === 'replace') {
-      view.dispatch({ changes: { from, to, insert: ann.replacement ?? '' } })
+      changes = { from, to, insert: ann.replacement ?? '' }
     } else if (ann.kind === 'delete') {
-      view.dispatch({ changes: { from, to, insert: '' } })
+      changes = { from, to, insert: '' }
     } else if (ann.kind === 'insert') {
-      view.dispatch({ changes: { from, to: from, insert: ann.replacement ?? '' } })
+      changes = { from, to: from, insert: ann.replacement ?? '' }
     }
   }
   const tiptapEditor = getEditor()
-  if (tiptapEditor) resolveAnnotation(ann, 'accepted', tiptapEditor)
+  const after = tiptapEditor ? resolveAnnotation(ann, 'accepted', tiptapEditor) : ann
+  view.dispatch({
+    ...(changes ? { changes } : {}),
+    effects: [annotationActionEffect.of({ id: ann.id, before: ann, after })],
+    annotations: isolateHistory.of('full'),
+  })
   putFile(view.state.doc.toString())
   refreshRawAnnotations(view)
 }
@@ -348,13 +424,21 @@ function submitReplyRaw(ann: FolioAnnotation, body: string, view: EditorView): v
     created: new Date().toISOString(),
   }
   const current = getSidecar()
+  const before = current.annotations.find(a => a.id === ann.id)
+  if (!before) return
+  const after: FolioAnnotation = { ...before, replies: [...(before.replies ?? []), reply] }
   const updated: Sidecar = {
     ...current,
-    annotations: current.annotations.map(a => (a.id === ann.id ? { ...a, replies: [...(a.replies ?? []), reply] } : a)),
+    annotations: current.annotations.map(a => (a.id === ann.id ? after : a)),
   }
+  updateSidecar(updated)
   putFolio(updated)
   const tiptapEditor = getEditor()
   if (tiptapEditor) tiptapEditor.view.dispatch(tiptapEditor.state.tr)
+  view.dispatch({
+    effects: [annotationActionEffect.of({ id: ann.id, before, after })],
+    annotations: isolateHistory.of('full'),
+  })
   buildRawGutterCards(view)
 }
 
@@ -452,7 +536,11 @@ function makeRawGutterCard(ann: FolioAnnotation, view: EditorView): HTMLElement 
       e.preventDefault()
       const t = getEditor()
       if (t) {
-        resolveAnnotation(ann, 'dismissed', t)
+        const after = resolveAnnotation(ann, 'dismissed', t)
+        view.dispatch({
+          effects: [annotationActionEffect.of({ id: ann.id, before: ann, after })],
+          annotations: isolateHistory.of('full'),
+        })
         refreshRawAnnotations(view)
       }
     })
@@ -558,6 +646,8 @@ export function rawAnnotationExtensions(): Extension[] {
     annotationField,
     EditorView.domEventHandlers({ mousedown: handleRawMousedown }),
     EditorView.updateListener.of(rawUpdateListener),
+    annotationActionInverter,
+    EditorView.updateListener.of(undoRedoListener),
   ]
 }
 

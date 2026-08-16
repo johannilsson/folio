@@ -146,14 +146,11 @@ export function charIndexToRange(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): void {
+export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): Annotation {
+  const resolved: Annotation = { ...ann, resolved: true, resolved_as: as, resolved_at: new Date().toISOString() }
   const updated: Sidecar = {
     ...currentSidecar,
-    annotations: currentSidecar.annotations.map(a =>
-      a.id === ann.id
-        ? { ...a, resolved: true, resolved_as: as, resolved_at: new Date().toISOString() }
-        : a,
-    ),
+    annotations: currentSidecar.annotations.map(a => (a.id === ann.id ? resolved : a)),
   }
   currentSidecar = updated
   putFolio(updated)
@@ -161,9 +158,10 @@ export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): 
   // Remove this annotation from the plugin's anchors map; remaining positions
   // were already updated via tr.mapping when the doc-change transaction ran.
   editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'resolve', id: ann.id }))
+  return resolved
 }
 
-export function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): void {
+export function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): Annotation {
   const ann: Annotation = {
     id: `ann-${Date.now()}`,
     kind: 'comment',
@@ -184,6 +182,7 @@ export function addCommentAnnotation(contextBefore: string, target: string, comm
   sidecarUpdateCb?.()
   // New annotation needs to be anchored from scratch.
   editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
+  return ann
 }
 
 // ProseMirror's `code` mark excludes all other marks. Strip conflicting marks
