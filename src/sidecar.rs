@@ -148,7 +148,15 @@ fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Op
         // decoded entity is the last char of the matched range.
         let (stripped, pos_map, raw_spans) = strip_markdown(doc);
         let stripped_lower = stripped.to_lowercase();
-        let ctx_chars = ctx_decoded.chars().count();
+
+        // context_before/target may themselves contain markdown syntax (e.g. an
+        // agent copied a raw table row, pipes and all, into context_before) that
+        // won't appear verbatim in the already-stripped document — strip them the
+        // same way before searching, mirroring what anchor_chars (the browser's
+        // rendered-text resolver) already does. Stripping plain text is a no-op,
+        // so this only ever adds matches, never removes ones passes 1/2 found.
+        let ctx_stripped_lower = strip_markdown(&ctx_decoded).0.to_lowercase();
+        let ctx_chars = ctx_stripped_lower.chars().count();
 
         // Convert a byte offset in stripped_lower to a char index.
         let byte_to_char = |b: usize| stripped_lower[..b].chars().count();
@@ -163,14 +171,14 @@ fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Op
 
         match &tgt_decoded {
             Some(target) => {
-                let tgt = target.to_lowercase();
-                let tgt_chars = target.chars().count();
+                let tgt_stripped_lower = strip_markdown(target).0.to_lowercase();
+                let tgt_chars = tgt_stripped_lower.chars().count();
 
                 // Pass 3: exact search in stripped text
-                let exact = format!("{}{}", ctx, tgt);
+                let exact = format!("{}{}", ctx_stripped_lower, tgt_stripped_lower);
                 let found = stripped_lower.find(&exact).map(|b| (byte_to_char(b), 0usize))
                     .or_else(|| {
-                        let spaced = format!("{} {}", ctx, tgt);
+                        let spaced = format!("{} {}", ctx_stripped_lower, tgt_stripped_lower);
                         stripped_lower.find(&spaced).map(|b| (byte_to_char(b), 1usize))
                     });
                 if let Some((match_ci, space)) = found {
@@ -186,8 +194,8 @@ fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Op
 
                 // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
                 // then search again with a warning when this fallback is used.
-                let norm_ctx = normalize_for_fuzzy(&ctx);
-                let norm_tgt = normalize_for_fuzzy(&tgt);
+                let norm_ctx = normalize_for_fuzzy(&ctx_stripped_lower);
+                let norm_tgt = normalize_for_fuzzy(&tgt_stripped_lower);
                 let norm_ctx_chars = norm_ctx.chars().count();
                 let norm_tgt_chars = norm_tgt.chars().count();
                 let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
@@ -214,7 +222,7 @@ fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Op
                 None
             }
             None => {
-                stripped_lower.find(&ctx).map(|b| {
+                stripped_lower.find(&ctx_stripped_lower).map(|b| {
                     let end_ci = byte_to_char(b) + ctx_chars;
                     let raw = raw_end_from(end_ci);
                     (raw, raw)
@@ -1078,6 +1086,19 @@ mod tests {
         assert_eq!(to, from + "target".chars().count());
         let matched: String = doc.chars().skip(from).take(to - from).collect();
         assert_eq!(matched, "target");
+    }
+
+    #[test]
+    fn anchor_raw_chars_no_target_table_row_with_pipe_padding_mismatch() {
+        // Regression for the pet-nat bug: a comment annotation (no target) whose
+        // context_before is a raw table row copied without the file's actual
+        // column padding. Pass 1 (raw exact) fails on the padding mismatch, and
+        // pre-fix, pass 3 also failed because it searched the raw, pipe-containing
+        // context_before against the already-pipe-stripped document.
+        let doc = "| Orange wine    | 1 week – 6 months          | Result |\n| Next row | x | y |";
+        let ctx = "| Orange wine | 1 week – 6 months | Result |";
+        let (from, to) = anchor_raw_chars(doc, ctx, None).unwrap();
+        assert_eq!(from, to); // comment/insert — insertion point, no range
     }
 
     #[test]
