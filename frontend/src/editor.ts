@@ -4,10 +4,8 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
 import { TableKit } from '@tiptap/extension-table'
 import { DiagramCodeBlock } from './diagrams'
-import { putFile } from './api'
 
 let editor: Editor | null = null
-let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function decodeHtmlEntities(s: string): string {
   return s
@@ -29,11 +27,7 @@ export function initEditor(
     extensions: [StarterKit.configure({ codeBlock: false }), DiagramCodeBlock, TableKit, Markdown, ...extraExtensions],
     content: initialContent,
     contentType: 'markdown',
-    onUpdate({ editor: ed }) {
-      const markdown = decodeHtmlEntities(ed.getMarkdown())
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => putFile(markdown), 300)
-    },
+    editable: false,
   })
 }
 
@@ -49,13 +43,4 @@ export function getMarkdown(): string {
 
 export function getEditor(): Editor | null {
   return editor
-}
-
-export function flushSave(): void {
-  if (!editor) return
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  putFile(decodeHtmlEntities(editor.getMarkdown()))
 }

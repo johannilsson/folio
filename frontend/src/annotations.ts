@@ -1,26 +1,22 @@
 import { Extension } from '@tiptap/core'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
-import { undoDepth, redoDepth } from '@tiptap/pm/history'
+import { undoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
 import { putFolio, postAnchor } from './api'
-import { flushSave } from './editor'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
 let currentSidecar: Sidecar = { version: 1, annotations: [] }
 let sidecarUpdateCb: (() => void) | null = null
 
-// ─── Annotation undo/redo stacks ─────────────────────────────────────────────
-// Each entry mirrors one ProseMirror undo history item.
-// null = no annotation change at that history depth; Annotation[] = snapshot to restore.
+// ─── Annotation undo stack ───────────────────────────────────────────────────
+// Simple stack for sidecar-only actions (reject/dismiss) that don't produce a
+// ProseMirror doc-history entry of their own to hang undo off of.
 
-let annotationUndoStack: (Annotation[] | null)[] = []
-let annotationRedoStack: (Annotation[] | null)[] = []
-let pendingAnnotationSnapshot: Annotation[] | null = null
 let annotationKeyboardUndoStack: Array<{ snapshot: Annotation[]; pmDepth: number }> = []
 
 // ─── Reply draft state ───────────────────────────────────────────────────────
@@ -56,9 +52,6 @@ export function updateSidecar(sidecar: Sidecar): boolean {
   const isEcho = JSON.stringify(sidecar) === JSON.stringify(currentSidecar)
   currentSidecar = sidecar
   if (isEcho) return true
-  annotationUndoStack = []
-  annotationRedoStack = []
-  pendingAnnotationSnapshot = null
   annotationKeyboardUndoStack = []
   replyDrafts.clear()
   return false
@@ -185,62 +178,6 @@ export function addCommentAnnotation(contextBefore: string, target: string, comm
   return ann
 }
 
-// ProseMirror's `code` mark excludes all other marks. Strip conflicting marks
-// from text nodes so insertContentAt doesn't throw on combinations like bold+code.
-function sanitizeMarks(node: JSONContent): JSONContent {
-  if (node.content) node = { ...node, content: node.content.map(sanitizeMarks) }
-  if (!node.marks || node.marks.length < 2) return node
-  const hasCode = node.marks.some(m => m.type === 'code')
-  if (hasCode) return { ...node, marks: node.marks.filter(m => m.type === 'code') }
-  return node
-}
-
-function parseReplacementContent(markdown: string, editor: Editor): JSONContent | JSONContent[] {
-  try {
-    const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
-    const json = mgr.manager.parse(markdown)
-    const blocks = (json.content ?? []) as JSONContent[]
-    // Single paragraph: lift inline nodes out so the replacement doesn't wrap in
-    // a new block, and so explicit marks override any inherited surrounding marks.
-    if (blocks.length === 1 && blocks[0].type === 'paragraph') {
-      const inlineNodes = (blocks[0].content ?? []).map(sanitizeMarks) as JSONContent[]
-      if (inlineNodes.length === 0) return { type: 'text', text: '' }
-      return inlineNodes.length === 1 ? inlineNodes[0] : inlineNodes
-    }
-    const sanitized = blocks.map(sanitizeMarks)
-    return sanitized.length === 1 ? sanitized[0] : sanitized
-  } catch {
-    return { type: 'text', text: markdown }
-  }
-}
-
-function applyAccept(ann: Annotation, editor: Editor): void {
-  // Read position from plugin state — already mapped through previous transactions,
-  // so it remains correct even after other annotations were accepted earlier.
-  const anchor = annotationsKey.getState(editor.state)?.anchors.get(ann.id)
-  if (anchor) {
-    pendingAnnotationSnapshot = [...currentSidecar.annotations]
-    const { from, to } = anchor
-    if (ann.kind === 'replace') {
-      if (ann.replacement) {
-        editor.commands.insertContentAt({ from, to }, parseReplacementContent(ann.replacement, editor))
-      } else {
-        editor.commands.deleteRange({ from, to })
-      }
-    } else if (ann.kind === 'delete') {
-      editor.commands.deleteRange({ from, to })
-    } else if (ann.kind === 'insert') {
-      if (ann.replacement) {
-        const insIsBlock = ann.replacement.includes('\n')
-        const insertPos = insIsBlock ? resolveAfterBlock(editor.state.doc, from) : from
-        editor.commands.insertContentAt(insertPos, parseReplacementContent(ann.replacement, editor))
-      }
-    }
-  }
-  resolveAnnotation(ann, 'accepted', editor)
-  flushSave()
-}
-
 // ─── Annotation keyboard navigation ─────────────────────────────────────────
 
 function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
@@ -293,12 +230,6 @@ export function renderMarkdownContent(markdown: string, editor: Editor): Node {
     frag.appendChild(span)
     return frag
   }
-}
-
-function resolveAfterBlock(doc: PMNode, pos: number): number {
-  const clamped = Math.min(Math.max(pos, 0), doc.content.size)
-  const $pos = doc.resolve(clamped)
-  return $pos.depth > 0 ? $pos.after(1) : clamped
 }
 
 export function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
@@ -789,16 +720,6 @@ export function createAnnotationsExtension(): Extension {
               if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
                 if (event.key === 'j') return navigateAnnotation(1, view)
                 if (event.key === 'k') return navigateAnnotation(-1, view)
-                if (event.key === 'Enter' && focusedAnnotationId) {
-                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                  if (ann) {
-                    if (ann.kind === 'highlight' || ann.kind === 'comment') {
-                      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(view.state) })
-                    }
-                    applyAccept(ann, editor)
-                    return true
-                  }
-                }
                 if (event.key === 'Backspace' && focusedAnnotationId) {
                   const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
                   if (ann) {
@@ -881,18 +802,6 @@ export function createAnnotationsExtension(): Extension {
             actionFloater.hidden = true
             if (scrollContainer) scrollContainer.appendChild(actionFloater)
 
-            const afAccept = document.createElement('button')
-            afAccept.className = 'af-btn'
-            afAccept.textContent = 'Accept'
-            afAccept.addEventListener('mousedown', e => {
-              e.preventDefault()
-              const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId)
-              if (ann) applyAccept(ann, editor)
-            })
-
-            const afDivider = document.createElement('span')
-            afDivider.className = 'af-divider'
-
             const afReject = document.createElement('button')
             afReject.className = 'af-btn'
             afReject.textContent = 'Reject'
@@ -905,8 +814,6 @@ export function createAnnotationsExtension(): Extension {
               }
             })
 
-            actionFloater.appendChild(afAccept)
-            actionFloater.appendChild(afDivider)
             actionFloater.appendChild(afReject)
 
             focusChangeCallback = () => {
@@ -1036,56 +943,8 @@ export function createAnnotationsExtension(): Extension {
             tryFetchAnchors(pmView)
 
             return {
-              update(view, prevState) {
+              update(view) {
                 tryFetchAnchors(view)
-
-                if (prevState) {
-                  const undoBefore = undoDepth(prevState)
-                  const undoAfter = undoDepth(view.state)
-                  const redoBefore = redoDepth(prevState)
-                  const redoAfter = redoDepth(view.state)
-
-                  if (undoAfter < undoBefore) {
-                    // Undo — pop annotation snapshot and push to redo
-                    const snapshot = annotationUndoStack.pop()
-                    if (snapshot !== undefined) {
-                      if (snapshot !== null) {
-                        annotationRedoStack.push([...currentSidecar.annotations])
-                        currentSidecar = { ...currentSidecar, annotations: snapshot }
-                        putFolio(currentSidecar)
-                        sidecarUpdateCb?.()
-                        requestAnimationFrame(() =>
-                          view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
-                        )
-                      } else {
-                        annotationRedoStack.push(null)
-                      }
-                    }
-                  } else if (undoAfter > undoBefore) {
-                    if (redoAfter === redoBefore - 1) {
-                      // Redo — pop annotation snapshot and push back to undo
-                      const snapshot = annotationRedoStack.pop()
-                      if (snapshot !== undefined) {
-                        if (snapshot !== null) {
-                          annotationUndoStack.push([...currentSidecar.annotations])
-                          currentSidecar = { ...currentSidecar, annotations: snapshot }
-                          putFolio(currentSidecar)
-                          sidecarUpdateCb?.()
-                          requestAnimationFrame(() =>
-                            view.dispatch(view.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
-                          )
-                        } else {
-                          annotationUndoStack.push(null)
-                        }
-                      }
-                    } else {
-                      // New edit — commit pending snapshot (or null) and clear redo
-                      annotationUndoStack.push(pendingAnnotationSnapshot)
-                      pendingAnnotationSnapshot = null
-                      annotationRedoStack = []
-                    }
-                  }
-                }
 
                 buildGutterCards(view, gutterEl, editor)
 
