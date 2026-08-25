@@ -4,7 +4,7 @@ import type { ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
 import { putFile } from './api'
-import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor } from './raw-annotations'
+import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor, setGutterHidden as setRawGutterHidden } from './raw-annotations'
 import { rawFormattingKeymap } from './raw-formatting'
 
 // Marks a transaction as a programmatic content replacement (setRawContent),
@@ -96,3 +96,5 @@ export function getRawWrapperEl(): HTMLElement | null {
 export function refreshRawAnnotations(): void {
   if (view) refreshRawAnnotationsFor(view)
 }
+
+export { setRawGutterHidden }

@@ -135,6 +135,12 @@
       font-weight: 400;
       color: var(--text);
       pointer-events: none;
+      flex: 1;
+    }
+
+    #toggle-gutter-btn:hover {
+      background: var(--toolbar-btn-hover);
+      color: var(--toolbar-btn-hover-text);
     }
 
 
@@ -194,7 +200,7 @@
     }
 
     #editor-tiptap .tiptap {
-      padding: 2rem;
+      padding: 2rem 1rem 2rem 2rem;
       min-height: 100%;
       outline: none;
       font-size: 15px;
@@ -359,14 +365,24 @@
        highlight entirely — that's what was making it invisible. The editor
        background lives on #raw-pane .cm-editor above instead. */
     #raw-pane .cm-content {
-      padding: 2rem 2rem 2rem 0;
+      padding: 2rem 1rem 2rem 0;
       color: var(--text-raw);
+    }
+    /* Halves CM6's default 6px left inset on each line — combined with the
+       gutter's own 3px right padding, this is the numbers-to-content gap. */
+    #raw-pane .cm-line {
+      padding-left: 3px;
     }
     #raw-pane .cm-gutters {
       background: var(--bg);
       border: none;
       color: var(--border-mid);
-      padding-left: 1rem;
+    }
+    /* CM6's default (0 3px 0 5px) also pads each line-number element itself,
+       independent of the gutter container's own padding — the actual
+       remaining source of left-edge space once the container's is zeroed. */
+    #raw-pane .cm-lineNumbers .cm-gutterElement {
+      padding-left: 0;
     }
 
     /* CM6's built-in selection color is hardcoded for a light background
@@ -483,13 +499,14 @@
       position: relative;
       pointer-events: none;
       margin-right: 2rem;
+      border-left: 1px solid var(--border);
     }
 
     /* ── Gutter cards ── */
 
     .ann-card {
       position: absolute;
-      left: 8px;
+      left: 1rem;
       right: 8px;
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -698,7 +715,7 @@
 
     .cf-gutter-form {
       position: absolute;
-      left: 8px;
+      left: 1rem;
       right: 8px;
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -902,6 +919,7 @@
           <button id="view-toggle-source" class="view-toggle-opt" title="Markdown source">&lt;/&gt;</button>
         </div>
         <span id="filename-display"></span>
+        <button id="toggle-gutter-btn" class="view-toggle-opt active" title="Toggle annotations pane" aria-pressed="true">◫</button>
       </div>
       <div id="editor-wrapper" hidden>
         <div id="editor-tiptap"></div>

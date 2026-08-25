@@ -1,9 +1,9 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor } from './editor'
-import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
+import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, setGutterHidden } from './annotations'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
+import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl, setRawGutterHidden } from './raw-editor'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -105,6 +105,17 @@ async function boot(): Promise<void> {
       })
     }
     positionThumb(sourceBtn)
+  })
+
+  // Toggle the annotation gutter/pane, independent of which editor is active
+  const gutterToggleBtn = document.getElementById('toggle-gutter-btn') as HTMLButtonElement
+  let gutterVisible = true
+  gutterToggleBtn.addEventListener('click', () => {
+    gutterVisible = !gutterVisible
+    setGutterHidden(!gutterVisible)
+    setRawGutterHidden(!gutterVisible)
+    gutterToggleBtn.classList.toggle('active', gutterVisible)
+    gutterToggleBtn.setAttribute('aria-pressed', String(gutterVisible))
   })
 }
 

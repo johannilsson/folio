@@ -658,6 +658,10 @@ export function mountRawGutter(view: EditorView, wrapper: HTMLElement, gutter: H
   buildFloaterDOM()
 }
 
+export function setGutterHidden(hidden: boolean): void {
+  if (gutterEl) gutterEl.hidden = hidden
+}
+
 export function refreshRawAnnotations(view: EditorView): void {
   const pending = getSidecar().annotations.filter(a => !a.resolved)
   if (pending.length === 0) {

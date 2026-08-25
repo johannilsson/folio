@@ -36,6 +36,10 @@ export function scheduleGutterRebuild(): void {
   if (rebuildFn) requestAnimationFrame(rebuildFn)
 }
 
+export function setGutterHidden(hidden: boolean): void {
+  if (currentGutterEl) currentGutterEl.hidden = hidden
+}
+
 function updateFocusedCard(): void {
   if (!currentGutterEl) return
   currentGutterEl.querySelectorAll<HTMLElement>('.ann-card').forEach(card => {
