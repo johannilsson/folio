@@ -10,7 +10,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use crate::sidecar::{anchor_chars, anchor_raw_chars};
+use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
+use crate::sidecar::{anchor_chars, anchor_raw_chars, Sidecar};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -245,6 +246,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/file", get(get_file).put(put_file))
         .route("/api/anchor", post(post_anchor))
         .route("/api/anchor-raw", post(post_anchor_raw))
+        .route("/api/accept", post(post_accept))
         .route("/api/folio", get(get_folio).put(put_folio))
         .route("/api/info", get(get_info))
         .route("/api/kroki-url", get(get_kroki_url))
@@ -252,4 +254,54 @@ pub fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(CorsLayer::permissive())
         .with_state(state)
+}
+
+#[derive(Deserialize)]
+struct AcceptRequest {
+    id: String,
+}
+
+/// Accept one pending annotation server-side: patch the raw markdown at its
+/// anchor and mark it resolved in the sidecar. This is how the preview (Tiptap)
+/// editor accepts without serializing its document back to markdown.
+async fn post_accept(
+    State(state): State<AppState>,
+    Json(req): Json<AcceptRequest>,
+) -> impl IntoResponse {
+    if state.read_only {
+        return (StatusCode::FORBIDDEN, "read-only mode").into_response();
+    }
+    let doc = match tokio::fs::read_to_string(&state.doc_path).await {
+        Ok(content) => content,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let mut sidecar = match Sidecar::load(&state.folio_path) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let Some(idx) = sidecar
+        .annotations
+        .iter()
+        .position(|a| a.id == req.id && !a.resolved)
+    else {
+        return (StatusCode::NOT_FOUND, "no pending annotation with that id").into_response();
+    };
+    let ops = match compute_ops(&doc, &sidecar, &[idx]) {
+        Ok(ops) => ops,
+        Err(msg) => return (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response(),
+    };
+    if !ops.is_empty() {
+        *state.write_token.lock().unwrap() = Some(Instant::now());
+        if let Err(e) = tokio::fs::write(&state.doc_path, apply_ops(&doc, ops)).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+        // The watcher skips our own write, so tell clients to reload.
+        let _ = state.tx.send(r#"{"type":"md:changed"}"#.to_string());
+    }
+    mark_accepted(&mut sidecar, &[idx]);
+    if let Err(e) = sidecar.save(&state.folio_path) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+    }
+    let _ = state.tx.send(r#"{"type":"folio:changed"}"#.to_string());
+    StatusCode::OK.into_response()
 }

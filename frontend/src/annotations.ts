@@ -6,7 +6,8 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
-import { putFolio, postAnchor } from './api'
+import { putFolio, postAnchor, postAccept } from './api'
+import { flushSave } from './editor'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
@@ -180,6 +181,16 @@ export function addCommentAnnotation(contextBefore: string, target: string, comm
   // New annotation needs to be anchored from scratch.
   editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
   return ann
+}
+
+// Accepting edits the markdown, so the server applies it to the file and
+// broadcasts md:changed + folio:changed; the editor reloads from those events.
+// Pending preview edits are saved first so the server patches the current text.
+function acceptAnnotation(id: string): void {
+  void flushSave()
+    .then(() => postAccept(id))
+    .then(r => { if (!r.ok) return r.text().then(msg => console.error(`Accept failed: ${msg}`)) })
+    .catch(console.error)
 }
 
 // ─── Annotation keyboard navigation ─────────────────────────────────────────
@@ -724,6 +735,13 @@ export function createAnnotationsExtension(): Extension {
               if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
                 if (event.key === 'j') return navigateAnnotation(1, view)
                 if (event.key === 'k') return navigateAnnotation(-1, view)
+                if (event.key === 'Enter' && focusedAnnotationId) {
+                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
+                  if (ann) {
+                    acceptAnnotation(ann.id)
+                    return true
+                  }
+                }
                 if (event.key === 'Backspace' && focusedAnnotationId) {
                   const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
                   if (ann) {
@@ -806,6 +824,17 @@ export function createAnnotationsExtension(): Extension {
             actionFloater.hidden = true
             if (scrollContainer) scrollContainer.appendChild(actionFloater)
 
+            const afAccept = document.createElement('button')
+            afAccept.className = 'af-btn'
+            afAccept.textContent = 'Accept'
+            afAccept.addEventListener('mousedown', e => {
+              e.preventDefault()
+              if (focusedAnnotationId) acceptAnnotation(focusedAnnotationId)
+            })
+
+            const afDivider = document.createElement('span')
+            afDivider.className = 'af-divider'
+
             const afReject = document.createElement('button')
             afReject.className = 'af-btn'
             afReject.textContent = 'Reject'
@@ -818,6 +847,8 @@ export function createAnnotationsExtension(): Extension {
               }
             })
 
+            actionFloater.appendChild(afAccept)
+            actionFloater.appendChild(afDivider)
             actionFloater.appendChild(afReject)
 
             focusChangeCallback = () => {

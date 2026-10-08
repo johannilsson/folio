@@ -138,6 +138,13 @@
       flex: 1;
     }
 
+    #preview-readonly-notice {
+      font-size: 12px;
+      color: var(--text-3);
+      cursor: help;
+    }
+    #preview-readonly-notice[hidden] { display: none; }
+
     #toggle-gutter-btn:hover {
       background: var(--toolbar-btn-hover);
       color: var(--toolbar-btn-hover-text);
@@ -919,6 +926,7 @@
           <button id="view-toggle-source" class="view-toggle-opt" title="Markdown source">&lt;/&gt;</button>
         </div>
         <span id="filename-display"></span>
+        <span id="preview-readonly-notice" hidden>Preview is read-only for this file — use source view to edit</span>
         <button id="toggle-gutter-btn" class="view-toggle-opt active" title="Toggle annotations pane" aria-pressed="true">◫</button>
       </div>
       <div id="editor-wrapper" hidden>

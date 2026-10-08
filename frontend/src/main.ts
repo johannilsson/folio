@@ -1,7 +1,8 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
-import { initEditor, setContent, getEditor } from './editor'
+import { initEditor, setContent, getEditor, flushSave } from './editor'
 import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, setGutterHidden } from './annotations'
+import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl, setRawGutterHidden } from './raw-editor'
 
@@ -16,18 +17,31 @@ async function boot(): Promise<void> {
   updateSidecar(sidecar)
 
   const editorEl = document.getElementById('editor-tiptap')!
-  initEditor(editorEl, initialContent, [createAnnotationsExtension()])
+  const readOnlyNotice = document.getElementById('preview-readonly-notice')!
+  initEditor(editorEl, initialContent, [createAnnotationsExtension(), createTableUIExtension()], reason => {
+    readOnlyNotice.hidden = reason === null
+    readOnlyNotice.title = reason ?? ''
+  })
 
-  on('md:changed', async () => {
+  // Handle events one at a time: an accept broadcasts md:changed then folio:changed,
+  // and re-anchoring must run against the already-reloaded document.
+  let eventChain: Promise<void> = Promise.resolve()
+  const sequential = (handler: () => Promise<void>) => () => {
+    eventChain = eventChain.then(handler).catch(console.error)
+  }
+
+  on('md:changed', sequential(async () => {
     const content = await getFile()
     setContent(content)
+    const ed = getEditor()
+    if (ed) triggerContentReplaced(ed)
     if (!rawPane.hidden) {
       setRawContent(content)
       refreshRawAnnotations()
     }
-  })
+  }))
 
-  on('folio:changed', async () => {
+  on('folio:changed', sequential(async () => {
     const updated = await getFolio()
     const isEcho = updateSidecar(updated)
     const ed = getEditor()
@@ -41,7 +55,7 @@ async function boot(): Promise<void> {
       }
     }
     if (!rawPane.hidden && !isEcho) refreshRawAnnotations()
-  })
+  }))
 
   // Follow OS color scheme for mermaid diagrams
   const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
@@ -76,10 +90,8 @@ async function boot(): Promise<void> {
       const fraction = wrapperEl ? wrapperEl.scrollTop / (wrapperEl.scrollHeight - wrapperEl.clientHeight || 1) : 0
       flushRawSave()
       const ed = getEditor()!
-      // emitUpdate: false — switching to preview must be a pure render step,
-      // never a save trigger (Tiptap's onUpdate would otherwise re-serialize
-      // and reformat the whole file the moment you switch back).
-      ed.commands.setContent(getRawContent(), { contentType: 'markdown', emitUpdate: false })
+      // Switching to preview is a pure render step, never a save trigger.
+      setContent(getRawContent())
       editorWrapper.hidden = false
       rawPane.hidden = true
       triggerContentReplaced(ed)
@@ -94,7 +106,7 @@ async function boot(): Promise<void> {
   sourceBtn.addEventListener('click', () => {
     if (rawPane.hidden) {
       const fraction = editorWrapper.scrollTop / (editorWrapper.scrollHeight - editorWrapper.clientHeight || 1)
-      getFile().then(content => {
+      flushSave().then(getFile).then(content => {
         initRawEditor(rawPane, content)
         setRawContent(content)
         editorWrapper.hidden = true
