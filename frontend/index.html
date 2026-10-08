@@ -209,7 +209,7 @@
     }
 
     #editor-tiptap .tiptap {
-      padding: 4.5rem 2rem 2rem 2rem;
+      padding: 4.5rem 1rem 2rem 2rem;
       min-height: 100%;
       outline: none;
       font-size: 13px;
@@ -332,8 +332,10 @@
     .tiptap th, .tiptap td {
       border: 1px solid var(--border-mid);
       padding: 0.4em 0.7em;
+      line-height: 1.5;
     }
-    .tiptap th { background: var(--accent-soft); }
+    .tiptap th > p, .tiptap td > p { margin: 0; }
+    .tiptap th { font-weight: 600; text-align: left; }
 
     /* ── Raw markdown pane ── */
 
@@ -358,6 +360,7 @@
       flex: 1;
       min-width: 0;
       padding-top: 3.5rem;
+      padding-right: 1rem;
     }
 
     #raw-pane .cm-editor {
@@ -527,7 +530,7 @@
       flex-shrink: 0;
       position: relative;
       pointer-events: none;
-      margin-right: 2rem;
+      margin-right: 1.5rem;
     }
     #app:not(.gutter-open) #annotation-gutter,
     #app:not(.gutter-open) #raw-annotation-gutter { display: none; }
@@ -536,7 +539,7 @@
 
     .ann-card {
       position: absolute;
-      left: 1rem;
+      left: 0;
       right: 8px;
       background: var(--card-tint);
       border: 1px solid transparent;
@@ -860,7 +863,7 @@
 
     .cf-gutter-form {
       position: absolute;
-      left: 1rem;
+      left: 0;
       right: 8px;
       background: var(--card-bg);
       border: 1px solid var(--border);
