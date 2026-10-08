@@ -6,6 +6,7 @@ import { basicSetup } from 'codemirror'
 import { putFile } from './api'
 import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor, setGutterHidden as setRawGutterHidden } from './raw-annotations'
 import { rawFormattingKeymap } from './raw-formatting'
+import { tableRowLayout } from './raw-table-layout'
 
 // Marks a transaction as a programmatic content replacement (setRawContent),
 // as opposed to a real user keystroke — the CM6 analog of Tiptap's
@@ -58,6 +59,7 @@ export function initRawEditor(container: HTMLElement, initialContent: string): v
         EditorView.lineWrapping,
         nonScrollingTheme,
         rawFormattingKeymap(),
+        tableRowLayout(),
         ...rawAnnotationExtensions(),
         EditorView.updateListener.of(updateListener),
       ],

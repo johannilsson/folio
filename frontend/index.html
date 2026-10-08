@@ -52,7 +52,7 @@
 
     @media (prefers-color-scheme: light) {
       :root {
-        --bg: #fafaf8;
+        --bg: #ffffff;
         --bg-raised: #f0f0ee;
         --bg-surface: #ebebf0;
         --bg-input: #f0f0f5;
@@ -128,6 +128,7 @@
       padding: 6px 12px;
       background: var(--bg);
       flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
     }
 
     #filename-display {
@@ -210,7 +211,7 @@
       padding: 2rem 1rem 2rem 2rem;
       min-height: 100%;
       outline: none;
-      font-size: 15px;
+      font-size: 13px;
       line-height: 1.75;
       color: var(--text);
     }
@@ -362,7 +363,7 @@
     }
     #raw-pane .cm-scroller {
       font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.6;
     }
     /* No `background` here deliberately: .cm-content is a flex sibling of
@@ -372,13 +373,31 @@
        highlight entirely — that's what was making it invisible. The editor
        background lives on #raw-pane .cm-editor above instead. */
     #raw-pane .cm-content {
-      padding: 2rem 1rem 2rem 0;
+      padding: 2rem 1.5rem 2rem 0;
       color: var(--text-raw);
+      /* .cm-content is a flex item of .cm-scroller (flex-grow: 2, flex-shrink: 0
+         by CM6's own base theme). Without this, an unwrapped (white-space: pre)
+         table row's intrinsic width becomes .cm-content's automatic min-width,
+         overflowing past the sibling line-number gutter into the annotation
+         gutter instead of scrolling just that row. */
+      min-width: 0;
     }
     /* Halves CM6's default 6px left inset on each line — combined with the
        gutter's own 3px right padding, this is the numbers-to-content gap. */
     #raw-pane .cm-line {
       padding-left: 3px;
+    }
+    /* Wide table rows would otherwise wrap character-by-character like
+       prose, scrambling columns — keep each row on one line and scroll it
+       horizontally instead. Class applied by raw-table-layout.ts. */
+    #raw-pane .cm-line.cm-table-row {
+      white-space: pre;
+      overflow-x: auto;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* legacy Edge */
+    }
+    #raw-pane .cm-line.cm-table-row::-webkit-scrollbar {
+      display: none; /* Chrome/Safari */
     }
     #raw-pane .cm-gutters {
       background: var(--bg);
