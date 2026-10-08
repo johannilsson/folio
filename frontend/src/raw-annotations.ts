@@ -12,9 +12,10 @@ import {
   addCommentAnnotation,
   repositionCards,
   makeHeader,
-  formatBody,
-  formatTime,
-  renderMarkdownContent,
+  buildThread,
+  makeReplyBox,
+  startEditComment,
+  setAnnotationComment,
   buildPreviewEl,
 } from './annotations'
 import { getEditor } from './editor'
@@ -313,6 +314,7 @@ function buildFloaterDOM(): void {
     cfGutterForm.dataset.anchorTop = String(parseFloat(top || '0'))
     cfGutterForm.dataset.anchorFrom = String(savedSelection?.from ?? 0)
     cfGutterForm.style.top = top
+    window.dispatchEvent(new Event('folio:open-gutter'))
     cfGutterForm.hidden = false
     commentFloater.hidden = true
     if (gutterEl) repositionCards(gutterEl)
@@ -451,74 +453,48 @@ function makeRawGutterCard(ann: FolioAnnotation, view: EditorView): HTMLElement 
   card.dataset.id = ann.id
 
   const tiptapEditor = getEditor()
-  card.appendChild(makeHeader(ann))
-
-  if (ann.kind === 'comment') {
-    const body = document.createElement('div')
-    body.className = 'ann-card-body'
-    if (tiptapEditor) body.appendChild(renderMarkdownContent(ann.comment ?? '', tiptapEditor))
-    card.appendChild(body)
-  } else {
-    const body = document.createElement('div')
-    body.className = 'ann-card-body'
-    body.textContent = formatBody(ann)
-    card.appendChild(body)
-
-    if (ann.comment && tiptapEditor) {
-      const commentEl = document.createElement('div')
-      commentEl.className = 'ann-card-comment'
-      commentEl.appendChild(renderMarkdownContent(ann.comment, tiptapEditor))
-      card.appendChild(commentEl)
-    }
+  const dispatchAction = (before: FolioAnnotation, after: FolioAnnotation) => {
+    view.dispatch({
+      effects: [annotationActionEffect.of({ id: ann.id, before, after })],
+      annotations: isolateHistory.of('full'),
+    })
   }
+  const header = makeHeader(ann, {
+    accept: () => {
+      if (ann.kind !== 'comment') { applyAcceptRaw(ann, view); return }
+      const t = getEditor()
+      if (!t) return
+      dispatchAction(ann, resolveAnnotation(ann, 'dismissed', t))
+      refreshRawAnnotations(view)
+    },
+    remove: () => {
+      const t = getEditor()
+      if (!t) return
+      dispatchAction(ann, resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', t))
+      refreshRawAnnotations(view)
+    },
+    edit: (c, g) => startEditComment(c, ann, g, text => {
+      setAnnotationComment(ann.id, text)
+      const t = getEditor()
+      if (t) t.view.dispatch(t.state.tr)
+      dispatchAction(ann, { ...ann, comment: text })
+      buildRawGutterCards(view)
+    }),
+  }, gutterEl)
+  card.appendChild(buildThread(ann, header, tiptapEditor))
 
-  if ((ann.replies ?? []).length > 0 && tiptapEditor) {
-    const repliesSection = document.createElement('div')
-    repliesSection.className = 'ann-card-replies'
-    for (const reply of ann.replies!) {
-      const replyEl = document.createElement('div')
-      replyEl.className = 'ann-reply'
-      const replyHeader = document.createElement('div')
-      replyHeader.className = 'ann-reply-header'
-      const replyAuthor = document.createElement('strong')
-      replyAuthor.className = 'ann-reply-author'
-      replyAuthor.textContent = reply.author
-      const replyTime = document.createElement('span')
-      replyTime.className = 'ann-reply-time'
-      replyTime.textContent = formatTime(reply.created)
-      replyHeader.appendChild(replyAuthor)
-      replyHeader.appendChild(replyTime)
-      const replyBody = document.createElement('div')
-      replyBody.className = 'ann-reply-body'
-      replyBody.appendChild(renderMarkdownContent(reply.body, tiptapEditor))
-      replyEl.appendChild(replyHeader)
-      replyEl.appendChild(replyBody)
-      repliesSection.appendChild(replyEl)
-    }
-    card.appendChild(repliesSection)
-  }
-
-  const actions = document.createElement('div')
-  actions.className = 'ann-card-actions'
-
-  const textarea = document.createElement('textarea')
-  textarea.className = 'ann-reply-textarea'
-  textarea.placeholder = 'Reply…'
-  textarea.rows = 1
+  const { box: actions, textarea, send } = makeReplyBox()
   textarea.addEventListener('input', () => {
     textarea.style.height = 'auto'
     textarea.style.height = `${textarea.scrollHeight}px`
     if (gutterEl) repositionCards(gutterEl)
   })
-  actions.appendChild(textarea)
-
-  const btnRow = document.createElement('div')
-  btnRow.className = 'ann-card-action-row'
 
   const doSubmitReply = () => {
     submitReplyRaw(ann, textarea.value, view)
     textarea.value = ''
     textarea.style.height = ''
+    send.classList.remove('ready')
   }
 
   textarea.addEventListener('keydown', e => {
@@ -528,35 +504,11 @@ function makeRawGutterCard(ann: FolioAnnotation, view: EditorView): HTMLElement 
     }
   })
 
-  if (ann.kind === 'comment') {
-    const dismiss = document.createElement('button')
-    dismiss.className = 'ann-card-btn ann-card-dismiss'
-    dismiss.textContent = 'Resolve'
-    dismiss.addEventListener('mousedown', e => {
-      e.preventDefault()
-      const t = getEditor()
-      if (t) {
-        const after = resolveAnnotation(ann, 'dismissed', t)
-        view.dispatch({
-          effects: [annotationActionEffect.of({ id: ann.id, before: ann, after })],
-          annotations: isolateHistory.of('full'),
-        })
-        refreshRawAnnotations(view)
-      }
-    })
-    btnRow.appendChild(dismiss)
-  }
-
-  const replyBtn = document.createElement('button')
-  replyBtn.className = 'ann-card-btn ann-card-reply'
-  replyBtn.textContent = 'Reply'
-  replyBtn.addEventListener('mousedown', e => {
+  send.addEventListener('mousedown', e => {
     e.preventDefault()
     doSubmitReply()
   })
-  btnRow.appendChild(replyBtn)
 
-  actions.appendChild(btnRow)
   card.appendChild(actions)
 
   card.addEventListener('mousedown', e => {

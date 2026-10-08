@@ -379,58 +379,214 @@ export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function makeHeader(ann: Annotation): HTMLElement {
+export interface HeaderActions {
+  accept: () => void
+  remove: () => void
+  edit: (card: HTMLElement, gutterEl: HTMLElement | null) => void
+}
+
+function makeMenuItem(label: string, danger: boolean, onClick: () => void): HTMLButtonElement {
+  const item = document.createElement('button')
+  item.className = 'ann-card-menu-item' + (danger ? ' ann-card-menu-danger' : '')
+  item.textContent = label
+  item.addEventListener('mousedown', e => {
+    e.preventDefault()
+    e.stopPropagation()
+    onClick()
+  })
+  return item
+}
+
+export function makeHeader(ann: Annotation, actions?: HeaderActions, gutterEl: HTMLElement | null = null): HTMLElement {
   const header = document.createElement('div')
   header.className = 'ann-card-header'
   const author = document.createElement('strong')
   author.className = 'ann-card-author'
-  author.textContent = ann.author
+  author.textContent = displayName(ann.author)
   const time = document.createElement('span')
   time.className = 'ann-card-time'
   time.textContent = formatTime(ann.created)
   header.appendChild(author)
   header.appendChild(time)
+  if (!actions) return header
+
+  const group = document.createElement('div')
+  group.className = 'ann-card-header-actions'
+
+  const accept = document.createElement('button')
+  accept.className = 'ann-card-icon-btn'
+  accept.title = ann.kind === 'comment' ? 'Resolve' : 'Accept'
+  accept.textContent = '✓'
+  accept.addEventListener('mousedown', e => {
+    e.preventDefault()
+    e.stopPropagation()
+    actions.accept()
+  })
+
+  const more = document.createElement('button')
+  more.className = 'ann-card-icon-btn'
+  more.title = 'More'
+  more.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><circle cx="2.5" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="11.5" cy="7" r="1.2"/></svg>'
+
+  const menu = document.createElement('div')
+  menu.className = 'ann-card-menu'
+  menu.hidden = true
+
+  const closeMenu = () => {
+    menu.hidden = true
+    document.removeEventListener('mousedown', closeMenu)
+  }
+  menu.appendChild(makeMenuItem('Edit comment', false, () => {
+    closeMenu()
+    actions.edit(header.closest('.ann-card') as HTMLElement, gutterEl)
+  }))
+  menu.appendChild(makeMenuItem('Delete', true, () => {
+    closeMenu()
+    actions.remove()
+  }))
+  more.addEventListener('mousedown', e => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!menu.hidden) { closeMenu(); return }
+    menu.hidden = false
+    document.addEventListener('mousedown', closeMenu)
+  })
+
+  group.appendChild(accept)
+  group.appendChild(more)
+  group.appendChild(menu)
+  header.appendChild(group)
   return header
 }
 
-function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement): HTMLElement {
-  const card = document.createElement('div')
-  card.className = 'ann-card'
-  card.dataset.source = ann.source
-  card.dataset.id = ann.id
+// Swaps the card's comment text for an inline textarea. `onSave` persists the new text.
+export function startEditComment(
+  card: HTMLElement,
+  ann: Annotation,
+  gutterEl: HTMLElement | null,
+  onSave: (text: string) => void,
+): void {
+  if (card.querySelector('.ann-edit-textarea')) return
+  const existing = card.querySelector<HTMLElement>(ann.kind === 'comment' ? '.ann-card-body' : '.ann-card-comment')
 
-  card.appendChild(makeHeader(ann))
-
-  if (ann.kind === 'comment') {
-    const body = document.createElement('div')
-    body.className = 'ann-card-body'
-    body.appendChild(renderMarkdownContent(ann.comment ?? '', editor))
-    card.appendChild(body)
-  } else {
-    const body = document.createElement('div')
-    body.className = 'ann-card-body'
-    body.textContent = formatBody(ann)
-    card.appendChild(body)
-
-    if (ann.comment) {
-      const commentEl = document.createElement('div')
-      commentEl.className = 'ann-card-comment'
-      commentEl.appendChild(renderMarkdownContent(ann.comment, editor))
-      card.appendChild(commentEl)
-    }
+  const wrap = document.createElement('div')
+  wrap.className = 'ann-edit'
+  const textarea = document.createElement('textarea')
+  textarea.className = 'ann-reply-textarea ann-edit-textarea'
+  textarea.value = ann.comment ?? ''
+  const resize = () => {
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+    if (gutterEl) repositionCards(gutterEl)
   }
+  textarea.addEventListener('input', resize)
 
-  if ((ann.replies ?? []).length > 0) {
-    const repliesSection = document.createElement('div')
-    repliesSection.className = 'ann-card-replies'
-    for (const reply of ann.replies!) {
-      const replyEl = document.createElement('div')
-      replyEl.className = 'ann-reply'
+  const row = document.createElement('div')
+  row.className = 'ann-card-action-row'
+  const cancel = document.createElement('button')
+  cancel.className = 'ann-card-btn ann-card-dismiss'
+  cancel.textContent = 'Cancel'
+  const save = document.createElement('button')
+  save.className = 'ann-card-btn ann-card-reply'
+  save.textContent = 'Save'
+  row.appendChild(cancel)
+  row.appendChild(save)
+  wrap.appendChild(textarea)
+  wrap.appendChild(row)
+
+  const close = () => {
+    wrap.remove()
+    if (existing) existing.hidden = false
+    if (gutterEl) repositionCards(gutterEl)
+  }
+  cancel.addEventListener('mousedown', e => { e.preventDefault(); close() })
+  save.addEventListener('mousedown', e => {
+    e.preventDefault()
+    onSave(textarea.value.trim())
+  })
+  textarea.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); close() }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSave(textarea.value.trim()) }
+  })
+  wrap.addEventListener('mousedown', e => e.stopPropagation())
+
+  if (existing) {
+    existing.hidden = true
+    existing.after(wrap)
+  } else {
+    card.querySelector('.ann-card-body')!.after(wrap)
+  }
+  resize()
+  textarea.focus()
+}
+
+export function setAnnotationComment(id: string, comment: string): void {
+  currentSidecar = {
+    ...currentSidecar,
+    annotations: currentSidecar.annotations.map(a => (a.id === id ? { ...a, comment } : a)),
+  }
+  putFolio(currentSidecar)
+  sidecarUpdateCb?.()
+}
+
+const AVATAR_COLORS = ['#6366f1', '#0891b2', '#db2777', '#7c3aed']
+
+export function displayName(author: string): string {
+  return author === 'me' ? 'You' : author
+}
+
+function makeAvatar(name: string): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'ann-avatar'
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  el.textContent = name === 'You' ? 'Y' : (words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2)).toUpperCase()
+  let hash = 0
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  el.style.background = name === 'You' ? AVATAR_COLORS[0] : AVATAR_COLORS[1 + (hash % (AVATAR_COLORS.length - 1))]
+  return el
+}
+
+function makeEntry(name: string, header: HTMLElement, bodies: HTMLElement[]): HTMLElement {
+  const entry = document.createElement('div')
+  entry.className = 'ann-entry'
+  const main = document.createElement('div')
+  main.className = 'ann-entry-main'
+  main.appendChild(header)
+  for (const b of bodies) main.appendChild(b)
+  entry.appendChild(makeAvatar(name))
+  entry.appendChild(main)
+  return entry
+}
+
+// Annotation body + comment + replies as avatar-led entries joined by a thread line.
+export function buildThread(ann: Annotation, header: HTMLElement, editor: Editor | null): HTMLElement {
+  const thread = document.createElement('div')
+  thread.className = 'ann-thread'
+
+  const bodies: HTMLElement[] = []
+  const body = document.createElement('div')
+  body.className = 'ann-card-body'
+  if (ann.kind === 'comment') {
+    if (editor) body.appendChild(renderMarkdownContent(ann.comment ?? '', editor))
+  } else {
+    body.textContent = formatBody(ann)
+  }
+  bodies.push(body)
+  if (ann.kind !== 'comment' && ann.comment && editor) {
+    const commentEl = document.createElement('div')
+    commentEl.className = 'ann-card-comment'
+    commentEl.appendChild(renderMarkdownContent(ann.comment, editor))
+    bodies.push(commentEl)
+  }
+  thread.appendChild(makeEntry(displayName(ann.author), header, bodies))
+
+  if (editor) {
+    for (const reply of ann.replies ?? []) {
       const replyHeader = document.createElement('div')
       replyHeader.className = 'ann-reply-header'
       const replyAuthor = document.createElement('strong')
       replyAuthor.className = 'ann-reply-author'
-      replyAuthor.textContent = reply.author
+      replyAuthor.textContent = displayName(reply.author)
       const replyTime = document.createElement('span')
       replyTime.className = 'ann-reply-time'
       replyTime.textContent = formatTime(reply.created)
@@ -439,22 +595,64 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
       const replyBody = document.createElement('div')
       replyBody.className = 'ann-reply-body'
       replyBody.appendChild(renderMarkdownContent(reply.body, editor))
-      replyEl.appendChild(replyHeader)
-      replyEl.appendChild(replyBody)
-      repliesSection.appendChild(replyEl)
+      thread.appendChild(makeEntry(displayName(reply.author), replyHeader, [replyBody]))
     }
-    card.appendChild(repliesSection)
   }
+  return thread
+}
 
-  // ── Actions: textarea + buttons (shown when focused) ──
-  const actions = document.createElement('div')
-  actions.className = 'ann-card-actions'
-
+// Always-visible reply field: rounded input with a circular send button.
+export function makeReplyBox(): { box: HTMLElement; textarea: HTMLTextAreaElement; send: HTMLButtonElement; refresh: () => void } {
+  const box = document.createElement('div')
+  box.className = 'ann-card-actions ann-reply-box'
   const textarea = document.createElement('textarea')
   textarea.className = 'ann-reply-textarea'
   textarea.placeholder = 'Reply…'
   textarea.rows = 1
+  const send = document.createElement('button')
+  send.className = 'ann-send-btn'
+  send.title = 'Reply'
+  send.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>'
+  const refresh = () => send.classList.toggle('ready', textarea.value.trim().length > 0)
+  textarea.addEventListener('input', refresh)
+  const field = document.createElement('div')
+  field.className = 'ann-reply-field'
+  field.appendChild(textarea)
+  field.appendChild(send)
+  box.appendChild(makeAvatar(displayName('me')))
+  box.appendChild(field)
+  return { box, textarea, send, refresh }
+}
+
+function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement): HTMLElement {
+  const card = document.createElement('div')
+  card.className = 'ann-card'
+  card.dataset.source = ann.source
+  card.dataset.id = ann.id
+
+  const header = makeHeader(ann, {
+    accept: () => {
+      if (ann.kind === 'comment') {
+        annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
+        resolveAnnotation(ann, 'dismissed', editor)
+      } else {
+        acceptAnnotation(ann.id)
+      }
+    },
+    remove: () => {
+      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
+      resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
+    },
+    edit: (c, g) => startEditComment(c, ann, g, text => {
+      setAnnotationComment(ann.id, text)
+      editor.view.dispatch(editor.state.tr)
+    }),
+  }, gutterEl)
+  card.appendChild(buildThread(ann, header, editor))
+
+  const { box: actions, textarea, send, refresh } = makeReplyBox()
   textarea.value = replyDrafts.get(ann.id) ?? ''
+  refresh()
   if (textarea.value) {
     // restore height for non-empty drafts after rebuild
     requestAnimationFrame(() => {
@@ -469,10 +667,6 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     replyDrafts.set(ann.id, textarea.value)
     repositionCards(gutterEl)
   })
-  actions.appendChild(textarea)
-
-  const btnRow = document.createElement('div')
-  btnRow.className = 'ann-card-action-row'
 
   const submitReply = () => {
     const body = textarea.value.trim()
@@ -504,28 +698,10 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     }
   })
 
-  if (ann.kind === 'comment') {
-    const dismiss = document.createElement('button')
-    dismiss.className = 'ann-card-btn ann-card-dismiss'
-    dismiss.textContent = 'Resolve'
-    dismiss.addEventListener('mousedown', e => {
-      e.preventDefault()
-      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
-      resolveAnnotation(ann, 'dismissed', editor)
-    })
-    btnRow.appendChild(dismiss)
-  }
-
-  const replyBtn = document.createElement('button')
-  replyBtn.className = 'ann-card-btn ann-card-reply'
-  replyBtn.textContent = 'Reply'
-  replyBtn.addEventListener('mousedown', e => {
+  send.addEventListener('mousedown', e => {
     e.preventDefault()
     submitReply()
   })
-  btnRow.appendChild(replyBtn)
-
-  actions.appendChild(btnRow)
 
   card.appendChild(actions)
 
@@ -943,6 +1119,7 @@ export function createAnnotationsExtension(): Extension {
               cfGutterForm.dataset.anchorFrom = String(savedSelection?.from ?? 0)
               cfGutterForm.style.top = `${anchorTop}px`
               cfGutterForm.hidden = false
+              window.dispatchEvent(new Event('folio:open-gutter'))
               floater.hidden = true
               pendingCommentRange = savedSelection
               pmView.dispatch(pmView.state.tr.setMeta(annotationsKey, { type: 'refresh' }))

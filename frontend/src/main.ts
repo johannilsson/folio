@@ -1,10 +1,10 @@
 import { on } from './websocket'
 import { getFile, getFolio, getInfo } from './api'
 import { initEditor, setContent, getEditor, flushSave } from './editor'
-import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, setGutterHidden } from './annotations'
+import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl, setRawGutterHidden } from './raw-editor'
+import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -62,29 +62,25 @@ async function boot(): Promise<void> {
   setMermaidTheme(colorScheme.matches ? 'default' : 'dark')
   colorScheme.addEventListener('change', e => setMermaidTheme(e.matches ? 'default' : 'dark'))
 
-  // Toggle between WYSIWYG and raw markdown
-  const thumb = document.getElementById('view-toggle-thumb') as HTMLElement
-  const previewBtn = document.getElementById('view-toggle-preview') as HTMLButtonElement
-  const sourceBtn = document.getElementById('view-toggle-source') as HTMLButtonElement
+  // Single button toggles between WYSIWYG preview and raw markdown source
+  const viewBtn = document.getElementById('view-toggle-btn') as HTMLButtonElement
   const editorWrapper = document.getElementById('editor-wrapper')!
   const rawPane = document.getElementById('raw-pane')!
 
-  function positionThumb(activeBtn: HTMLButtonElement, animate = true) {
-    if (!animate) thumb.style.transition = 'none'
-    thumb.style.width = activeBtn.offsetWidth + 'px'
-    thumb.style.transform = `translateX(${activeBtn === sourceBtn ? previewBtn.offsetWidth : 0}px)`
-    if (!animate) requestAnimationFrame(() => { thumb.style.transition = '' })
-    previewBtn.classList.toggle('active', activeBtn === previewBtn)
-    sourceBtn.classList.toggle('active', activeBtn === sourceBtn)
+  // Highlighted while the markdown source is showing.
+  function updateViewBtn() {
+    const inSource = !rawPane.hidden
+    viewBtn.classList.toggle('active', inSource)
+    viewBtn.setAttribute('aria-pressed', String(inSource))
   }
 
   // Default to source/raw mode — CM6 edits the file directly with no
   // reformat-on-save round trip, so it's the primary editing surface now.
   initRawEditor(rawPane, initialContent)
   refreshRawAnnotations()
-  requestAnimationFrame(() => positionThumb(sourceBtn, false))
+  updateViewBtn()
 
-  previewBtn.addEventListener('click', () => {
+  function showPreview() {
     if (!rawPane.hidden) {
       const wrapperEl = getRawWrapperEl()
       const fraction = wrapperEl ? wrapperEl.scrollTop / (wrapperEl.scrollHeight - wrapperEl.clientHeight || 1) : 0
@@ -100,10 +96,10 @@ async function boot(): Promise<void> {
         editorWrapper.scrollTop = fraction * (editorWrapper.scrollHeight - editorWrapper.clientHeight)
       }))
     }
-    positionThumb(previewBtn)
-  })
+    updateViewBtn()
+  }
 
-  sourceBtn.addEventListener('click', () => {
+  function showSource() {
     if (rawPane.hidden) {
       const fraction = editorWrapper.scrollTop / (editorWrapper.scrollHeight - editorWrapper.clientHeight || 1)
       flushSave().then(getFile).then(content => {
@@ -116,18 +112,27 @@ async function boot(): Promise<void> {
         if (wrapperEl) wrapperEl.scrollTop = fraction * (wrapperEl.scrollHeight - wrapperEl.clientHeight)
       })
     }
-    positionThumb(sourceBtn)
-  })
+    updateViewBtn()
+  }
 
-  // Toggle the annotation gutter/pane, independent of which editor is active
+  viewBtn.addEventListener('click', () => (rawPane.hidden ? showSource() : showPreview()))
+
+  // Comments pane: closed by default, toggled with the bubble button
+  const appEl = document.getElementById('app')!
   const gutterToggleBtn = document.getElementById('toggle-gutter-btn') as HTMLButtonElement
-  let gutterVisible = true
-  gutterToggleBtn.addEventListener('click', () => {
-    gutterVisible = !gutterVisible
-    setGutterHidden(!gutterVisible)
-    setRawGutterHidden(!gutterVisible)
-    gutterToggleBtn.classList.toggle('active', gutterVisible)
-    gutterToggleBtn.setAttribute('aria-pressed', String(gutterVisible))
+  function setGutterOpen(open: boolean) {
+    appEl.classList.toggle('gutter-open', open)
+    gutterToggleBtn.classList.toggle('active', open)
+    gutterToggleBtn.setAttribute('aria-pressed', String(open))
+    if (open) {
+      // Cards were laid out while display:none (zero heights) — rebuild now.
+      scheduleGutterRebuild()
+      refreshRawAnnotations()
+    }
+  }
+  gutterToggleBtn.addEventListener('click', () => setGutterOpen(!appEl.classList.contains('gutter-open')))
+  window.addEventListener('folio:open-gutter', () => {
+    if (!appEl.classList.contains('gutter-open')) setGutterOpen(true)
   })
 }
 

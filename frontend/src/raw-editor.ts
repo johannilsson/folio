@@ -3,6 +3,8 @@ import { EditorView } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { basicSetup } from 'codemirror'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 import { putFile } from './api'
 import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor, setGutterHidden as setRawGutterHidden } from './raw-annotations'
 import { rawFormattingKeymap } from './raw-formatting'
@@ -20,6 +22,11 @@ const nonScrollingTheme = EditorView.theme({
   '&': { height: 'auto' },
   '.cm-scroller': { overflow: 'visible' },
 })
+
+// Overrides defaultHighlightStyle's bold headings (listed first = higher precedence).
+const thinHeadings = syntaxHighlighting(HighlightStyle.define([
+  { tag: [tags.heading1, tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6], fontWeight: '500' },
+]))
 
 let view: EditorView | null = null
 let wrapperEl: HTMLElement | null = null
@@ -54,6 +61,7 @@ export function initRawEditor(container: HTMLElement, initialContent: string): v
     state: EditorState.create({
       doc: initialContent,
       extensions: [
+        thinHeadings,
         basicSetup,
         markdown(),
         EditorView.lineWrapping,
