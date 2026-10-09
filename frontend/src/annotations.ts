@@ -783,9 +783,10 @@ function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Edi
     if (anchoredIds.has(ann.id)) continue
     const card = makeGutterCard(ann, editor, gutterEl)
     card.classList.add('ann-card-unanchored')
-    card.dataset.anchorTop = '0'
-    card.dataset.anchorFrom = '-1'
-    card.style.top = '0px'
+    // Sort after every anchored card and park at the end of the document.
+    card.dataset.anchorTop = String(pmView.dom.scrollHeight)
+    card.dataset.anchorFrom = String(Number.MAX_SAFE_INTEGER)
+    card.style.top = `${pmView.dom.scrollHeight}px`
     const badge = document.createElement('span')
     badge.className = 'ann-card-lost-badge'
     badge.textContent = 'Not found in document'

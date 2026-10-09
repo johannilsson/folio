@@ -555,17 +555,16 @@ function buildRawGutterCards(view: EditorView): void {
   for (const ann of pending) {
     const anchor = getRawAnchor(ann.id)
     const card = makeRawGutterCard(ann, view)
-    if (anchor) {
-      const top = wrapperTopForDocPos(view, anchor.from)
-      if (top != null) {
-        card.dataset.anchorTop = String(top)
-      } else {
-        card.classList.add('ann-card-unanchored')
-      }
+    const top = anchor ? wrapperTopForDocPos(view, anchor.from) : null
+    if (anchor && top != null) {
+      card.dataset.anchorTop = String(top)
+      card.dataset.anchorFrom = String(anchor.from)
     } else {
+      // Sort after every anchored card and park at the end of the document.
       card.classList.add('ann-card-unanchored')
+      card.dataset.anchorTop = String(view.contentHeight)
+      card.dataset.anchorFrom = String(Number.MAX_SAFE_INTEGER)
     }
-    card.dataset.anchorFrom = String(anchor?.from ?? 0)
     gutterEl.appendChild(card)
   }
   updateFocusedCardClasses()
