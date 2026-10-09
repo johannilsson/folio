@@ -793,8 +793,8 @@ pub fn anchor_chars(
             }
 
             // Fuzzy: strip stray markers, collapse whitespace, try both separators
-            let norm_ctx = normalize_for_fuzzy(&ctx);
-            let norm_tgt = normalize_for_fuzzy(&tgt);
+            let norm_ctx = normalize_for_fuzzy(strip_trailing_table_pipe(&ctx));
+            let norm_tgt = normalize_for_fuzzy(strip_leading_table_pipe(&tgt));
             let norm_ctx_chars = norm_ctx.chars().count();
             let norm_tgt_chars = norm_tgt.chars().count();
             let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
@@ -1143,6 +1143,19 @@ mod tests {
         let (from, to) = anchor_raw_chars(doc, ctx, Some(target)).unwrap();
         let matched: String = doc.chars().skip(from).take(to - from).collect();
         assert_eq!(matched, target);
+    }
+
+    #[test]
+    fn anchor_chars_context_ends_mid_table_row_stray_trailing_pipe() {
+        // Preview-side counterpart of the raw-mode ann_demo005 regression.
+        let doc = "| A | B | pronounced VA is a flaw |\n\
+                   | Mousiness | Fault | Lactic bacteria producing THP; irreversible |\n";
+        let ctx = "pronounced VA is a flaw |\n";
+        let target = "| Mousiness | Fault | Lactic bacteria producing THP; irreversible |";
+        let (from, to) = anchor_chars(doc, ctx, Some(target)).unwrap();
+        let plain: Vec<char> = render_plain_text(doc).chars().collect();
+        let matched: String = plain[from..to].iter().collect();
+        assert_eq!(matched, "MousinessFaultLactic bacteria producing THP; irreversible");
     }
 
     #[test]
