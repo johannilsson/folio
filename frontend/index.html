@@ -10,6 +10,7 @@
     :root {
       --bg: #1a1a1a;
       --accent: #a78bfa;
+      --content-width: 720px;
       --card-tint: #222;
       --accent-soft: rgba(124, 58, 237, 0.16);
       --bg-raised: #222;
@@ -218,6 +219,22 @@
     }
 
     /* ── Tiptap content styles ── */
+
+    /* Centered reading column; tables and diagrams may grow up to the full editor width */
+    #editor-tiptap .tiptap > * {
+      max-width: var(--content-width);
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #editor-tiptap .tiptap > .tableWrapper,
+    #editor-tiptap .tiptap > .diagram-block {
+      max-width: 100%;
+    }
+    /* Shrink-to-fit: text width at minimum, growing up to the editor width */
+    #editor-tiptap .tiptap > .tableWrapper {
+      width: fit-content;
+      min-width: min(100%, var(--content-width));
+    }
 
     .tiptap h1, .tiptap h2, .tiptap h3,
     .tiptap h4, .tiptap h5, .tiptap h6 {
