@@ -181,7 +181,8 @@ let cfGutterForm: HTMLDivElement | null = null
 let cfTextarea: HTMLTextAreaElement | null = null
 let savedSelection: { from: number; to: number } | null = null
 
-let actionFloater: HTMLDivElement | null = null
+let overlayEl: HTMLDivElement | null = null
+let overlaySig = ''
 let focusedAnnotationId: string | null = null
 
 function hideCommentForm(): void {
@@ -203,35 +204,57 @@ function updateFocusedCardClasses(): void {
   repositionCards(gutterEl)
 }
 
-function updateActionFloaterPosition(): void {
-  if (!actionFloater || !wrapperEl || !currentView) return
+function hideOverlay(): void {
+  if (!overlayEl) return
+  overlayEl.hidden = true
+  overlayEl.replaceChildren()
+  overlaySig = ''
+}
+
+function updateOverlay(): void {
+  if (!overlayEl || !wrapperEl || !currentView) return
   const ann = focusedAnnotationId
-    ? getSidecar().annotations.find(a => a.id === focusedAnnotationId && a.kind !== 'comment' && !a.resolved)
+    ? getSidecar().annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
     : null
   const anchor = ann ? getRawAnchor(ann.id) : null
-  if (!ann || !anchor) {
-    actionFloater.hidden = true
+  if (!ann || !anchor || document.getElementById('app')?.classList.contains('gutter-open')) {
+    hideOverlay()
     return
+  }
+  const coords = currentView.coordsAtPos(anchor.from)
+  if (!coords) {
+    hideOverlay()
+    return
+  }
+  // Rebuild only when the annotation changed, so a focused reply box survives.
+  const sig = JSON.stringify(ann)
+  if (sig !== overlaySig) {
+    const hadFocus = overlayEl.contains(document.activeElement)
+    const card = makeRawGutterCard(ann, currentView)
+    card.classList.add('ann-overlay', 'ann-card-focused')
+    overlayEl.replaceChildren(card)
+    overlaySig = sig
+    if (hadFocus) card.querySelector<HTMLTextAreaElement>('.ann-reply-textarea')?.focus()
   }
   const containerRect = wrapperEl.getBoundingClientRect()
-  const coordsFrom = currentView.coordsAtPos(anchor.from)
-  const coordsTo = currentView.coordsAtPos(anchor.to)
-  if (!coordsFrom || !coordsTo) {
-    actionFloater.hidden = true
-    return
-  }
-  const midX = (coordsFrom.left + coordsTo.right) / 2
-  const top = coordsFrom.top - containerRect.top + wrapperEl.scrollTop
-  const left = Math.max(80, Math.min(midX - containerRect.left, wrapperEl.clientWidth - 80))
-  actionFloater.style.top = `${top}px`
-  actionFloater.style.left = `${left}px`
-  actionFloater.hidden = false
+  overlayEl.hidden = false
+  const height = overlayEl.offsetHeight
+  // Flip above the anchor when it won't fit below but will fit above.
+  const flip = containerRect.bottom - coords.bottom < height + 12 && coords.top - containerRect.top > height + 12
+  const top = flip
+    ? coords.top - containerRect.top + wrapperEl.scrollTop - height - 6
+    : coords.bottom - containerRect.top + wrapperEl.scrollTop + 6
+  const maxLeft = wrapperEl.clientWidth - overlayEl.offsetWidth - 8
+  const left = Math.max(8, Math.min(coords.left - containerRect.left, maxLeft))
+  overlayEl.style.top = `${top}px`
+  overlayEl.style.left = `${left}px`
+  overlayEl.hidden = false
 }
 
 function setFocused(id: string | null): void {
   if (focusedAnnotationId === id) return
   focusedAnnotationId = id
-  updateActionFloaterPosition()
+  updateOverlay()
   updateFocusedCardClasses()
 }
 
@@ -349,44 +372,24 @@ function buildFloaterDOM(): void {
     refreshRawAnnotations(currentView)
   })
 
-  // ── Action floater (Accept/Reject) ──
-  actionFloater = document.createElement('div')
-  actionFloater.id = 'action-floater'
-  actionFloater.hidden = true
-  wrapperEl.appendChild(actionFloater)
+  // ── Clicked-annotation overlay (comment pane closed) ──
+  overlayEl = document.createElement('div')
+  overlayEl.id = 'annotation-overlay'
+  overlayEl.hidden = true
+  wrapperEl.appendChild(overlayEl)
 
-  const afAccept = document.createElement('button')
-  afAccept.className = 'af-btn'
-  afAccept.textContent = 'Accept'
-  afAccept.addEventListener('mousedown', e => {
-    e.preventDefault()
-    const ann = focusedAnnotationId ? getSidecar().annotations.find(a => a.id === focusedAnnotationId) : null
-    if (ann && currentView) applyAcceptRaw(ann, currentView)
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !overlayEl || overlayEl.hidden) return
+    setFocused(null)
+    currentView?.focus()
   })
-
-  const afDivider = document.createElement('span')
-  afDivider.className = 'af-divider'
-
-  const afReject = document.createElement('button')
-  afReject.className = 'af-btn'
-  afReject.textContent = 'Reject'
-  afReject.addEventListener('mousedown', e => {
-    e.preventDefault()
-    const ann = focusedAnnotationId ? getSidecar().annotations.find(a => a.id === focusedAnnotationId) : null
-    const tiptapEditor = getEditor()
-    if (ann && tiptapEditor && currentView) {
-      const after = resolveAnnotation(ann, 'rejected', tiptapEditor)
-      currentView.dispatch({
-        effects: [annotationActionEffect.of({ id: ann.id, before: ann, after })],
-        annotations: isolateHistory.of('full'),
-      })
-      refreshRawAnnotations(currentView)
-    }
+  document.addEventListener('mousedown', e => {
+    if (!overlayEl || overlayEl.hidden || !currentView) return
+    const target = e.target as Node
+    if (overlayEl.contains(target) || currentView.dom.contains(target)) return
+    setFocused(null)
   })
-
-  actionFloater.appendChild(afAccept)
-  actionFloater.appendChild(afDivider)
-  actionFloater.appendChild(afReject)
+  window.addEventListener('folio:gutter-toggled', updateOverlay)
 }
 
 // ─── Accept / reply mutations (raw-text-specific) ──────────────────────────

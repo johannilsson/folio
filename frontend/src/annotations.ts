@@ -218,13 +218,15 @@ function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
   focusedAnnotationId = ann.id
   updateFocusedCard()
 
-  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from)))
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from)).scrollIntoView())
   view.focus()
 
   requestAnimationFrame(() => {
-    currentGutterEl
-      ?.querySelector<HTMLElement>(`[data-id="${ann.id}"]`)
-      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const overlay = document.getElementById('annotation-overlay')
+    const target = overlay && !overlay.hidden
+      ? overlay
+      : currentGutterEl?.querySelector<HTMLElement>(`[data-id="${ann.id}"]`)
+    target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   })
 
   return true
@@ -624,7 +626,7 @@ export function makeReplyBox(): { box: HTMLElement; textarea: HTMLTextAreaElemen
   return { box, textarea, send, refresh }
 }
 
-function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement): HTMLElement {
+function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement | null): HTMLElement {
   const card = document.createElement('div')
   card.className = 'ann-card'
   card.dataset.source = ann.source
@@ -658,14 +660,14 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement):
     requestAnimationFrame(() => {
       textarea.style.height = 'auto'
       textarea.style.height = `${textarea.scrollHeight}px`
-      repositionCards(gutterEl)
+      if (gutterEl) repositionCards(gutterEl)
     })
   }
   textarea.addEventListener('input', () => {
     textarea.style.height = 'auto'
     textarea.style.height = `${textarea.scrollHeight}px`
     replyDrafts.set(ann.id, textarea.value)
-    repositionCards(gutterEl)
+    if (gutterEl) repositionCards(gutterEl)
   })
 
   const submitReply = () => {
@@ -994,60 +996,77 @@ export function createAnnotationsExtension(): Extension {
             const scrollContainer = pmView.dom.parentElement?.parentElement
             if (scrollContainer) scrollContainer.appendChild(gutterEl)
 
-            // ── Action overlay (accept / reject) ────────────────────────────
-            const actionFloater = document.createElement('div')
-            actionFloater.id = 'action-floater'
-            actionFloater.hidden = true
-            if (scrollContainer) scrollContainer.appendChild(actionFloater)
+            // ── Annotation overlay (clicked annotation, comment pane closed) ──
+            const appEl = document.getElementById('app')
+            const overlayEl = document.createElement('div')
+            overlayEl.id = 'annotation-overlay'
+            overlayEl.hidden = true
+            if (scrollContainer) scrollContainer.appendChild(overlayEl)
+            let overlaySig = ''
 
-            const afAccept = document.createElement('button')
-            afAccept.className = 'af-btn'
-            afAccept.textContent = 'Accept'
-            afAccept.addEventListener('mousedown', e => {
-              e.preventDefault()
-              if (focusedAnnotationId) acceptAnnotation(focusedAnnotationId)
-            })
-
-            const afDivider = document.createElement('span')
-            afDivider.className = 'af-divider'
-
-            const afReject = document.createElement('button')
-            afReject.className = 'af-btn'
-            afReject.textContent = 'Reject'
-            afReject.addEventListener('mousedown', e => {
-              e.preventDefault()
-              const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId)
-              if (ann) {
-                annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
-                resolveAnnotation(ann, 'rejected', editor)
-              }
-            })
-
-            actionFloater.appendChild(afAccept)
-            actionFloater.appendChild(afDivider)
-            actionFloater.appendChild(afReject)
+            function hideOverlay(): void {
+              overlayEl.hidden = true
+              overlayEl.replaceChildren()
+              overlaySig = ''
+            }
 
             focusChangeCallback = () => {
               const ann = focusedAnnotationId
-                ? currentSidecar.annotations.find(a => a.id === focusedAnnotationId && a.kind !== 'comment')
+                ? currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
                 : null
-              if (!ann || !scrollContainer) { actionFloater.hidden = true; return }
-              const anchor = annotationsKey.getState(pmView.state)?.anchors.get(ann.id)
-              if (!anchor) { actionFloater.hidden = true; return }
+              const anchor = ann ? annotationsKey.getState(pmView.state)?.anchors.get(ann.id) : null
+              if (!ann || !anchor || !scrollContainer || appEl?.classList.contains('gutter-open')) {
+                hideOverlay()
+                return
+              }
+              // Rebuild only when the annotation changed, so a focused reply box survives.
+              const sig = JSON.stringify(ann)
+              if (sig !== overlaySig) {
+                const hadFocus = overlayEl.contains(document.activeElement)
+                const card = makeGutterCard(ann, editor, null)
+                card.classList.add('ann-overlay', 'ann-card-focused')
+                overlayEl.replaceChildren(card)
+                overlaySig = sig
+                if (hadFocus) card.querySelector<HTMLTextAreaElement>('.ann-reply-textarea')?.focus()
+              }
               try {
                 const containerRect = scrollContainer.getBoundingClientRect()
-                const coordsFrom = pmView.coordsAtPos(anchor.from)
-                const coordsTo = pmView.coordsAtPos(anchor.to)
-                const midX = (coordsFrom.left + coordsTo.right) / 2
-                const top = coordsFrom.top - containerRect.top + scrollContainer.scrollTop
-                const left = Math.max(80, Math.min(midX - containerRect.left, scrollContainer.clientWidth - 80))
-                actionFloater.style.top = `${top}px`
-                actionFloater.style.left = `${left}px`
-                actionFloater.hidden = false
+                const coords = pmView.coordsAtPos(anchor.from)
+                overlayEl.hidden = false
+                const height = overlayEl.offsetHeight
+                // Flip above the anchor when it won't fit below but will fit above.
+                const flip = containerRect.bottom - coords.bottom < height + 12 && coords.top - containerRect.top > height + 12
+                const top = flip
+                  ? coords.top - containerRect.top + scrollContainer.scrollTop - height - 6
+                  : coords.bottom - containerRect.top + scrollContainer.scrollTop + 6
+                const maxLeft = scrollContainer.clientWidth - overlayEl.offsetWidth - 8
+                const left = Math.max(8, Math.min(coords.left - containerRect.left, maxLeft))
+                overlayEl.style.top = `${top}px`
+                overlayEl.style.left = `${left}px`
               } catch {
-                actionFloater.hidden = true
+                hideOverlay()
               }
             }
+
+            const dismissOverlay = () => {
+              focusedAnnotationId = null
+              updateFocusedCard()
+            }
+            const onOverlayKeydown = (e: KeyboardEvent) => {
+              if (e.key !== 'Escape' || overlayEl.hidden) return
+              dismissOverlay()
+              pmView.focus()
+            }
+            const onOverlayMousedown = (e: MouseEvent) => {
+              if (overlayEl.hidden) return
+              const target = e.target as Node
+              if (overlayEl.contains(target) || pmView.dom.contains(target)) return
+              dismissOverlay()
+            }
+            const onGutterToggled = () => focusChangeCallback?.()
+            document.addEventListener('keydown', onOverlayKeydown)
+            document.addEventListener('mousedown', onOverlayMousedown)
+            window.addEventListener('folio:gutter-toggled', onGutterToggled)
             // ───────────────────────────────────────────────────────────────
 
             // ── Floating comment adder ──────────────────────────────────────
@@ -1159,6 +1178,7 @@ export function createAnnotationsExtension(): Extension {
                 tryFetchAnchors(view)
 
                 buildGutterCards(view, gutterEl, editor)
+                focusChangeCallback?.()
 
                 const { selection } = view.state
                 if (!cfGutterForm.hidden) return // keep position stable while form is active
@@ -1183,7 +1203,10 @@ export function createAnnotationsExtension(): Extension {
                 scrollContainer?.removeEventListener('scroll', onScroll)
                 gutterEl.remove()
                 floater.remove()
-                actionFloater.remove()
+                overlayEl.remove()
+                document.removeEventListener('keydown', onOverlayKeydown)
+                document.removeEventListener('mousedown', onOverlayMousedown)
+                window.removeEventListener('folio:gutter-toggled', onGutterToggled)
                 focusChangeCallback = null
                 currentGutterEl = null
                 rebuildFn = null

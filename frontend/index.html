@@ -849,7 +849,7 @@
 
     /* ── Overlays (action + comment pill) ── */
 
-    #action-floater, #comment-floater {
+    #comment-floater {
       position: absolute;
       z-index: 20;
       display: flex;
@@ -861,7 +861,6 @@
       transform: translateX(-50%) translateY(calc(-100% - 8px));
       white-space: nowrap;
     }
-    #action-floater[hidden] { display: none; }
     #comment-floater[hidden] { display: none; }
 
     .af-btn {
@@ -878,12 +877,20 @@
     .af-btn { color: var(--af-text); }
     .af-btn:hover { background: var(--af-hover); }
 
-    .af-divider {
-      width: 1px;
-      height: 16px;
-      background: var(--af-div);
-      flex-shrink: 0;
+    /* ── Clicked-annotation overlay (comment pane closed) ── */
+
+    #annotation-overlay {
+      position: absolute;
+      z-index: 20;
+      width: 300px;
+      max-height: 60vh;
+      overflow-y: auto;
+      border-radius: 12px;
+      background: var(--bg);
+      box-shadow: var(--float-shadow);
     }
+    #annotation-overlay[hidden] { display: none; }
+    .ann-card.ann-overlay { position: static; }
 
     /* ── Floating comment adder ── */
 

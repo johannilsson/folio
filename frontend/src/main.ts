@@ -124,6 +124,7 @@ async function boot(): Promise<void> {
     appEl.classList.toggle('gutter-open', open)
     gutterToggleBtn.classList.toggle('active', open)
     gutterToggleBtn.setAttribute('aria-pressed', String(open))
+    window.dispatchEvent(new Event('folio:gutter-toggled'))
     if (open) {
       // Cards were laid out while display:none (zero heights) — rebuild now.
       scheduleGutterRebuild()
