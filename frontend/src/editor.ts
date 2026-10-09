@@ -5,6 +5,7 @@ import { Markdown } from '@tiptap/markdown'
 import { TableKit } from '@tiptap/extension-table'
 import { DiagramCodeBlock } from './diagrams'
 import { putFile } from './api'
+import { splitFrontmatter, renderFrontmatter } from './frontmatter'
 import { buildState, reconcile, joinState, matchesBlocks, createCodec, decodeHtmlEntities } from './source-sync'
 import type { Codec, SyncState } from './source-sync'
 
@@ -15,6 +16,9 @@ let codec: Codec | null = null
 let sync: SyncState | null = null
 // The file contents we last loaded or wrote — used to ignore echoes of our own saves.
 let lastSynced = ''
+// Frontmatter text kept out of the document and prepended on save.
+let front = ''
+let containerEl: HTMLElement | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let statusCb: ((readOnlyReason: string | null) => void) | null = null
 
@@ -25,10 +29,11 @@ export function initEditor(
   onStatus?: (readOnlyReason: string | null) => void,
 ): void {
   statusCb = onStatus ?? null
+  containerEl = container
   editor = new Editor({
     element: container,
     extensions: [StarterKit.configure({ codeBlock: false }), DiagramCodeBlock, TableKit, Markdown, ...extraExtensions],
-    content: initialContent,
+    content: splitFrontmatter(initialContent)?.body ?? initialContent,
     contentType: 'markdown',
     editable: false,
     onUpdate({ transaction }) {
@@ -49,7 +54,10 @@ function lock(reason: string): void {
 function attachSync(source: string): void {
   if (!editor || !codec) return
   lastSynced = source
-  const result = buildState(source, editor.state.doc, codec)
+  const split = splitFrontmatter(source)
+  front = split?.raw ?? ''
+  if (containerEl) renderFrontmatter(containerEl, split?.entries ?? null)
+  const result = buildState(split?.body ?? source, editor.state.doc, codec)
   if (typeof result === 'string') return lock(result)
   sync = result
   editor.setEditable(true, false)
@@ -70,14 +78,15 @@ export function flushSave(): Promise<unknown> {
   saveTimer = null
   if (!sync || !codec) return Promise.resolve()
 
-  let text = joinState(sync)
+  let body = joinState(sync)
   // An edit can leave a block's original separator too tight (e.g. a paragraph
   // now directly above another paragraph) — retry with blank lines between all.
-  if (!matchesBlocks(text, sync, codec)) text = joinState(sync, true)
-  if (!matchesBlocks(text, sync, codec)) {
+  if (!matchesBlocks(body, sync, codec)) body = joinState(sync, true)
+  if (!matchesBlocks(body, sync, codec)) {
     lock('your last edit could not be saved without merging blocks; reload to continue')
     return Promise.resolve()
   }
+  const text = front + body
   lastSynced = text
   return putFile(text)
 }
@@ -89,7 +98,7 @@ export function setContent(content: string): void {
   // older echo of our own write must not clobber what the user is typing.
   if (saveTimer) return
   // Reloaded content is not something the user typed, so keep it out of undo history.
-  editor.chain().setMeta('addToHistory', false).setContent(content, { contentType: 'markdown', emitUpdate: false }).run()
+  editor.chain().setMeta('addToHistory', false).setContent(splitFrontmatter(content)?.body ?? content, { contentType: 'markdown', emitUpdate: false }).run()
   attachSync(content)
 }
 

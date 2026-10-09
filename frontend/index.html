@@ -134,8 +134,8 @@
     #editor-toolbar {
       position: absolute;
       top: 10px;
-      left: 10px;
-      right: 10px;
+      left: 32px;
+      right: 32px;
       z-index: 20;
       display: flex;
       align-items: center;
@@ -217,6 +217,28 @@
       line-height: 1.75;
       color: var(--text);
     }
+
+    /* ── Frontmatter box ── */
+
+    #frontmatter-box {
+      max-width: var(--content-width);
+      margin: 4.5rem auto 0;
+      padding: 0.6rem 1rem;
+      background: var(--bg-raised);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    #frontmatter-box table { border-collapse: collapse; width: 100%; }
+    #frontmatter-box td { padding: 0.15em 0; vertical-align: top; }
+    #frontmatter-box td:first-child {
+      width: 1%;
+      white-space: nowrap;
+      padding-right: 1.5rem;
+      color: var(--text-3);
+    }
+    #frontmatter-box td:last-child { color: var(--text); word-break: break-word; }
+    #editor-tiptap.has-frontmatter .tiptap { padding-top: 1.5rem; }
 
     /* ── Tiptap content styles ── */
 
@@ -482,14 +504,7 @@
     }
     .ann-replace-preview > *:last-child { margin-bottom: 0; }
 
-    .ann-highlight {
-      text-decoration: underline dotted var(--ann-hi);
-      text-decoration-thickness: 2px;
-      text-underline-offset: 3px;
-      padding: 1px 3px;
-      border-radius: 3px;
-    }
-
+    .ann-highlight,
     .ann-comment-target {
       background: var(--ann-com-bg);
       border-bottom: 2px solid var(--ann-com-bdr);
@@ -527,13 +542,7 @@
       border-radius: 3px;
     }
 
-    .cm-ann-highlight {
-      text-decoration: underline dotted var(--ann-hi);
-      text-decoration-thickness: 2px;
-      text-underline-offset: 3px;
-      border-radius: 3px;
-    }
-
+    .cm-ann-highlight,
     .cm-ann-comment-target {
       background: var(--ann-com-bg);
       border-bottom: 2px solid var(--ann-com-bdr);
