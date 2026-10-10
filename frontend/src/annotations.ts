@@ -1091,36 +1091,33 @@ export function createAnnotationsExtension(): Extension {
             cfTitle.textContent = 'New comment'
             cfGutterForm.appendChild(cfTitle)
 
-            const cfTextarea = document.createElement('textarea')
-            cfTextarea.className = 'ann-reply-textarea'
+            const { box: cfReplyBox, textarea: cfTextarea, send: cfSubmit, refresh: cfRefresh } = makeReplyBox()
             cfTextarea.placeholder = 'Add a comment…'
-            cfTextarea.rows = 1
+            cfSubmit.title = 'Add comment'
             cfTextarea.addEventListener('input', () => {
               cfTextarea.style.height = 'auto'
               cfTextarea.style.height = `${cfTextarea.scrollHeight}px`
               repositionCards(gutterEl)
             })
+            cfGutterForm.appendChild(cfReplyBox)
 
-            const cfActions = document.createElement('div')
-            cfActions.className = 'ann-card-action-row'
-            const cfSubmit = document.createElement('button')
-            cfSubmit.className = 'ann-card-btn ann-card-reply'
-            cfSubmit.textContent = 'Add'
-            const cfCancel = document.createElement('button')
-            cfCancel.className = 'cf-cancel'
-            cfCancel.textContent = 'Cancel'
-            cfActions.appendChild(cfSubmit)
-            cfActions.appendChild(cfCancel)
-            cfGutterForm.appendChild(cfTextarea)
-            cfGutterForm.appendChild(cfActions)
+            // Comment form shown next to the text when the comment pane is closed.
+            const formOverlay = document.createElement('div')
+            formOverlay.id = 'comment-form-overlay'
+            formOverlay.hidden = true
+            if (scrollContainer) scrollContainer.appendChild(formOverlay)
 
             let savedSelection: { from: number; to: number } | null = null
 
             function hideFloater(): void {
               floater.hidden = true
               cfGutterForm.hidden = true
+              formOverlay.hidden = true
+              cfGutterForm.classList.remove('ann-overlay')
+              if (cfGutterForm.parentElement !== gutterEl) gutterEl.appendChild(cfGutterForm)
               cfTextarea.value = ''
               cfTextarea.style.height = ''
+              cfRefresh()
               savedSelection = null
               pendingCommentRange = null
               const { from } = pmView.state.selection
@@ -1132,6 +1129,42 @@ export function createAnnotationsExtension(): Extension {
               repositionCards(gutterEl)
             }
 
+            function positionFormOverlay(): void {
+              if (!scrollContainer || !savedSelection || formOverlay.hidden) return
+              try {
+                const containerRect = scrollContainer.getBoundingClientRect()
+                const start = pmView.coordsAtPos(savedSelection.from)
+                const end = pmView.coordsAtPos(savedSelection.to)
+                const height = formOverlay.offsetHeight
+                // Flip above the selection when it won't fit below but will fit above.
+                const flip = containerRect.bottom - end.bottom < height + 12 && start.top - containerRect.top > height + 12
+                const top = flip
+                  ? start.top - containerRect.top + scrollContainer.scrollTop - height - 6
+                  : end.bottom - containerRect.top + scrollContainer.scrollTop + 6
+                const maxLeft = scrollContainer.clientWidth - formOverlay.offsetWidth - 8
+                const left = Math.max(8, Math.min(start.left - containerRect.left, maxLeft))
+                formOverlay.style.top = `${top}px`
+                formOverlay.style.left = `${left}px`
+              } catch {
+                hideFloater()
+              }
+            }
+            cfTextarea.addEventListener('input', positionFormOverlay)
+
+            const onFormOverlayKeydown = (e: KeyboardEvent) => {
+              if (e.key !== 'Escape' || cfGutterForm.hidden) return
+              hideFloater()
+              pmView.focus()
+            }
+            const onFormOverlayMousedown = (e: MouseEvent) => {
+              if (cfGutterForm.hidden) return
+              const target = e.target as Node
+              if (cfGutterForm.contains(target) || floater.contains(target)) return
+              hideFloater()
+            }
+            document.addEventListener('keydown', onFormOverlayKeydown)
+            document.addEventListener('mousedown', onFormOverlayMousedown)
+
             cfBtn.addEventListener('mousedown', e => {
               e.preventDefault()
               const anchorTop = parseFloat(floater.style.top ?? '0')
@@ -1139,17 +1172,24 @@ export function createAnnotationsExtension(): Extension {
               cfGutterForm.dataset.anchorFrom = String(savedSelection?.from ?? 0)
               cfGutterForm.style.top = `${anchorTop}px`
               cfGutterForm.hidden = false
-              window.dispatchEvent(new Event('folio:open-gutter'))
               floater.hidden = true
               pendingCommentRange = savedSelection
+              if (scrollContainer && !appEl?.classList.contains('gutter-open')) {
+                cfGutterForm.classList.add('ann-overlay')
+                formOverlay.appendChild(cfGutterForm)
+                formOverlay.hidden = false
+                positionFormOverlay()
+              }
               pmView.dispatch(pmView.state.tr.setMeta(annotationsKey, { type: 'refresh' }))
               repositionCards(gutterEl)
               cfTextarea.focus()
             })
 
-            cfCancel.addEventListener('mousedown', e => {
-              e.preventDefault()
-              hideFloater()
+            cfTextarea.addEventListener('keydown', e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                cfSubmit.dispatchEvent(new MouseEvent('mousedown'))
+              }
             })
 
             cfSubmit.addEventListener('mousedown', e => {
@@ -1205,6 +1245,9 @@ export function createAnnotationsExtension(): Extension {
                 gutterEl.remove()
                 floater.remove()
                 overlayEl.remove()
+                formOverlay.remove()
+                document.removeEventListener('keydown', onFormOverlayKeydown)
+                document.removeEventListener('mousedown', onFormOverlayMousedown)
                 document.removeEventListener('keydown', onOverlayKeydown)
                 document.removeEventListener('mousedown', onOverlayMousedown)
                 window.removeEventListener('folio:gutter-toggled', onGutterToggled)
