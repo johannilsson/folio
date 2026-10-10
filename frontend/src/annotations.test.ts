@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { buildCharPos, charIndexToRange } from './annotations'
 
 // Minimal ProseMirror-compatible document mock. buildCharPos only calls
-// doc.descendants and reads node.isText / node.text — no DOM needed.
+// doc.descendants and reads node.type.name / node.isText / node.text — no DOM needed.
 function mockDoc(nodes: Array<{ text: string; pos: number }>) {
   return {
-    descendants(cb: (node: { isText: boolean; text?: string }, pos: number) => void) {
+    descendants(cb: (node: { type: { name: string }; isText: boolean; text?: string }, pos: number) => void) {
       for (const { text, pos } of nodes) {
-        cb({ isText: true, text }, pos)
+        cb({ type: { name: 'text' }, isText: true, text }, pos)
       }
     },
   }

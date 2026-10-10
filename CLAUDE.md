@@ -39,7 +39,15 @@ cargo test
 
 # Frontend unit tests (findAnchor)
 cd frontend && pnpm test
+
+# Browser e2e (Playwright; starts its own server on :7391 against a temp copy of e2e/fixture.md)
+cd frontend && pnpm e2e
+
+# Everything: frontend build, cargo build/test, unit tests, e2e
+./scripts/verify.sh
 ```
+
+Run `./scripts/verify.sh` after UI changes to confirm them in a real browser. Add a spec in `frontend/e2e/` for new UI behaviour instead of writing throwaway scripts. The app boots in source (CM6) mode; click `#view-toggle-btn` for preview. Floater/overlay ids exist in both modes, so scope selectors to `#editor-wrapper` or `#raw-editor-wrapper`.
 
 ## Architecture
 
