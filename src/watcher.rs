@@ -1,4 +1,4 @@
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, PollWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -9,25 +9,26 @@ pub fn start(
     folio_path: PathBuf,
     write_token: Arc<Mutex<Option<Instant>>>,
     tx: broadcast::Sender<String>,
-) -> anyhow::Result<RecommendedWatcher> {
+) -> anyhow::Result<PollWatcher> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<notify::Result<Event>>();
 
     let doc_path_clone = doc_path.clone();
     let folio_path_clone = folio_path.clone();
 
-    let mut watcher = notify::recommended_watcher(move |res| {
-        let _ = event_tx.send(res);
-    })?;
+    // Polling rather than native events: FSEvents/kqueue watches are bound to the
+    // file's inode and go silent after an atomic save (write temp + rename), which
+    // is how agents and most editors write files.
+    let mut watcher = PollWatcher::new(
+        move |res| {
+            let _ = event_tx.send(res);
+        },
+        Config::default().with_poll_interval(Duration::from_millis(300)),
+    )?;
 
     watcher.watch(&doc_path, RecursiveMode::NonRecursive)?;
     // folio file may not exist yet; watch its parent dir for create events
     if let Some(parent) = folio_path.parent() {
         watcher.watch(parent, RecursiveMode::NonRecursive)?;
-    }
-    // Also watch the folio file directly if it exists — kqueue directory watches
-    // fire only on entry create/delete, not on file content changes.
-    if folio_path.exists() {
-        let _ = watcher.watch(&folio_path, RecursiveMode::NonRecursive);
     }
 
     tokio::spawn(async move {

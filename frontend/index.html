@@ -9,6 +9,10 @@
 
     :root {
       --bg: #1a1a1a;
+      --accent: #a78bfa;
+      --content-width: 720px;
+      --card-tint: #222;
+      --accent-soft: rgba(124, 58, 237, 0.16);
       --bg-raised: #222;
       --bg-surface: #2a2a3a;
       --bg-input: #151525;
@@ -47,11 +51,15 @@
       --ann-hi: rgb(247,253,73);
       --ann-com-bg: rgba(250,204,21,.28);
       --ann-com-bdr: rgba(250,204,21,.9);
+      --cm-selection: rgba(125,211,252,.25);
     }
 
     @media (prefers-color-scheme: light) {
       :root {
-        --bg: #fafaf8;
+        --bg: #ffffff;
+        --accent: #7c3aed;
+        --card-tint: #f7f7f5;
+        --accent-soft: rgba(124, 58, 237, 0.08);
         --bg-raised: #f0f0ee;
         --bg-surface: #ebebf0;
         --bg-input: #f0f0f5;
@@ -90,6 +98,7 @@
         --ann-hi: rgb(202,138,4);
         --ann-com-bg: rgba(250,204,21,.18);
         --ann-com-bdr: rgba(250,204,21,.7);
+        --cm-selection: rgba(37,99,235,.18);
       }
     }
 
@@ -119,60 +128,69 @@
       overflow: hidden;
     }
 
+    /* Floating controls: pills overlay the text, which flows edge to edge */
+    #editor-pane { position: relative; }
+
     #editor-toolbar {
+      position: absolute;
+      top: 10px;
+      left: 32px;
+      right: 32px;
+      z-index: 20;
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
-      padding: 6px 12px;
-      background: var(--bg);
-      flex-shrink: 0;
+      pointer-events: none;
     }
+    #editor-toolbar > * { pointer-events: auto; }
+
+    .float-pill {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      height: 30px;
+      padding: 0 12px;
+      background: var(--bg-raised);
+      border-radius: 15px;
+    }
+    .float-pill-group { display: flex; gap: 8px; }
+    .float-pill, .float-pill-btn { box-sizing: border-box; }
+    .float-pill-btn { width: 30px; padding: 0; justify-content: center; }
+    .float-pill-btn .float-btn { width: 100%; height: 100%; border-radius: 50%; padding: 0; line-height: 0; }
+    .float-btn svg { width: 13px; height: 13px; display: block; }
 
     #filename-display {
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 400;
       color: var(--text);
       pointer-events: none;
     }
 
-
-    #view-toggle {
-      position: relative;
-      display: flex;
-      background: var(--bg-raised);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 2px;
-    }
-
-    #view-toggle-thumb {
-      position: absolute;
-      top: 2px;
-      bottom: 2px;
-      left: 2px;
-      background: var(--bg);
-      border-radius: 4px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.25);
-      transition: transform 0.16s ease, width 0.16s ease;
-      pointer-events: none;
-    }
-
-    .view-toggle-opt {
-      position: relative;
-      z-index: 1;
+    #preview-readonly-notice {
       font-size: 12px;
-      padding: 3px 10px;
-      border: none;
-      background: transparent;
-      color: var(--text-4);
-      cursor: pointer;
-      font-family: inherit;
-      border-radius: 4px;
-      transition: color 0.14s;
-      white-space: nowrap;
-      user-select: none;
+      color: var(--text-3);
+      cursor: help;
     }
-    .view-toggle-opt.active { color: var(--text); }
+    #preview-readonly-notice[hidden] { display: none; }
+
+    .float-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border: none;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--text-2);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .float-btn:hover { background: var(--toolbar-btn-hover); color: var(--toolbar-btn-hover-text); }
+    .float-btn.active { background: transparent; color: var(--chip); }
+    .float-pill-btn:has(.float-btn.active) { background: var(--chip-bg); }
 
     /* ── WYSIWYG area: editor + gutter side by side, scrolling together ── */
 
@@ -192,21 +210,60 @@
     }
 
     #editor-tiptap .tiptap {
-      padding: 2rem;
+      padding: 4.5rem 1rem 2rem 2rem;
       min-height: 100%;
       outline: none;
-      font-size: 15px;
+      font-size: 13px;
       line-height: 1.75;
       color: var(--text);
     }
 
+    /* ── Frontmatter box ── */
+
+    #frontmatter-box {
+      max-width: var(--content-width);
+      margin: 4.5rem auto 0;
+      padding: 0.6rem 1rem;
+      background: var(--bg-raised);
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    #frontmatter-box table { border-collapse: collapse; width: 100%; }
+    #frontmatter-box td { padding: 0.15em 0; vertical-align: top; }
+    #frontmatter-box td:first-child {
+      width: 1%;
+      white-space: nowrap;
+      padding-right: 1.5rem;
+      color: var(--text-3);
+    }
+    #frontmatter-box td:last-child { color: var(--text); word-break: break-word; }
+    #editor-tiptap.has-frontmatter .tiptap { padding-top: 1.5rem; }
+
     /* ── Tiptap content styles ── */
+
+    /* Centered reading column; tables and diagrams may grow up to the full editor width */
+    #editor-tiptap .tiptap > * {
+      max-width: var(--content-width);
+      margin-left: auto;
+      margin-right: auto;
+    }
+    #editor-tiptap .tiptap > .tableWrapper,
+    #editor-tiptap .tiptap > .diagram-block {
+      max-width: 100%;
+    }
+    /* Shrink-to-fit: text width at minimum, growing up to the editor width */
+    #editor-tiptap .tiptap > .tableWrapper {
+      width: fit-content;
+      min-width: min(100%, var(--content-width));
+    }
 
     .tiptap h1, .tiptap h2, .tiptap h3,
     .tiptap h4, .tiptap h5, .tiptap h6 {
       margin: 1.4em 0 0.4em;
       color: var(--text-strong);
       line-height: 1.3;
+      font-weight: 500;
     }
     .tiptap h1 { font-size: 1.9em; }
     .tiptap h2 { font-size: 1.5em; }
@@ -314,8 +371,10 @@
     .tiptap th, .tiptap td {
       border: 1px solid var(--border-mid);
       padding: 0.4em 0.7em;
+      line-height: 1.5;
     }
-    .tiptap th { background: var(--bg-surface); }
+    .tiptap th > p, .tiptap td > p { margin: 0; }
+    .tiptap th { font-weight: 600; text-align: left; }
 
     /* ── Raw markdown pane ── */
 
@@ -327,17 +386,83 @@
     }
     #raw-pane[hidden] { display: none; }
 
-    #raw-pane textarea {
+    /* Editor + gutter side by side, scrolling together — mirrors #editor-wrapper */
+    #raw-editor-wrapper {
       flex: 1;
-      padding: 2rem;
-      background: var(--bg);
-      color: var(--text-raw);
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      border: none;
+      display: flex;
+      align-items: flex-start;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    #raw-editor-mount {
+      flex: 1;
+      min-width: 0;
+      padding-top: 3.5rem;
+      padding-right: 1rem;
+    }
+
+    #raw-pane .cm-editor {
       outline: none;
-      resize: none;
+      background: var(--bg);
+    }
+    #raw-pane .cm-scroller {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    /* No `background` here deliberately: .cm-content is a flex sibling of
+       .cm-selectionLayer/.cm-cursorLayer (not their parent), and CM6 relies
+       on .cm-content staying transparent so those layers, rendered behind
+       it, show through. An opaque background here paints over the selection
+       highlight entirely — that's what was making it invisible. The editor
+       background lives on #raw-pane .cm-editor above instead. */
+    #raw-pane .cm-content {
+      padding: 2rem 1.5rem 2rem 0;
+      color: var(--text-raw);
+      /* .cm-content is a flex item of .cm-scroller (flex-grow: 2, flex-shrink: 0
+         by CM6's own base theme). Without this, an unwrapped (white-space: pre)
+         table row's intrinsic width becomes .cm-content's automatic min-width,
+         overflowing past the sibling line-number gutter into the annotation
+         gutter instead of scrolling just that row. */
+      min-width: 0;
+    }
+    /* Halves CM6's default 6px left inset on each line — combined with the
+       gutter's own 3px right padding, this is the numbers-to-content gap. */
+    #raw-pane .cm-line {
+      padding-left: 3px;
+    }
+    /* Wide table rows would otherwise wrap character-by-character like
+       prose, scrambling columns — keep each row on one line and scroll it
+       horizontally instead. Class applied by raw-table-layout.ts. */
+    #raw-pane .cm-line.cm-table-row {
+      white-space: pre;
+      overflow-x: auto;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* legacy Edge */
+    }
+    #raw-pane .cm-line.cm-table-row::-webkit-scrollbar {
+      display: none; /* Chrome/Safari */
+    }
+    #raw-pane .cm-gutters {
+      background: var(--bg);
+      border: none;
+      color: var(--border-mid);
+    }
+    /* CM6's default (0 3px 0 5px) also pads each line-number element itself,
+       independent of the gutter container's own padding — the actual
+       remaining source of left-edge space once the container's is zeroed. */
+    #raw-pane .cm-lineNumbers .cm-gutterElement {
+      padding-left: 0;
+    }
+
+    /* CM6's built-in selection color is hardcoded for a light background
+       (#d9d9d9/#d7d4f0) since it's never told our app is dark by default —
+       nearly invisible against --bg here. Override with a themed color that
+       works in both modes, beating CM6's rule via the #raw-pane id selector. */
+    #raw-pane .cm-selectionBackground,
+    #raw-pane .cm-focused .cm-selectionBackground {
+      background: var(--cm-selection) !important;
     }
 
     /* ── Annotation decorations (inline) ── */
@@ -347,7 +472,6 @@
       text-decoration: line-through;
       text-decoration-color: var(--ann-del-bdr);
       color: var(--ann-del-text);
-      border-bottom: 2px solid var(--ann-del-bdr);
       padding: 1px 3px;
       border-radius: 3px;
     }
@@ -355,7 +479,6 @@
     .ann-insert-preview {
       background: var(--ann-ins-bg);
       color: var(--ann-ins-text);
-      border-bottom: 2px solid var(--ann-ins-bdr);
       padding: 1px 3px;
       border-radius: 3px;
       -webkit-box-decoration-break: clone;
@@ -379,24 +502,15 @@
     }
     .ann-replace-preview > *:last-child { margin-bottom: 0; }
 
-    .ann-highlight {
-      text-decoration: underline dotted var(--ann-hi);
-      text-decoration-thickness: 2px;
-      text-underline-offset: 3px;
-      padding: 1px 3px;
-      border-radius: 3px;
-    }
-
+    .ann-highlight,
     .ann-comment-target {
       background: var(--ann-com-bg);
-      border-bottom: 2px solid var(--ann-com-bdr);
       padding: 1px 3px;
       border-radius: 3px;
     }
 
     .ann-comment-pending {
       background: var(--ann-com-bg);
-      border-bottom: 2px dashed var(--ann-com-bdr);
       padding: 1px 3px;
       border-radius: 3px;
     }
@@ -406,36 +520,56 @@
     .tiptap .ann-insert-preview *, .tiptap .ann-replace-preview *,
     .tiptap .ann-delete *, .tiptap .ann-comment-target *, .tiptap .ann-highlight * { color: inherit; }
 
+    /* Same, for the CM6 raw pane — .ann-insert-preview/.ann-replace-preview
+       reused as-is there (see below), so they need the same override. */
+    #raw-pane .ann-insert-preview *, #raw-pane .ann-replace-preview * { color: inherit; }
+
+    /* ── CM6 raw-pane annotation decorations (read-only) ──
+       No `padding` here (unlike the .ann-* classes above): padding on an
+       arbitrary sub-line range can shift character alignment/line-wrapping
+       in CM6's monospace line-rendering model, which prose spans don't hit. */
+
+    .cm-ann-delete {
+      background: var(--ann-del-bg);
+      text-decoration: line-through;
+      text-decoration-color: var(--ann-del-bdr);
+      color: var(--ann-del-text);
+      border-radius: 3px;
+    }
+
+    .cm-ann-highlight,
+    .cm-ann-comment-target {
+      background: var(--ann-com-bg);
+      border-radius: 3px;
+    }
+
     /* ── Annotation gutter (scrolls with document) ── */
 
-    #annotation-gutter {
+    #annotation-gutter, #raw-annotation-gutter {
       width: 280px;
       flex-shrink: 0;
       position: relative;
       pointer-events: none;
-      margin-right: 2rem;
+      margin-right: 1.5rem;
     }
+    #app:not(.gutter-open) #annotation-gutter,
+    #app:not(.gutter-open) #raw-annotation-gutter { display: none; }
 
     /* ── Gutter cards ── */
 
     .ann-card {
       position: absolute;
-      left: 8px;
+      left: 0;
       right: 8px;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      padding: 8px 10px;
+      background: var(--card-tint);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      padding: 12px;
       pointer-events: auto;
       display: flex;
       flex-direction: column;
       gap: 6px;
     }
-
-    .ann-card[data-source="agent"]  { border-left: 3px solid #22d3ee; }
-    .ann-card[data-source="local"]  { border-left: 3px solid #6366f1; }
-    .ann-card[data-source="github"],
-    .ann-card[data-source="gitlab"] { border-left: 3px solid #f472b6; }
 
     .ann-card-unanchored { opacity: 0.65; }
     .ann-card-lost-badge {
@@ -478,14 +612,67 @@
       display: flex;
       align-items: baseline;
       gap: 6px;
+      position: relative;
     }
-    .ann-card-author {
+    .ann-card-header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .ann-card-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: var(--text-3);
+      font-size: 14px;
+      line-height: 1;
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .ann-card-icon-btn:hover { background: var(--af-hover); color: var(--af-text); }
+    .ann-card-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      z-index: 30;
+      background: var(--float-bg);
+      border: 1px solid var(--border-mid);
+      border-radius: 7px;
+      box-shadow: var(--float-shadow);
+      min-width: 130px;
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+    }
+    .ann-card-menu[hidden] { display: none; }
+    .ann-card-menu-item {
+      border: none;
+      background: transparent;
+      color: var(--af-text);
+      text-align: left;
       font-size: 12px;
-      font-weight: 600;
+      padding: 5px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .ann-card-menu-item:hover { background: var(--af-hover); }
+    .ann-card-menu-danger { color: var(--ann-del-text); }
+    .ann-card-menu-danger:hover { background: var(--ann-del-bg); }
+    .ann-edit { display: flex; flex-direction: column; gap: 6px; }
+    .ann-card-author {
+      font-size: 13px;
+      font-weight: 500;
       color: var(--card-author);
     }
     .ann-card-time {
-      font-size: 10px;
+      font-size: 11px;
       color: var(--text-3);
     }
 
@@ -522,19 +709,48 @@
 
     /* ── Reply thread ── */
 
-    .ann-card-replies {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      border-top: 1px solid var(--border);
-      padding-top: 6px;
-      margin-top: 2px;
-    }
+    .ann-thread { display: flex; flex-direction: column; }
 
-    .ann-reply {
+    .ann-entry {
+      position: relative;
       display: flex;
-      flex-direction: column;
-      gap: 3px;
+      gap: 10px;
+      padding-bottom: 12px;
+    }
+    .ann-entry:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 13px;
+      top: 34px;
+      bottom: 4px;
+      width: 1px;
+      background: var(--border-mid);
+    }
+    .ann-card:not(.ann-card-focused) .ann-entry:last-child { padding-bottom: 0; }
+
+    /* Connect the last entry to the reply field's avatar while it is shown */
+    .ann-card-focused .ann-entry:last-child::after {
+      content: '';
+      position: absolute;
+      left: 13px;
+      top: 34px;
+      bottom: -6px;
+      width: 1px;
+      background: var(--border-mid);
+    }
+    .ann-entry-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+    .ann-avatar {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 500;
+      color: #fff;
     }
 
     .ann-reply-header {
@@ -544,13 +760,13 @@
     }
 
     .ann-reply-author {
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 500;
       color: var(--card-author);
     }
 
     .ann-reply-time {
-      font-size: 10px;
+      font-size: 11px;
       color: var(--text-3);
     }
 
@@ -559,7 +775,6 @@
       color: var(--card-body);
       line-height: 1.55;
       word-break: break-word;
-      padding-left: 2px;
     }
 
     .ann-card-reply {
@@ -585,11 +800,50 @@
       box-sizing: border-box;
       overflow: hidden;
     }
-    .ann-reply-textarea:focus { border-color: rgba(99, 102, 241, 0.5); }
+    .ann-reply-textarea:focus { border-color: var(--border-muted); }
+
+    .ann-reply-box {
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .ann-reply-box > .ann-avatar { margin-top: 4px; }
+    .ann-reply-field {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+    }
+    .ann-reply-box .ann-reply-textarea {
+      background: transparent;
+      border-color: var(--border-mid);
+      border-radius: 18px;
+      padding: 8px 40px 8px 14px;
+      min-height: 36px;
+    }
+    .ann-send-btn {
+      position: absolute;
+      right: 5px;
+      bottom: 5px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--border-mid);
+      color: var(--text-3);
+      cursor: pointer;
+    }
+    .ann-send-btn svg { width: 13px; height: 13px; }
+    .ann-send-btn.ready { background: var(--text-2); color: var(--bg); }
 
     /* ── Overlays (action + comment pill) ── */
 
-    #action-floater, #comment-floater {
+    #comment-floater {
       position: absolute;
       z-index: 20;
       display: flex;
@@ -601,7 +855,6 @@
       transform: translateX(-50%) translateY(calc(-100% - 8px));
       white-space: nowrap;
     }
-    #action-floater[hidden] { display: none; }
     #comment-floater[hidden] { display: none; }
 
     .af-btn {
@@ -618,48 +871,47 @@
     .af-btn { color: var(--af-text); }
     .af-btn:hover { background: var(--af-hover); }
 
-    .af-divider {
-      width: 1px;
-      height: 16px;
-      background: var(--af-div);
-      flex-shrink: 0;
+    /* ── Clicked-annotation overlay (comment pane closed) ── */
+
+    #annotation-overlay,
+    #comment-form-overlay {
+      position: absolute;
+      z-index: 20;
+      width: 300px;
+      max-height: 60vh;
+      overflow-y: auto;
+      border-radius: 12px;
+      background: var(--bg);
+      box-shadow: var(--float-shadow);
     }
+    #annotation-overlay[hidden],
+    #comment-form-overlay[hidden] { display: none; }
+    .ann-card.ann-overlay,
+    .cf-gutter-form.ann-overlay { position: static; }
 
     /* ── Floating comment adder ── */
 
     .cf-gutter-form {
       position: absolute;
-      left: 8px;
+      left: 0;
       right: 8px;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-left: 3px solid #6366f1;
-      border-radius: 7px;
-      padding: 8px 10px;
+      background: var(--card-tint);
+      border: 1px solid var(--card-focused);
+      border-radius: 12px;
+      padding: 12px;
       display: flex;
       flex-direction: column;
       gap: 6px;
       pointer-events: auto;
     }
     .cf-gutter-form[hidden] { display: none; }
+    .cf-gutter-form .ann-card-actions { display: flex; }
 
     .cf-title {
       font-size: 11px;
       font-weight: 700;
       color: var(--card-author);
     }
-
-    .cf-cancel {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 4px;
-      border: none;
-      background: transparent;
-      color: var(--text-3);
-      cursor: pointer;
-      font-family: inherit;
-    }
-    .cf-cancel:hover { color: var(--text-2); }
 
     .ann-card-focused {
       border-color: var(--card-focused);
@@ -827,19 +1079,25 @@
   <div id="app">
     <div id="editor-pane">
       <div id="editor-toolbar">
-        <div id="view-toggle" role="group" aria-label="View mode">
-          <div id="view-toggle-thumb"></div>
-          <button id="view-toggle-preview" class="view-toggle-opt active" title="Rich text">¶</button>
-          <button id="view-toggle-source" class="view-toggle-opt" title="Markdown source">&lt;/&gt;</button>
+        <div class="float-pill" id="title-pill">
+          <span id="filename-display"></span>
+          <span id="preview-readonly-notice" hidden>Read-only preview</span>
         </div>
-        <span id="filename-display"></span>
+        <div class="float-pill-group">
+          <div class="float-pill float-pill-btn">
+            <button id="view-toggle-btn" class="float-btn" title="Markdown source" aria-label="Toggle markdown source" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/></svg></button>
+          </div>
+          <div class="float-pill float-pill-btn">
+            <button id="toggle-gutter-btn" class="float-btn" title="Comments" aria-label="Toggle comments" aria-pressed="false">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H6.5L3.5 13.5V11h0a1 1 0 0 1-1-1z"/><path d="M5.5 5.5h5M5.5 8h3"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
-      <div id="editor-wrapper">
+      <div id="editor-wrapper" hidden>
         <div id="editor-tiptap"></div>
       </div>
-      <div id="raw-pane" hidden>
-        <textarea spellcheck="false" placeholder="Markdown source…"></textarea>
-      </div>
+      <div id="raw-pane"></div>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>

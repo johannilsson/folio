@@ -87,13 +87,22 @@ impl Annotation {
     ///
     /// For `insert`/`comment` (no target) both values are the same insertion point.
     pub fn anchor(&self, doc: &str) -> Option<(usize, usize)> {
-        // Decode HTML entities from annotation values so that agents who copied
-        // raw entity text (e.g. &amp;) match the same way as agents who used the
-        // rendered output (e.g. &).
-        let ctx_decoded = decode_html_entities(&self.context_before);
-        let tgt_decoded = self.target.as_ref().map(|t| decode_html_entities(t));
-        let has_entities = ctx_decoded != self.context_before
-            || tgt_decoded.as_deref() != self.target.as_deref();
+        anchor_raw_bytes(doc, &self.context_before, self.target.as_deref())
+    }
+}
+
+/// Search `doc` for `context_before` + `target`, returning `(raw_start, raw_end)`
+/// byte offsets into `doc`. Shared by `Annotation::anchor` (CLI patching) and
+/// `anchor_raw_chars` (browser raw-mode anchoring) so both work off the same
+/// proven 4-pass matcher without requiring a full `Annotation` in hand.
+fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    // Decode HTML entities from annotation values so that agents who copied
+    // raw entity text (e.g. &amp;) match the same way as agents who used the
+    // rendered output (e.g. &).
+    let ctx_decoded = decode_html_entities(context_before);
+    let tgt_decoded = target.map(decode_html_entities);
+    let has_entities =
+        ctx_decoded != context_before || tgt_decoded.as_deref() != target;
 
         let doc_lower = doc.to_lowercase();
         let ctx = ctx_decoded.to_lowercase();
@@ -139,7 +148,15 @@ impl Annotation {
         // decoded entity is the last char of the matched range.
         let (stripped, pos_map, raw_spans) = strip_markdown(doc);
         let stripped_lower = stripped.to_lowercase();
-        let ctx_chars = ctx_decoded.chars().count();
+
+        // context_before/target may themselves contain markdown syntax (e.g. an
+        // agent copied a raw table row, pipes and all, into context_before) that
+        // won't appear verbatim in the already-stripped document — strip them the
+        // same way before searching, mirroring what anchor_chars (the browser's
+        // rendered-text resolver) already does. Stripping plain text is a no-op,
+        // so this only ever adds matches, never removes ones passes 1/2 found.
+        let ctx_stripped_lower = strip_markdown(&ctx_decoded).0.to_lowercase();
+        let ctx_chars = ctx_stripped_lower.chars().count();
 
         // Convert a byte offset in stripped_lower to a char index.
         let byte_to_char = |b: usize| stripped_lower[..b].chars().count();
@@ -154,14 +171,14 @@ impl Annotation {
 
         match &tgt_decoded {
             Some(target) => {
-                let tgt = target.to_lowercase();
-                let tgt_chars = target.chars().count();
+                let tgt_stripped_lower = strip_markdown(target).0.to_lowercase();
+                let tgt_chars = tgt_stripped_lower.chars().count();
 
                 // Pass 3: exact search in stripped text
-                let exact = format!("{}{}", ctx, tgt);
+                let exact = format!("{}{}", ctx_stripped_lower, tgt_stripped_lower);
                 let found = stripped_lower.find(&exact).map(|b| (byte_to_char(b), 0usize))
                     .or_else(|| {
-                        let spaced = format!("{} {}", ctx, tgt);
+                        let spaced = format!("{} {}", ctx_stripped_lower, tgt_stripped_lower);
                         stripped_lower.find(&spaced).map(|b| (byte_to_char(b), 1usize))
                     });
                 if let Some((match_ci, space)) = found {
@@ -177,8 +194,12 @@ impl Annotation {
 
                 // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
                 // then search again with a warning when this fallback is used.
-                let norm_ctx = normalize_for_fuzzy(&ctx);
-                let norm_tgt = normalize_for_fuzzy(&tgt);
+                // Also strip a stray leading/trailing table pipe: context_before
+                // can end mid-row (e.g. "...text |") without the row's own "|"
+                // prefix, so strip_markdown never recognizes it as table syntax
+                // and leaves the pipe (and its padding space) in place.
+                let norm_ctx = normalize_for_fuzzy(strip_trailing_table_pipe(&ctx_stripped_lower));
+                let norm_tgt = normalize_for_fuzzy(strip_leading_table_pipe(&tgt_stripped_lower));
                 let norm_ctx_chars = norm_ctx.chars().count();
                 let norm_tgt_chars = norm_tgt.chars().count();
                 let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
@@ -205,7 +226,7 @@ impl Annotation {
                 None
             }
             None => {
-                stripped_lower.find(&ctx).map(|b| {
+                stripped_lower.find(&ctx_stripped_lower).map(|b| {
                     let end_ci = byte_to_char(b) + ctx_chars;
                     let raw = raw_end_from(end_ci);
                     (raw, raw)
@@ -213,6 +234,17 @@ impl Annotation {
             }
         }
     }
+
+/// Char-offset variant of `anchor_raw_bytes`, for the browser's CM6 raw-mode editor.
+/// Like `anchor_raw_bytes`, but converts the result to **char** indices (JS
+/// string offsets are per-code-unit, not per-byte) into the raw, unstripped
+/// `doc` — i.e. offsets that cover the literal source text including `**`,
+/// `#`, list markers, table pipes, etc.
+pub fn anchor_raw_chars(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    let (byte_from, byte_to) = anchor_raw_bytes(doc, context_before, target)?;
+    let char_from = doc[..byte_from].chars().count();
+    let char_to = char_from + doc[byte_from..byte_to].chars().count();
+    Some((char_from, char_to))
 }
 
 /// Strip inline and block-level markdown markers from `doc`, returning:
@@ -761,8 +793,8 @@ pub fn anchor_chars(
             }
 
             // Fuzzy: strip stray markers, collapse whitespace, try both separators
-            let norm_ctx = normalize_for_fuzzy(&ctx);
-            let norm_tgt = normalize_for_fuzzy(&tgt);
+            let norm_ctx = normalize_for_fuzzy(strip_trailing_table_pipe(&ctx));
+            let norm_tgt = normalize_for_fuzzy(strip_leading_table_pipe(&tgt));
             let norm_ctx_chars = norm_ctx.chars().count();
             let norm_tgt_chars = norm_tgt.chars().count();
             let (norm_stripped, norm_map) = normalize_with_map(&stripped_lower);
@@ -810,6 +842,29 @@ pub fn anchor_chars(
 
 
 /// Strips formatting markers and collapses whitespace runs to a single space.
+/// Strips a stray trailing "|" (and any padding space before it) — the
+/// closing pipe of a table row that ended up in context_before without the
+/// leading "|" strip_markdown needs to recognize it as table syntax in the
+/// first place. Leaves ordinary trailing whitespace (e.g. a context_before
+/// ending "Some ") untouched — only strings that actually end in "|" are
+/// affected.
+fn strip_trailing_table_pipe(s: &str) -> &str {
+    let trimmed = s.trim_end();
+    match trimmed.strip_suffix('|') {
+        Some(without_pipe) => without_pipe.trim_end(),
+        None => s,
+    }
+}
+
+/// Mirror of `strip_trailing_table_pipe`, for a stray leading "|".
+fn strip_leading_table_pipe(s: &str) -> &str {
+    let trimmed = s.trim_start();
+    match trimmed.strip_prefix('|') {
+        Some(without_pipe) => without_pipe.trim_start(),
+        None => s,
+    }
+}
+
 fn normalize_for_fuzzy(s: &str) -> String {
     let mut out = String::new();
     let mut last_space = false;
@@ -1033,6 +1088,74 @@ mod tests {
         let (from, to) = anchor_chars(doc, "see ", Some("[REF-001](docs/other.md) for details")).unwrap();
         assert_eq!(from, 4);
         assert_eq!(to, 23);
+    }
+
+    #[test]
+    fn anchor_raw_chars_returns_raw_char_indices() {
+        // Unlike anchor_chars, markdown syntax counts toward the offsets: the
+        // returned range covers the literal raw text "target", including the
+        // fact that context_before itself contains "## " and "**".
+        let doc = "## Heading\n\nThe **target** sentence here.";
+        let (from, to) = anchor_raw_chars(doc, "## Heading\n\nThe **", Some("target")).unwrap();
+        assert_eq!(from, 18);
+        assert_eq!(to, 24);
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, "target");
+    }
+
+    #[test]
+    fn anchor_raw_chars_handles_multibyte_before_target() {
+        // Regression guard for byte-vs-char: a multibyte café/em-dash prefix
+        // must not throw off char indices the way raw byte offsets would.
+        let doc = "café — the target word";
+        let (from, to) = anchor_raw_chars(doc, "café — the ", Some("target")).unwrap();
+        assert_eq!(from, "café — the ".chars().count());
+        assert_eq!(to, from + "target".chars().count());
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, "target");
+    }
+
+    #[test]
+    fn anchor_raw_chars_no_target_table_row_with_pipe_padding_mismatch() {
+        // Regression for the pet-nat bug: a comment annotation (no target) whose
+        // context_before is a raw table row copied without the file's actual
+        // column padding. Pass 1 (raw exact) fails on the padding mismatch, and
+        // pre-fix, pass 3 also failed because it searched the raw, pipe-containing
+        // context_before against the already-pipe-stripped document.
+        let doc = "| Orange wine    | 1 week – 6 months          | Result |\n| Next row | x | y |";
+        let ctx = "| Orange wine | 1 week – 6 months | Result |";
+        let (from, to) = anchor_raw_chars(doc, ctx, None).unwrap();
+        assert_eq!(from, to); // comment/insert — insertion point, no range
+    }
+
+    #[test]
+    fn anchor_raw_chars_context_ends_mid_table_row_stray_trailing_pipe() {
+        // Regression for ann_demo005: context_before ends with the closing "|"
+        // of the PREVIOUS table row ("...is a flaw |\n") but doesn't start with
+        // "|" itself, so strip_markdown never enters table-row parsing for that
+        // fragment and leaves the pipe (plus its padding space) in place —
+        // mismatching the fully-stripped document, which has zero characters
+        // between "flaw" and the next row's first cell.
+        let doc = "| A | B | pronounced VA is a flaw |\n\
+                   | Mousiness | Fault | Lactic bacteria producing THP; irreversible |\n";
+        let ctx = "pronounced VA is a flaw |\n";
+        let target = "| Mousiness | Fault | Lactic bacteria producing THP; irreversible |";
+        let (from, to) = anchor_raw_chars(doc, ctx, Some(target)).unwrap();
+        let matched: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(matched, target);
+    }
+
+    #[test]
+    fn anchor_chars_context_ends_mid_table_row_stray_trailing_pipe() {
+        // Preview-side counterpart of the raw-mode ann_demo005 regression.
+        let doc = "| A | B | pronounced VA is a flaw |\n\
+                   | Mousiness | Fault | Lactic bacteria producing THP; irreversible |\n";
+        let ctx = "pronounced VA is a flaw |\n";
+        let target = "| Mousiness | Fault | Lactic bacteria producing THP; irreversible |";
+        let (from, to) = anchor_chars(doc, ctx, Some(target)).unwrap();
+        let plain: Vec<char> = render_plain_text(doc).chars().collect();
+        let matched: String = plain[from..to].iter().collect();
+        assert_eq!(matched, "MousinessFaultLactic bacteria producing THP; irreversible");
     }
 
     #[test]

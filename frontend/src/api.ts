@@ -17,6 +17,13 @@ export const putFolio = (sidecar: Sidecar): Promise<Response> =>
     body: JSON.stringify(sidecar, null, 2),
   })
 
+export const postAccept = (id: string): Promise<Response> =>
+  fetch('/api/accept', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+
 export const getKrokiUrl = (): Promise<string> =>
   fetch('/api/kroki-url').then(r => r.json()).then(d => d.url)
 
@@ -34,6 +41,13 @@ export interface AnchorResultItem {
 
 export const postAnchor = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
   fetch('/api/anchor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  }).then(r => r.json())
+
+export const postAnchorRaw = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
+  fetch('/api/anchor-raw', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(items),
