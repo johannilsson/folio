@@ -76,18 +76,12 @@ fn set_target(name: &str) -> anyhow::Result<Target> {
         if !entry.path.is_file() {
             anyhow::bail!("{} (in set '{}') does not exist", entry.path.display(), name);
         }
-        let root = set::resolve_root(entry);
-        let display_name = entry
-            .path
-            .strip_prefix(&root)
-            .unwrap_or(&entry.path)
-            .to_string_lossy()
-            .to_string();
+        let described = set::describe(entry);
         docs.push(DocEntry {
             id: entry.id.clone(),
-            name: display_name,
-            group: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-            folio_path: set::folio_path_in(&root, &entry.path),
+            name: described.name,
+            group: described.group,
+            folio_path: described.folio_path,
             doc_path: entry.path.clone(),
             write_token: Arc::new(Mutex::new(None)),
         });

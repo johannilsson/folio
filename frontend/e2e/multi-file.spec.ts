@@ -199,3 +199,15 @@ test('comment pane and view mode carry over to the next file', async ({ page, re
   await expect(page.locator('#editor-tiptap .ProseMirror')).toBeVisible()
   await expect(page.locator('#app')).toHaveClass(/gutter-open/)
 })
+
+test('the native app switches files through __folioSwitchFile', async ({ page, request, bridge }) => {
+  test.skip(!bridge, 'only exists where the native bridge does')
+  const { 'alpha.md': alpha, 'beta.md': beta } = await files(request)
+  await open(page, alpha.id)
+  await expect(page.locator('.cm-content')).toContainText('Natural wine')
+
+  await page.evaluate(id => (window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile(id), beta.id)
+
+  await expect(page.locator('.cm-content')).toContainText('Orange wine')
+  await expect(page.locator('#filename-display')).toHaveText('beta.md')
+})
