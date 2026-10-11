@@ -1,0 +1,281 @@
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetFile {
+    pub id: String,
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Set {
+    pub version: u32,
+    pub files: Vec<SetFile>,
+}
+
+impl Set {
+    pub fn empty() -> Self {
+        Self { version: 1, files: Vec::new() }
+    }
+
+    /// Add `path` (already canonical) unless present. Returns false for duplicates.
+    pub fn add(&mut self, path: PathBuf, root: Option<PathBuf>) -> bool {
+        if self.files.iter().any(|f| f.path == path) {
+            return false;
+        }
+        let mut id = path_id(&path);
+        while self.files.iter().any(|f| f.id == id) {
+            id.push('x');
+        }
+        self.files.push(SetFile { id, path, root });
+        true
+    }
+
+    /// Remove `path`. Returns false if it was not in the set.
+    pub fn remove(&mut self, path: &Path) -> bool {
+        let before = self.files.len();
+        self.files.retain(|f| f.path != path);
+        self.files.len() != before
+    }
+}
+
+/// Stable short id derived from the path (FNV-1a), so re-adding a file after
+/// removing it gives the same URL.
+fn path_id(path: &Path) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in path.to_string_lossy().bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:08x}", hash & 0xffff_ffff)
+}
+
+pub fn config_dir() -> anyhow::Result<PathBuf> {
+    if let Some(d) = std::env::var_os("FOLIO_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        return Ok(PathBuf::from(d));
+    }
+    if let Some(d) = std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
+        return Ok(PathBuf::from(d).join("folio"));
+    }
+    let home = std::env::var_os("HOME")
+        .ok_or_else(|| anyhow::anyhow!("cannot locate config dir: HOME is not set"))?;
+    Ok(PathBuf::from(home).join(".config").join("folio"))
+}
+
+fn sets_dir() -> anyhow::Result<PathBuf> {
+    Ok(config_dir()?.join("sets"))
+}
+
+fn validate_name(name: &str) -> anyhow::Result<()> {
+    let ok = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && !name.starts_with('.');
+    if !ok {
+        anyhow::bail!("invalid set name '{}': use letters, digits, '-', '_' and '.'", name);
+    }
+    Ok(())
+}
+
+pub fn set_path(name: &str) -> anyhow::Result<PathBuf> {
+    validate_name(name)?;
+    Ok(sets_dir()?.join(format!("{}.json", name)))
+}
+
+pub fn lock_path(name: &str) -> anyhow::Result<PathBuf> {
+    validate_name(name)?;
+    Ok(sets_dir()?.join(format!("{}.lock", name)))
+}
+
+pub fn load(name: &str) -> anyhow::Result<Set> {
+    let path = set_path(name)?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("cannot read set '{}' ({}): {}", name, path.display(), e))?;
+    let set: Set = serde_json::from_str(&content)
+        .map_err(|e| anyhow::anyhow!("invalid set file {}: {}", path.display(), e))?;
+    if set.version != 1 {
+        anyhow::bail!("unsupported set version {} (expected 1)", set.version);
+    }
+    Ok(set)
+}
+
+pub fn save(name: &str, set: &Set) -> anyhow::Result<()> {
+    let path = set_path(name)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(set)?)?;
+    Ok(())
+}
+
+pub fn delete(name: &str) -> anyhow::Result<()> {
+    let path = set_path(name)?;
+    std::fs::remove_file(&path)
+        .map_err(|e| anyhow::anyhow!("cannot delete set '{}': {}", name, e))
+}
+
+pub fn list_names() -> anyhow::Result<Vec<String>> {
+    let dir = sets_dir()?;
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension()? == "json" {
+                Some(p.file_stem()?.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+/// Nearest ancestor of `file` that contains `.git` (a directory, or a file for
+/// worktrees); falls back to the file's own directory.
+pub fn detect_root(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or(Path::new("/")).to_path_buf();
+    parent
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .map(Path::to_path_buf)
+        .unwrap_or(parent)
+}
+
+pub fn resolve_root(entry: &SetFile) -> PathBuf {
+    entry.root.clone().unwrap_or_else(|| detect_root(&entry.path))
+}
+
+/// `<root>/.folio/<file relative to root>.folio` — what `folio annotate` writes
+/// when run from `root`. Files outside `root` fall back to their absolute path
+/// under `.folio/`, like `commands::folio_path`.
+pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
+    let relative = file
+        .strip_prefix(root)
+        .unwrap_or_else(|_| file.strip_prefix("/").unwrap_or(file));
+    let dir = relative.parent().unwrap_or(Path::new(""));
+    let name = relative.file_name().unwrap().to_string_lossy();
+    root.join(".folio").join(dir).join(format!("{}.folio", name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    // FOLIO_CONFIG_DIR is process-wide, so tests that set it run one at a time.
+    static ENV: Mutex<()> = Mutex::new(());
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "folio-set-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn detect_root_finds_git_dir() {
+        let tmp = temp_dir("gitdir");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        std::fs::create_dir_all(tmp.join("docs/deep")).unwrap();
+        let file = tmp.join("docs/deep/a.md");
+        assert_eq!(detect_root(&file), tmp);
+    }
+
+    #[test]
+    fn detect_root_accepts_git_file_for_worktrees() {
+        let tmp = temp_dir("gitfile");
+        std::fs::write(tmp.join(".git"), "gitdir: /elsewhere").unwrap();
+        std::fs::create_dir_all(tmp.join("docs")).unwrap();
+        assert_eq!(detect_root(&tmp.join("docs/a.md")), tmp);
+    }
+
+    #[test]
+    fn detect_root_falls_back_to_parent() {
+        let tmp = temp_dir("nogit");
+        std::fs::create_dir_all(tmp.join("notes")).unwrap();
+        // temp dir lives outside any repo, so no .git is found above it
+        let file = tmp.join("notes/a.md");
+        let root = detect_root(&file);
+        assert!(root == tmp.join("notes") || root.join(".git").exists());
+    }
+
+    #[test]
+    fn sidecar_path_is_relative_to_root() {
+        let root = Path::new("/r/repo");
+        assert_eq!(
+            folio_path_in(root, Path::new("/r/repo/docs/spec.md")),
+            PathBuf::from("/r/repo/.folio/docs/spec.md.folio")
+        );
+        assert_eq!(
+            folio_path_in(root, Path::new("/r/repo/spec.md")),
+            PathBuf::from("/r/repo/.folio/spec.md.folio")
+        );
+    }
+
+    #[test]
+    fn explicit_root_overrides_detection() {
+        let entry = SetFile {
+            id: "x".into(),
+            path: PathBuf::from("/a/b/c.md"),
+            root: Some(PathBuf::from("/a")),
+        };
+        assert_eq!(resolve_root(&entry), PathBuf::from("/a"));
+    }
+
+    #[test]
+    fn add_skips_duplicates_and_ids_are_stable() {
+        let mut set = Set::empty();
+        assert!(set.add(PathBuf::from("/a/x.md"), None));
+        assert!(!set.add(PathBuf::from("/a/x.md"), None));
+        let id = set.files[0].id.clone();
+        assert!(set.remove(Path::new("/a/x.md")));
+        assert!(set.add(PathBuf::from("/a/x.md"), None));
+        assert_eq!(set.files[0].id, id);
+        assert!(!set.remove(Path::new("/a/missing.md")));
+    }
+
+    #[test]
+    fn save_load_delete_round_trip() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("cfg");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+
+        assert!(list_names().unwrap().is_empty());
+        let mut set = Set::empty();
+        set.add(PathBuf::from("/a/x.md"), None);
+        set.add(PathBuf::from("/b/y.md"), Some(PathBuf::from("/b")));
+        save("demo", &set).unwrap();
+
+        assert_eq!(list_names().unwrap(), vec!["demo".to_string()]);
+        let loaded = load("demo").unwrap();
+        assert_eq!(loaded.files.len(), 2);
+        assert_eq!(loaded.files[0].root, None);
+        assert_eq!(loaded.files[1].root, Some(PathBuf::from("/b")));
+
+        delete("demo").unwrap();
+        assert!(load("demo").is_err());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn rejects_bad_names() {
+        assert!(validate_name("../evil").is_err());
+        assert!(validate_name("").is_err());
+        assert!(validate_name(".hidden").is_err());
+        assert!(validate_name("checkout-redesign_2").is_ok());
+    }
+}

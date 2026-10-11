@@ -1,4 +1,5 @@
-use crate::server::{build_router, AppState};
+use crate::server::{build_router, AppState, DocEntry};
+use crate::set;
 use crate::watcher;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -33,9 +34,76 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
+/// What `folio serve` was asked to serve: the documents, the lock file that marks
+/// the running server, and a label for the startup banner.
+struct Target {
+    docs: Vec<DocEntry>,
+    set_name: Option<String>,
+    lock: PathBuf,
+    label: String,
+}
+
+fn single_target(file: PathBuf) -> Target {
+    let file = file.canonicalize().unwrap_or(file);
+    let label = file.file_name().unwrap().to_string_lossy().to_string();
+    let group = file
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    Target {
+        set_name: None,
+        lock: lock_path(&file),
+        docs: vec![DocEntry {
+            id: "main".to_string(),
+            name: label.clone(),
+            group,
+            folio_path: super::folio_path(&file),
+            doc_path: file,
+            write_token: Arc::new(Mutex::new(None)),
+        }],
+        label,
+    }
+}
+
+fn set_target(name: &str) -> anyhow::Result<Target> {
+    let loaded = set::load(name)?;
+    if loaded.files.is_empty() {
+        anyhow::bail!("set '{}' has no files; add some with `folio set add {} <files>`", name, name);
+    }
+    let mut docs = Vec::new();
+    for entry in &loaded.files {
+        if !entry.path.is_file() {
+            anyhow::bail!("{} (in set '{}') does not exist", entry.path.display(), name);
+        }
+        let root = set::resolve_root(entry);
+        let display_name = entry
+            .path
+            .strip_prefix(&root)
+            .unwrap_or(&entry.path)
+            .to_string_lossy()
+            .to_string();
+        docs.push(DocEntry {
+            id: entry.id.clone(),
+            name: display_name,
+            group: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+            folio_path: set::folio_path_in(&root, &entry.path),
+            doc_path: entry.path.clone(),
+            write_token: Arc::new(Mutex::new(None)),
+        });
+    }
+    Ok(Target {
+        set_name: Some(name.to_string()),
+        label: format!("set {} ({} files)", name, docs.len()),
+        lock: set::lock_path(name)?,
+        docs,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
-    file: PathBuf,
+    file: Option<PathBuf>,
+    set_name: Option<String>,
     port: Option<u16>,
     host: String,
     no_open: bool,
@@ -45,13 +113,21 @@ pub async fn run(
     kroki_url: String,
     plantuml_url: String,
 ) -> anyhow::Result<()> {
-    let file = file.canonicalize().unwrap_or(file);
-    let folio_path = super::folio_path(&file);
-    if let Some(parent) = folio_path.parent() {
+    let target = match (file, set_name) {
+        (_, Some(name)) => set_target(&name)?,
+        (Some(file), None) => single_target(file),
+        (None, None) => anyhow::bail!("provide a file or --set <name>"),
+    };
+    for doc in &target.docs {
+        if let Some(parent) = doc.folio_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+    }
+    let lock = target.lock;
+    let doc_name = target.label;
+    if let Some(parent) = lock.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let lock = lock_path(&file);
-    let doc_name = file.file_name().unwrap().to_string_lossy().to_string();
 
     // Check for existing server via lock file
     if lock.exists() {
@@ -82,24 +158,19 @@ pub async fn run(
     std::fs::write(&lock, &lock_content)?;
 
     let (tx, _) = broadcast::channel::<String>(64);
-    let write_token = Arc::new(Mutex::new(None));
+    let docs = Arc::new(target.docs);
+    let set_name = target.set_name;
 
     // Start file watcher
     let _watcher = if !no_watch {
-        Some(watcher::start(
-            file.clone(),
-            folio_path.clone(),
-            Arc::clone(&write_token),
-            tx.clone(),
-        )?)
+        Some(watcher::start(Arc::clone(&docs), tx.clone())?)
     } else {
         None
     };
 
     let state = AppState {
-        doc_path: file.clone(),
-        folio_path,
-        write_token,
+        docs,
+        set_name,
         tx,
         read_only,
         token,
