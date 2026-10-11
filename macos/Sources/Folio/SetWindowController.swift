@@ -13,7 +13,27 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
 
     var setName: String { workspace.setName ?? "" }
 
-    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [.toggleSidebar] }
+    private static let sidebarID = NSToolbarItem.Identifier("sidebar")
+
+    // The stock toggleSidebar item lands among the trailing buttons in a unified toolbar.
+    // A navigational item sits at the leading edge, before the title, where Mac apps put it.
+    private lazy var sidebarItem: NSToolbarItem = {
+        let item = NSToolbarItem(itemIdentifier: Self.sidebarID)
+        item.label = "Sidebar"
+        item.toolTip = "Show or hide the file list"
+        item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
+        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
+        item.isNavigational = true
+        item.isBordered = true
+        return item
+    }()
+
+    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [Self.sidebarID] }
+
+    override func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                          willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        id == Self.sidebarID ? sidebarItem : super.toolbar(toolbar, itemForItemIdentifier: id, willBeInsertedIntoToolbar: flag)
+    }
 
     /// `info` must have at least one file: the page opens on the first.
     init(set info: Rust.SetInfo) {
