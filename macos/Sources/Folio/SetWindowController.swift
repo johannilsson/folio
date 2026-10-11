@@ -20,26 +20,19 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
 
     var setName: String { workspace.setName ?? "" }
 
-    private static let sidebarID = NSToolbarItem.Identifier("sidebar")
+    private var split: NSSplitViewController?
 
-    // The stock toggleSidebar item lands among the trailing buttons in a unified toolbar.
-    // A navigational item sits at the leading edge, before the title, where Mac apps put it.
-    private lazy var sidebarItem: NSToolbarItem = {
-        let item = NSToolbarItem(itemIdentifier: Self.sidebarID)
-        item.label = "Sidebar"
-        item.toolTip = "Show or hide the file list"
-        item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
-        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
-        item.isNavigational = true
-        item.isBordered = true
-        return item
-    }()
-
-    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [Self.sidebarID] }
+    // The sidebar runs to the top of the window, as in Finder, Notes and Preview: the
+    // sidebar button sits in its top strip, and the toolbar after the tracking separator
+    // belongs to the editor.
+    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [.toggleSidebar, .sidebarTrackingSeparator] }
 
     override func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                           willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        id == Self.sidebarID ? sidebarItem : super.toolbar(toolbar, itemForItemIdentifier: id, willBeInsertedIntoToolbar: flag)
+        if id == .sidebarTrackingSeparator, let split {
+            return NSTrackingSeparatorToolbarItem(identifier: id, splitView: split.splitView, dividerIndex: 0)
+        }
+        return super.toolbar(toolbar, itemForItemIdentifier: id, willBeInsertedIntoToolbar: flag)
     }
 
     /// `info` must have at least one file: the page opens on the first.
@@ -47,11 +40,22 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         let workspace = Workspace(set: info)
         sidebar = SidebarViewController(workspace: workspace)
         currentID = workspace.entries[0].document.id
-        super.init(workspace: workspace, entryURL: SchemeHandler.entryURL(file: workspace.entries[0].document.id))
+        super.init(workspace: workspace, entryURL: SchemeHandler.entryURL(file: workspace.entries[0].document.id),
+                   fullHeightSidebar: true)
 
         // The editor goes in the content pane of a split view, with the sidebar beside it.
+        // Its top edge is the bottom of the toolbar, which now floats over the content side.
         let content = NSViewController()
-        content.view = webView
+        let contentRoot = NSView()
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        contentRoot.addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
+        ])
+        content.view = contentRoot
         let split = NSSplitViewController()
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
         sidebarItem.minimumThickness = 190
@@ -60,8 +64,10 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         sidebarSplitItem = sidebarItem
         split.addSplitViewItem(NSSplitViewItem(viewController: content))
         split.splitView.autosaveName = "FolioSetSplit"
+        self.split = split
         window?.contentViewController = split
         window?.setContentSize(NSSize(width: 1100, height: 800))
+        installToolbar()
 
         window?.delegate = self
         window?.title = info.name

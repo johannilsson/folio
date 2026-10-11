@@ -99,6 +99,17 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         reload()
     }
 
+    // The sidebar runs under the title bar, so the list starts below it (and the traffic lights).
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard let scroll = table.enclosingScrollView else { return }
+        let top = view.safeAreaInsets.top + 6
+        guard scroll.contentInsets.top != top else { return }
+        scroll.contentInsets = NSEdgeInsets(top: top, left: 0, bottom: scroll.contentInsets.bottom, right: 0)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: -top))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+
     @objc private func addClicked() { onAdd?() }
 
     // MARK: content
