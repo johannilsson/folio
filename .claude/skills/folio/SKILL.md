@@ -8,7 +8,10 @@ description: >
   a document for a human to review. Trigger on phrases like "annotate this",
   "review and suggest changes", "add comments to", "mark up this document",
   "leave feedback on", "proofread", or whenever the user asks an agent to work
-  with a .folio file or a Folio-managed document.
+  with a .folio file or a Folio-managed document. Also use it to group several
+  markdown files into a named Folio set ("folio set", "review these files
+  together", "put these in one folio session") that is served and reviewed
+  together.
 ---
 
 # Working with Folio
@@ -174,6 +177,41 @@ If `folio check` fails, your sidecar JSON is malformed. If `folio accept --dry-r
 
 ---
 
+## Sets: several files in one Folio session
+
+A set is a named list of markdown files, possibly from different repositories, that one `folio serve` process shows together: the filename pill in the editor becomes a menu of the set's files with pending-annotation counts. Create a set when the user wants related files reviewed together. Annotating works as described above, file by file.
+
+```bash
+# Create the set (or extend it); paths may be relative, they are stored absolute
+folio set add <name> <file.md> [<file.md>...]
+
+# Keep sidecars somewhere other than the file's git root (applies to the files in this call)
+folio set add <name> <file.md> --root <dir>
+
+folio set list                    # all sets
+folio set list <name>             # files in a set: id, path and resolved sidecar root
+folio set rm <name> <file.md>...  # remove files from a set
+folio set rm <name>               # delete the whole set
+
+folio serve --set <name>          # serve the set instead of a single file
+```
+
+Sets live in `~/.config/folio/sets/<name>.json` (`FOLIO_CONFIG_DIR` overrides the directory). Names may use letters, digits, `-`, `_` and `.`. A running server does not pick up changes to a set, so it has to be restarted. Starting `folio serve` is the user's call, so give them the command rather than launching it.
+
+### Sidecars of files in a set
+
+The server reads each file's sidecar from `<root>/.folio/<path relative to root>.folio`, where `root` is the file's git root (its own directory if it is not in a git repo) or the `--root` given at `set add`. `folio set list <name>` prints the resolved root for every file.
+
+The per-file commands (`check`, `render`, `annotate`, `review`, `accept`, `reject`, `init`) resolve the sidecar from the **current directory**, so run them from the file's root:
+
+```bash
+cd <root shown by folio set list> && folio annotate docs/spec.md --kind comment --context-before "..." --comment "..."
+```
+
+Running them from anywhere else writes a sidecar that the set never reads. Confirm the location with `folio check <file.md>`: the sidecar path it reports (in its error when no sidecar exists yet) should be `<root>/.folio/...`.
+
+---
+
 ## HTTP API (when `folio serve` is running)
 
 If the user has started the Folio server, you can use the HTTP API instead of reading/writing files directly:
@@ -192,6 +230,8 @@ curl -X PUT http://localhost:<port>/api/folio \
 ```
 
 If the server was started with `--token <secret>`, add `-H "Authorization: Bearer <secret>"` to every request.
+
+When the server was started with `--set`, `/api/file`, `/api/folio` and the other file-scoped endpoints take `?file=<id>`; without it they act on the set's first file. `curl http://localhost:<port>/api/files` lists every file with its `id`, `name`, `group` and `pending` count.
 
 ---
 
