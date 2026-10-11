@@ -129,7 +129,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.text" : "doc.text.fill",
                                    accessibilityDescription: "Preview")
         sourceItem.toolTip = sourceOn ? "Show the preview" : "Show the markdown source"
-        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "bubble.left.fill" : "bubble.left",
+        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "text.bubble.fill" : "text.bubble",
                                      accessibilityDescription: "Comments")
     }
 
