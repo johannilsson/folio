@@ -193,6 +193,17 @@
     .float-btn.active { background: transparent; color: var(--chip); }
     .float-pill-btn:has(.float-btn.active) { background: var(--chip-bg); }
 
+    /* ── Native app ──
+       The macOS app adds class native-chrome to <html>. The window then supplies the
+       title and the source/comments toolbar, so the floating pills go (the read-only
+       notice stays) and the text can start higher. */
+    html.native-chrome #file-menu-btn,
+    html.native-chrome .float-pill-group { display: none; }
+    html.native-chrome #title-pill:not(:has(#preview-readonly-notice:not([hidden]))) { display: none; }
+    html.native-chrome #editor-tiptap .tiptap { padding-top: 2rem; }
+    html.native-chrome #frontmatter-box { margin-top: 2rem; }
+    html.native-chrome #raw-editor-mount { padding-top: 1.5rem; }
+
     /* ── File menu (multi-file sets only) ──
        The title pill opens a floating card styled like the annotation overlay:
        a --bg shell with the float shadow around a --card-tint card (no focus border). */

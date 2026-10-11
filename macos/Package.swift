@@ -7,6 +7,10 @@ import PackageDescription
 let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 let rustLib = repo.appendingPathComponent("target/release").path
 
+// Info.plist is also embedded in the binary, so `swift run` (no .app around it) has the
+// same bundle identity and document types as the packaged app.
+let infoPlist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Info.plist").path
+
 let package = Package(
     name: "Folio",
     platforms: [.macOS("13.3")],
@@ -18,6 +22,7 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .unsafeFlags(["-L", rustLib]),
+                .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
                 .linkedLibrary("folio"),
                 // Pulled in by the file-watching and networking crates inside libfolio.
                 .linkedFramework("CoreServices"),

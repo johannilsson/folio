@@ -1,4 +1,5 @@
 import { on } from './websocket'
+import { call, native } from './bridge'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, getEditor, flushSave } from './editor'
 import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
@@ -81,11 +82,19 @@ async function boot(): Promise<void> {
   const editorWrapper = document.getElementById('editor-wrapper')!
   const rawPane = document.getElementById('raw-pane')!
 
+  // The native app's toolbar mirrors the source and comments toggles.
+  function reportUiState() {
+    if (!native) return
+    const comments = document.getElementById('app')!.classList.contains('gutter-open')
+    void call('uiState', { source: !rawPane.hidden, comments }).catch(console.error)
+  }
+
   // Highlighted while the markdown source is showing.
   function updateViewBtn() {
     const inSource = !rawPane.hidden
     viewBtn.classList.toggle('active', inSource)
     viewBtn.setAttribute('aria-pressed', String(inSource))
+    reportUiState()
   }
 
   // Default to source/raw mode — CM6 edits the file directly with no
@@ -138,6 +147,7 @@ async function boot(): Promise<void> {
     appEl.classList.toggle('gutter-open', open)
     gutterToggleBtn.classList.toggle('active', open)
     gutterToggleBtn.setAttribute('aria-pressed', String(open))
+    reportUiState()
     window.dispatchEvent(new Event('folio:gutter-toggled'))
     if (open) {
       // Cards were laid out while display:none (zero heights) — rebuild now.

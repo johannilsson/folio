@@ -2,6 +2,7 @@ pub mod accept;
 pub mod annotate;
 pub mod check;
 pub mod init;
+pub mod open;
 pub mod reject;
 pub mod render;
 pub mod review;
