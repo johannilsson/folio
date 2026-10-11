@@ -51,10 +51,12 @@ outside, and opens a second window. `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.
 cards, the card menu, the Comment button and the comment form.
 `FOLIO_CLI` points it at a different `folio` binary.
 
-## README screenshots
+## README screenshot
 
-`docs/screenshot-{light,dark}.png` show the `natural-wine` sample set. To retake them, register
-the set in a throwaway repo and let the app photograph itself (needs a desktop session):
+`docs/screenshot.png` shows the `natural-wine` sample set. To retake it, register the set in a
+throwaway repo and let the app photograph itself (needs a desktop session). The README uses a
+plain markdown image rather than a light/dark `<picture>`: raw HTML in a file makes Folio's own
+WYSIWYG preview read-only, and the README should open editable.
 
 ```bash
 # from the repo root: a clean copy, so your own sidecars stay out of the picture
@@ -63,5 +65,5 @@ mkdir -p /tmp/shot/.git && cp demo.md /tmp/shot/ && cp -R demo-set /tmp/shot/
 (cd /tmp/shot && FOLIO_CONFIG_DIR=/tmp/shot-cfg FOLIO=$repo/target/debug/folio demo-set/setup.sh)
 
 FOLIO_CONFIG_DIR=/tmp/shot-cfg macos/.build/debug/Folio --set natural-wine \
-  --screenshot docs/screenshot-light.png --appearance light      # and: dark
+  --screenshot docs/screenshot.png --appearance light      # or: dark
 ```

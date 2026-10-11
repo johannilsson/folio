@@ -8,10 +8,7 @@ Local markdown editor and annotation review tool. A Rust/Axum binary serves a Vi
 
 The markdown source file is never modified by annotations — they live exclusively in the sidecar.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img src="docs/screenshot-light.png" alt="The macOS app showing the natural-wine sample set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text" width="900">
-</picture>
+![The macOS app showing the natural-wine sample set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text](docs/screenshot.png)
 
 ## Prerequisites
 
