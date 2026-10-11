@@ -23,8 +23,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.mainMenu = buildMenu()
         NSApp.activate(ignoringOtherApps: true)
 
+        switch AppConfig.appearance {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
+
         if AppConfig.selfTest {
             runSelfTest()
+        } else if let name = AppConfig.openSet {
+            let window = openSet(name)
+            if let path = AppConfig.screenshot, let window {
+                Task { @MainActor in
+                    await Screenshot.run(window, to: path)
+                    exit(0)
+                }
+            }
         } else {
             for url in initialFiles { open(url) }
         }
@@ -122,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: launching without a file
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        initialFiles.isEmpty && !AppConfig.selfTest
+        initialFiles.isEmpty && !AppConfig.selfTest && AppConfig.openSet == nil
     }
 
     /// Nothing to show yet: ask for a file, at launch and when the Dock icon is clicked.

@@ -1,8 +1,17 @@
-# Folio
+<p align="center">
+  <img src="macos/Resources/AppIcon.png" width="128" alt="Folio app icon">
+</p>
 
-Local markdown editor and annotation review tool. A Rust/Axum binary serves a Vite + Tiptap SPA. Agents write structured annotations to a `.folio` sidecar file; humans review them in the browser or via CLI.
+<h1 align="center">Folio</h1>
+
+Local markdown editor and annotation review tool. A Rust/Axum binary serves a Vite + Tiptap SPA. Agents write structured annotations to a `.folio` sidecar file; humans review them in the browser or via CLI. There is also a native macOS app around the same editor; see [macos/README.md](macos/README.md).
 
 The markdown source file is never modified by annotations — they live exclusively in the sidecar.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img src="docs/screenshot-light.png" alt="The macOS app showing the natural-wine sample set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text" width="900">
+</picture>
 
 ## Prerequisites
 

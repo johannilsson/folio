@@ -50,3 +50,18 @@ outside, and opens a second window. `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.
 `-menu.png`, `-floater.png` and `-form.png`: pictures of the whole window with annotation
 cards, the card menu, the Comment button and the comment form.
 `FOLIO_CLI` points it at a different `folio` binary.
+
+## README screenshots
+
+`docs/screenshot-{light,dark}.png` show the `natural-wine` sample set. To retake them, register
+the set in a throwaway repo and let the app photograph itself (needs a desktop session):
+
+```bash
+# from the repo root: a clean copy, so your own sidecars stay out of the picture
+repo=$PWD
+mkdir -p /tmp/shot/.git && cp demo.md /tmp/shot/ && cp -R demo-set /tmp/shot/
+(cd /tmp/shot && FOLIO_CONFIG_DIR=/tmp/shot-cfg FOLIO=$repo/target/debug/folio demo-set/setup.sh)
+
+FOLIO_CONFIG_DIR=/tmp/shot-cfg macos/.build/debug/Folio --set natural-wine \
+  --screenshot docs/screenshot-light.png --appearance light      # and: dark
+```
