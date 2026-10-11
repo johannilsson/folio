@@ -52,7 +52,9 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         table.style = .sourceList
         table.headerView = nil
         table.allowsEmptySelection = false
-        table.rowSizeStyle = .default
+        table.rowSizeStyle = .custom  // the system size follows the "Sidebar icon size" setting, which can be as tight as 20pt
+        table.rowHeight = 34
+        table.intercellSpacing = NSSize(width: 0, height: 2)
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file")))
         table.dataSource = self
         table.delegate = self
@@ -78,7 +80,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         let bar = NSStackView(views: [add, removeButton])
         bar.orientation = .horizontal
         bar.spacing = 4
-        bar.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 6, right: 10)
+        bar.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 8, right: 10)
         bar.alignment = .centerY
         bar.distribution = .gravityAreas
         let spacer = NSView()
@@ -158,6 +160,11 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     // MARK: NSTableViewDataSource / Delegate
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        if case .header = rows[row] { return 28 }
+        return tableView.rowHeight
+    }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         SoftSelectionRowView()
@@ -271,7 +278,7 @@ final class SoftSelectionRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
         NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 0), xRadius: 8, yRadius: 8).fill()
     }
 
     // The cell is added after the row view is created, so tint it when it arrives too.
