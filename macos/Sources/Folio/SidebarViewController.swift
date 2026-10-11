@@ -67,7 +67,8 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
-        scroll.automaticallyAdjustsContentInsets = true
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets(top: 10, left: 0, bottom: 6, right: 0)
 
         // The + and − bar of Xcode's and Finder's source lists.
         let add = Self.barButton("plus", "Add Files to Set…", self, #selector(addClicked))
@@ -162,7 +163,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        if case .header = rows[row] { return 28 }
+        if case .header = rows[row] { return 36 }
         return tableView.rowHeight
     }
 
@@ -186,14 +187,20 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: 11, weight: .semibold)
             label.textColor = .secondaryLabelColor
+            // Repo folder names can be long: cut them short rather than run into the edge.
+            label.lineBreakMode = .byTruncatingTail
+            label.toolTip = title
+            label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
             let cell = NSTableCellView()
             cell.textField = label
             label.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(label)
+            // Indented to line up with the file icons below, and sitting near the bottom of its
+            // row so there is air above the heading and it stays close to its own files.
             NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-                label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor),
-                label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 22),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -12),
+                label.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -4),
             ])
             return cell
 
