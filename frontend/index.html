@@ -51,7 +51,7 @@
       --ann-hi: rgb(167,139,250);
       --ann-com-bg: rgba(167,139,250,.30);
       --ann-com-bdr: rgba(167,139,250,.9);
-      --cm-selection: rgba(125,211,252,.25);
+      --cm-selection: rgba(167,139,250,.50);
     }
 
     @media (prefers-color-scheme: light) {
@@ -98,7 +98,7 @@
         --ann-hi: rgb(124,58,237);
         --ann-com-bg: rgba(124,58,237,.16);
         --ann-com-bdr: rgba(124,58,237,.7);
-        --cm-selection: rgba(37,99,235,.18);
+        --cm-selection: rgba(124,58,237,.30);
       }
     }
 
@@ -713,6 +713,9 @@
       padding: 1px 3px;
       border-radius: 3px;
     }
+
+    /* The preview editor's selection, the same purple as the source editor's. */
+    #editor-tiptap .tiptap ::selection { background: var(--cm-selection); }
 
     /* Inline elements inside annotation decorations inherit the decoration color.
        Needs .tiptap parent to beat .tiptap strong/a/blockquote (specificity 0,1,1). */
