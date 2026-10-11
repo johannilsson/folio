@@ -1055,6 +1055,10 @@
       white-space: nowrap;
     }
     #comment-floater[hidden] { display: none; }
+    /* Too close to the top of the view for the button to fit above the selection. */
+    #comment-floater.below {
+      transform: translateX(-50%) translateY(calc(var(--sel-height, 20px) + 8px));
+    }
 
     .af-btn {
       font-size: 13px;

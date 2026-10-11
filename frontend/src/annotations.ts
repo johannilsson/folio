@@ -367,6 +367,17 @@ function buildDecosFromAnchors(
 
 // ─── Gutter cards ─────────────────────────────────────────────────────────────
 
+/**
+ * The Comment button sits above the selection. Near the top of the view there is no room
+ * for it there, and it would be cut off, so it goes below the selection instead.
+ * `viewportTop` is where the selection starts, relative to the scrolling container's top.
+ */
+export function placeFloater(floater: HTMLElement, viewportTop: number, selectionHeight: number): void {
+  const FLOATER_SPACE = 44
+  floater.classList.toggle('below', viewportTop < FLOATER_SPACE)
+  floater.style.setProperty('--sel-height', `${selectionHeight}px`)
+}
+
 export function formatBody(ann: Annotation): string {
   const t = (s: string, max = 60) => {
     const flat = s.replace(/\n/g, ' ')
@@ -1243,6 +1254,7 @@ export function createAnnotationsExtension(): Extension {
                   const left = Math.max(80, Math.min(midX - containerRect.left, scrollContainer!.clientWidth - 80))
                   floater.style.top = `${top}px`
                   floater.style.left = `${left}px`
+                  placeFloater(floater, coordsFrom.top - containerRect.top, coordsFrom.bottom - coordsFrom.top)
                   floater.hidden = false
                   savedSelection = { from: selection.from, to: selection.to }
                 } catch {

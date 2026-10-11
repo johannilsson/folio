@@ -17,6 +17,7 @@ import {
   startEditComment,
   setAnnotationComment,
   buildPreviewEl,
+  placeFloater,
 } from './annotations'
 import { getEditor } from './editor'
 
@@ -308,6 +309,7 @@ function updateCommentFloaterPosition(view: EditorView): void {
   const left = Math.max(80, Math.min(midX - containerRect.left, wrapperEl.clientWidth - 80))
   commentFloater.style.top = `${top}px`
   commentFloater.style.left = `${left}px`
+  placeFloater(commentFloater, coordsFrom.top - containerRect.top, coordsFrom.bottom - coordsFrom.top)
   commentFloater.hidden = false
   savedSelection = { from: sel.from, to: sel.to }
 }
