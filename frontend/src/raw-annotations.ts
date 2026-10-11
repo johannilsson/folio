@@ -661,7 +661,21 @@ export function setGutterHidden(hidden: boolean): void {
   if (gutterEl) gutterEl.hidden = hidden
 }
 
+// Bumped when another document is loaded, so an anchor response still in flight
+// for the previous one is dropped instead of decorating the new text.
+let generation = 0
+
+/** Forget anchors, focus and open forms of the previous document. */
+export function resetRawAnnotationState(): void {
+  generation++
+  currentAnchors = []
+  focusedAnnotationId = null
+  hideOverlay()
+  hideCommentForm()
+}
+
 export function refreshRawAnnotations(view: EditorView): void {
+  const gen = generation
   const pending = getSidecar().annotations.filter(a => !a.resolved)
   if (pending.length === 0) {
     currentAnchors = []
@@ -671,6 +685,7 @@ export function refreshRawAnnotations(view: EditorView): void {
   }
   const items = pending.map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
   postAnchorRaw(items).then(results => {
+    if (gen !== generation) return
     const byId = new Map(results.map(r => [r.id, r]))
     const anchors: RawAnchor[] = []
     for (const ann of pending) {
