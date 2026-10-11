@@ -4,136 +4,44 @@
 
 <h1 align="center">Folio</h1>
 
-Local markdown editor and annotation review tool. A Rust/Axum binary serves a Vite + Tiptap SPA. Agents write structured annotations to a `.folio` sidecar file; humans review them in the browser or via CLI. There is also a native macOS app around the same editor; see [macos/README.md](macos/README.md).
+**Review markdown with an AI agent, without letting it touch your file.**
 
-The markdown source file is never modified by annotations — they live exclusively in the sidecar.
+Folio is a local markdown editor built for review. An agent reads a document and leaves its feedback as annotations: replacements, deletions, insertions, highlights and comments. You see them beside the text as they arrive, reply to them, and accept or reject each one. Accepting patches the markdown; nothing else ever changes it.
 
 ![The macOS app showing the natural-wine sample set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text](docs/screenshot.png)
 
-## Prerequisites
+## Ways to use it
 
-- Rust (stable, via [rustup](https://rustup.rs))
-- Node.js 18+ and [pnpm](https://pnpm.io)
+- **macOS app.** A native window for each document, or for a whole set of files with a sidebar. It opens in a WYSIWYG preview, with a source view one click away. `folio open <file>` launches it from the terminal. See [macos/README.md](macos/README.md).
+- **Browser.** `folio serve <file>` runs the same editor from a local server. The way to use Folio on platforms other than macOS.
+- **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent. `folio --help` lists everything.
+- **Sets.** Group files from different folders or repositories under a name (`folio set`) and review them together, with a pending count per file.
+
+Fenced `mermaid` and `plantuml` blocks render as diagrams, and tables are editable.
+
+## Using it with an agent
+
+1. **Ask your agent to review a file.** For example: *"Review docs/spec.md for clarity and annotate it with Folio."* The agent reads the markdown and writes annotations to its sidecar. It never edits the `.md` itself.
+2. **Open the document** in the app or the browser. Annotations appear as highlights in the text and as cards in the comments pane, and update live while the agent works.
+3. **Triage.** Accept a replacement, deletion or insertion to apply it to the file, reject it to discard it, or dismiss a comment. You can reply on any card to start a thread.
+4. **Hand it back.** Replies and resolved annotations are stored in the same sidecar, so the agent can read your answers and continue where you left off.
+
+This repository ships a Claude Code skill, [`.claude/skills/folio`](.claude/skills/folio/SKILL.md), that teaches an agent the whole workflow: how to find the sidecar, how to anchor annotations to the right text, and how to check its own work. Copy it into `~/.claude/skills/` to use it in any project. Any other agent can follow the [sidecar specification](folio-sidecar-spec.md) directly, since it is plain JSON.
+
+## How it works
+
+Annotations live in a JSON sidecar, one per markdown file, under `.folio/` at the root of your repository. The markdown stays clean. Each annotation names the text it is about with a snippet of the text before it (`context_before`) and the text itself (`target`), so it keeps pointing at the right place when the document is edited around it.
+
+| Kind | Meaning | Accepting it |
+|---|---|---|
+| `replace` | Suggest new text for a passage | Swaps the text |
+| `delete` | Suggest removing a passage | Removes it |
+| `insert` | Suggest adding text at a point | Inserts it |
+| `highlight` | Draw attention to a passage | Resolves it |
+| `comment` | Discuss a passage | Dismisses it |
+
+Every annotation records who wrote it (`local`, `agent`, or an imported review source) and can carry a thread of replies. The full format is in [folio-sidecar-spec.md](folio-sidecar-spec.md).
 
 ## Build
 
-```bash
-# Frontend
-cd frontend && pnpm install && pnpm build && cd ..
-
-# Binary (skips frontend rebuild if already built)
-FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
-```
-
-After frontend-only changes, force the binary to pick up the new assets:
-
-```bash
-touch src/main.rs && FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
-```
-
-A plain `cargo build` rebuilds everything from scratch (runs `pnpm install && pnpm build` via `build.rs`).
-
-## Run
-
-```bash
-./target/debug/folio serve path/to/document.md
-```
-
-Opens the editor at `http://127.0.0.1:7070` by default. Options:
-
-| Flag | Default | Description |
-|---|---|---|
-| `--port` | 7070 | Port to listen on |
-| `--host` | 127.0.0.1 | Host to bind |
-| `--read-only` | off | Disable saves from the browser |
-| `--no-open` | off | Don't open the browser automatically |
-| `--no-watch` | off | Disable file-change live reload |
-| `--plantuml-url` | https://www.plantuml.com/plantuml | PlantUML rendering server |
-| `--token` | none | Require `Authorization: Bearer <token>` on all requests |
-
-## Sets: several files in one server
-
-A set is a named list of files, possibly from different repositories, served by one process. The filename pill in the top-left becomes a menu that lists the files with a live count of pending annotations. Picking one swaps the document in place; each file has its own URL (`/?file=<id>`), so back/forward and links work.
-
-```bash
-# Create or extend a set (paths are canonicalised, so relative paths are fine)
-folio set add checkout ~/repo-a/docs/spec.md ~/repo-b/README.md
-
-folio set list              # all sets
-folio set list checkout     # files in a set, with their resolved root
-folio set rm checkout ~/repo-b/README.md   # remove a file
-folio set rm checkout       # delete the set
-
-folio serve --set checkout
-```
-
-Sets live in `~/.config/folio/sets/<name>.json` (override the directory with `FOLIO_CONFIG_DIR`). Restart the server after changing a set.
-
-Each file's sidecar is `<root>/.folio/<path relative to root>.folio`, where `root` is the file's git root (or its directory when there is none). This is where `folio annotate` writes when run from the repo root. Pass `--root <dir>` to `folio set add` to use a different root.
-
-## CLI commands
-
-```bash
-# Review pending annotations
-folio review document.md
-
-# Accept all annotations (applies patches to the file)
-folio accept document.md --all
-
-# Accept a single annotation by ID
-folio accept document.md <id>
-
-# Reject annotations
-folio reject document.md --all
-
-# Create an empty sidecar
-folio init document.md
-
-# Validate a sidecar file
-folio check document.md
-```
-
-## Diagrams
-
-Fenced code blocks with language `mermaid` or `plantuml` are rendered inline:
-
-````markdown
-```mermaid
-sequenceDiagram
-    Client->>Server: request
-    Server-->>Client: response
-```
-
-```plantuml
-@startuml
-A -> B
-@enduml
-```
-````
-
-PlantUML renders via the configured server (SVG with automatic PNG fallback).
-
-## Sidecar format
-
-Annotations are stored in `<document>.folio` as JSON:
-
-```json
-{
-  "version": 1,
-  "annotations": [
-    {
-      "id": "abc123",
-      "kind": "comment",
-      "source": "agent",
-      "author": "claude",
-      "context_before": "text preceding the target",
-      "target": "the annotated text",
-      "comment": "This could be clearer.",
-      "created": "2026-01-01T00:00:00Z",
-      "resolved": false
-    }
-  ]
-}
-```
-
-Supported kinds: `replace`, `delete`, `insert`, `highlight`, `comment`.
+Folio needs Rust and Node with pnpm. A plain `cargo build` builds the frontend and the `folio` binary. The macOS app is a Swift package built on top of that; [macos/README.md](macos/README.md) has the steps. `scripts/verify.sh` builds everything and runs all the tests.
