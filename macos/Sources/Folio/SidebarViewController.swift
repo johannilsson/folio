@@ -11,7 +11,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     private let workspace: Workspace
     private var rows: [Row] = []
     private let table = NSTableView()
-    private let removeButton = NSButton()
 
     /// The user picked a file.
     var onSelect: ((String) -> Void)?
@@ -68,54 +67,39 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets(top: 10, left: 0, bottom: 6, right: 0)
+        // Room at the bottom for the add button, which floats over the list.
+        scroll.contentInsets = NSEdgeInsets(top: 10, left: 0, bottom: 52, right: 0)
 
-        // The + and − bar of Xcode's and Finder's source lists.
-        let add = Self.barButton("plus", "Add Files to Set…", self, #selector(addClicked))
-        removeButton.image = NSImage(systemSymbolName: "minus", accessibilityDescription: "Remove from Set")
-        removeButton.isBordered = false
-        removeButton.contentTintColor = .secondaryLabelColor
-        removeButton.toolTip = "Remove from Set"
-        removeButton.target = self
-        removeButton.action = #selector(removeClicked)
-        let bar = NSStackView(views: [add, removeButton])
-        bar.orientation = .horizontal
-        bar.spacing = 4
-        bar.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 8, right: 10)
-        bar.alignment = .centerY
-        bar.distribution = .gravityAreas
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        bar.addView(spacer, in: .trailing)
+        // A single circled plus at the bottom-left with no bar behind it, as in Preview and
+        // other recent system sidebars. Removing a file is in the row's context menu and the
+        // File menu.
+        let add = NSButton()
+        add.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: "Add Files to Set…")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .regular))
+        add.isBordered = false
+        add.contentTintColor = .secondaryLabelColor
+        add.toolTip = "Add Files to Set…"
+        add.target = self
+        add.action = #selector(addClicked)
 
-        let separator = NSBox()
-        separator.boxType = .separator
-
-        let stack = NSStackView(views: [scroll, separator, bar])
-        stack.orientation = .vertical
-        stack.spacing = 0
-        stack.distribution = .fill
-        stack.alignment = .width
-        view = stack
+        let root = NSView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        add.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(scroll)
+        root.addSubview(add)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: root.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            add.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            add.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -16),
+        ])
+        view = root
         reload()
     }
 
-    private static func barButton(_ symbol: String, _ label: String, _ target: AnyObject, _ action: Selector) -> NSButton {
-        let button = NSButton()
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        button.isBordered = false
-        button.contentTintColor = .secondaryLabelColor
-        button.toolTip = label
-        button.target = target
-        button.action = action
-        return button
-    }
-
     @objc private func addClicked() { onAdd?() }
-
-    @objc private func removeClicked() {
-        if let id = selectedID { onRemove?(id) }
-    }
 
     // MARK: content
 
@@ -140,7 +124,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         selecting = true
         table.reloadData()
         selecting = false
-        removeButton.isEnabled = entries.count > 1
         if let keep { select(keep) } else if let first = fileIDs.first { select(first) }
     }
 

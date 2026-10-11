@@ -30,8 +30,8 @@ and shared with `folio set add/rm/list`. In the app it opens in a window with a 
 its files (grouped by repo, with a badge for unresolved annotations) beside the editor.
 
 - **File > Open Set** lists the sets; **New Set…** asks for a name and the files to start with.
-- **Add Files to Set…**, **Remove from Set** and **Delete Set…** (File menu, or the + / − under
-  the sidebar and its context menu) change the list. Only the list changes; files and their
+- **Add Files to Set…**, **Remove from Set** and **Delete Set…** (File menu; the + under the
+  sidebar adds, a file's context menu removes) change the list. Only the list changes; files and their
   annotations are never deleted. A set keeps at least one file.
 - Changes made with `folio set` in a terminal appear in an open window within a second.
 - `folio open --set <name>` opens a set from the CLI (it sends `folio://set/<name>` to the app).
