@@ -202,13 +202,13 @@ Sets live in `~/.config/folio/sets/<name>.json` (`FOLIO_CONFIG_DIR` overrides th
 
 The server reads each file's sidecar from `<root>/.folio/<path relative to root>.folio`, where `root` is the file's git root (its own directory if it is not in a git repo) or the `--root` given at `set add`. `folio set list <name>` prints the resolved root for every file.
 
-The per-file commands (`check`, `render`, `annotate`, `review`, `accept`, `reject`, `init`) resolve the sidecar from the **current directory**, so run them from the file's root:
+The per-file commands (`check`, `render`, `annotate`, `review`, `accept`, `reject`, `init`) use the same rule, the file's git root (its own directory if it is not in a git repo), so they find the same sidecar as the server and the macOS app wherever you run them from:
 
 ```bash
-cd <root shown by folio set list> && folio annotate docs/spec.md --kind comment --context-before "..." --comment "..."
+folio annotate docs/spec.md --kind comment --context-before "..." --comment "..."
 ```
 
-Running them from anywhere else writes a sidecar that the set never reads. Confirm the location with `folio check <file.md>`: the sidecar path it reports (in its error when no sidecar exists yet) should be `<root>/.folio/...`.
+The one exception is a set created with a custom `--root`: the commands do not know about it and keep using the git root, so for those files write the sidecar directly at `<root>/.folio/...` (the root `folio set list <name>` shows). Confirm the location with `folio check <file.md>`: the sidecar path it reports (in its error when no sidecar exists yet) should be the one the set reads.
 
 ---
 
