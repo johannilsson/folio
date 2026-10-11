@@ -11,11 +11,13 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
     private(set) var sourceOn = true
     private(set) var commentsOn = false
 
-    private let sourceButton = FolioWindowController.toggleButton("chevron.left.forwardslash.chevron.right", "Source")
-    private let commentsButton = FolioWindowController.toggleButton("text.bubble", "Comments")
+    private static let sourceID = NSToolbarItem.Identifier("source")
+    private static let commentsID = NSToolbarItem.Identifier("comments")
 
-    private static let sourceItem = NSToolbarItem.Identifier("source")
-    private static let commentsItem = NSToolbarItem.Identifier("comments")
+    // Plain toolbar items, so the system sizes and draws them like any other app's.
+    // A toggle shows as on with the filled form of its symbol.
+    private let sourceItem = NSToolbarItem(itemIdentifier: FolioWindowController.sourceID)
+    private let commentsItem = NSToolbarItem(itemIdentifier: FolioWindowController.commentsID)
 
     /// The file IO behind this window. Held directly: `document` is only set once AppKit
     /// has added this controller to the document, after init.
@@ -72,10 +74,16 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
 
-        sourceButton.target = self
-        sourceButton.action = #selector(toggleSource(_:))
-        commentsButton.target = self
-        commentsButton.action = #selector(toggleComments(_:))
+        for (item, label, action) in [
+            (sourceItem, "Markdown Source", #selector(toggleSource(_:))),
+            (commentsItem, "Comments", #selector(toggleComments(_:))),
+        ] {
+            item.label = label
+            item.toolTip = label
+            item.target = self
+            item.action = action
+            item.isBordered = true
+        }
         syncButtons()
         bridge.onUIState = { [weak self] source, comments in
             self?.sourceOn = source
@@ -105,23 +113,16 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
     }
 
     private func syncButtons() {
-        sourceButton.state = sourceOn ? .on : .off
-        commentsButton.state = commentsOn ? .on : .off
-    }
-
-    private static func toggleButton(_ symbol: String, _ label: String) -> NSButton {
-        let button = NSButton()
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        button.setButtonType(.pushOnPushOff)
-        button.bezelStyle = .texturedRounded
-        button.toolTip = label
-        return button
+        sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.plaintext.fill" : "doc.plaintext",
+                                   accessibilityDescription: "Markdown Source")
+        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "text.bubble.fill" : "text.bubble",
+                                     accessibilityDescription: "Comments")
     }
 
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.sourceItem, Self.commentsItem]
+        [.flexibleSpace, Self.sourceID, Self.commentsID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -130,17 +131,11 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        let button: NSButton
         switch id {
-        case Self.sourceItem: button = sourceButton
-        case Self.commentsItem: button = commentsButton
+        case Self.sourceID: return sourceItem
+        case Self.commentsID: return commentsItem
         default: return nil
         }
-        let item = NSToolbarItem(itemIdentifier: id)
-        item.view = button
-        item.label = button.toolTip ?? ""
-        item.toolTip = button.toolTip
-        return item
     }
 
     // MARK: navigation
