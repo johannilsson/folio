@@ -40,7 +40,8 @@ cargo test
 # Frontend unit tests (findAnchor)
 cd frontend && pnpm test
 
-# Browser e2e (Playwright; starts its own server on :7391 against a temp copy of e2e/fixture.md)
+# Browser e2e (Playwright; starts its own servers against temp copies of e2e/fixture.md:
+# :7391 single file, :7392 a two-file set for multi-file.spec.ts)
 cd frontend && pnpm e2e
 
 # Everything: frontend build, cargo build/test, unit tests, e2e
@@ -57,7 +58,9 @@ Run `./scripts/verify.sh` after UI changes to confirm them in a real browser. Ad
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
 - `server.rs` — Axum router, rust-embed asset serving, AppState
 - `watcher.rs` — notify → tokio broadcast → WebSocket events
-- `commands/serve.rs` — lock file, port binding, graceful shutdown
+- `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), git-root detection, per-root sidecar paths
+- `commands/set.rs` — `folio set add / rm / list`
+- `commands/serve.rs` — lock file, port binding, graceful shutdown; serves one file or a set (`--set`)
 - `commands/accept.rs` — anchoring + reverse-order patch application
 
 ### Frontend (`frontend/src/`)
@@ -66,7 +69,9 @@ Run `./scripts/verify.sh` after UI changes to confirm them in a real browser. Ad
 - `editor.ts` — Tiptap 3 editor (StarterKit + @tiptap/markdown)
 - `annotations.ts` — ProseMirror plugin: inline decorations, scrollable gutter cards, floating comment adder
 - `diagrams.ts` — Tiptap NodeView extension: renders `mermaid` and `plantuml` code blocks as diagrams
-- `api.ts` — fetch wrappers + `Annotation`/`Sidecar` TypeScript types
+- `api.ts` — fetch wrappers + `Annotation`/`Sidecar` TypeScript types; file-scoped calls append `?file=<id>` from the page URL
+- `file-menu.ts` — the title pill becomes a menu (floating card, annotation-card style) of the set's files with pending badges; only when the server serves more than one file
+- File switching happens in `main.ts` (`switchFile`): in place, no reload. The preview editor is destroyed and recreated (`destroyEditor`), the CM6 state is replaced (`resetRawEditor`), and annotation state is reset (`resetAnnotationState`, `resetRawAnnotationState`) so undo history and anchors never leak between files. The URL is kept in sync with `history.pushState` / `popstate`.
 - `websocket.ts` — WebSocket client with typed event subscriptions
 
 ## Annotation Model
