@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Files named on the command line (`Folio notes.md`); Finder and `open` go through AppKit.
@@ -33,6 +34,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { document, _, error in
             if let error { NSApp.presentError(error) }
             completion?(document as? FolioDocument)
+        }
+    }
+
+    // MARK: sets
+
+    static let markdownTypes: [UTType] = [UTType("net.daringfireball.markdown"), UTType(filenameExtension: "md")]
+        .compactMap { $0 }
+
+    /// The open set windows by set name, so opening a set again brings its window forward.
+    private var setWindows: [String: SetWindowController] = [:]
+
+    /// Opens the set in a window, or brings its window forward. A set with no files yet asks
+    /// for some first, since the window needs a file to open on.
+    @discardableResult
+    func openSet(_ name: String) -> SetWindowController? {
+        if let existing = setWindows[name] {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            return existing
+        }
+        do {
+            var info = try Rust.setLoad(name)
+            if info.files.isEmpty {
+                guard let files = chooseMarkdownFiles(message: "“\(name)” has no files yet. Choose some to add."), !files.isEmpty else { return nil }
+                try Rust.setAdd(name, files: files)
+                info = try Rust.setLoad(name)
+            }
+            let controller = SetWindowController(set: info)
+            setWindows[name] = controller
+            controller.onClose = { [weak self] in self?.setWindows[name] = nil }
+            controller.showWindow(nil)
+            return controller
+        } catch {
+            NSApp.presentError(error)
+            return nil
+        }
+    }
+
+    /// File > New Set…: a name, then the files to start with.
+    @objc func newSet(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "New Set"
+        alert.informativeText = "A set groups markdown files, from any folders, in one window. Name it with letters, digits, “-”, “_” and “.”."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "checkout-redesign"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Choose Files…")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let files = chooseMarkdownFiles(message: "Choose the markdown files for “\(name)”"), !files.isEmpty else { return }
+        do {
+            try Rust.setAdd(name, files: files)
+            openSet(name)
+        } catch {
+            NSApp.presentError(error)
+        }
+    }
+
+    private func chooseMarkdownFiles(message: String) -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = Self.markdownTypes
+        panel.message = message
+        return panel.runModal() == .OK ? panel.urls : nil
+    }
+
+    @objc private func openSetFromMenu(_ sender: NSMenuItem) {
+        if let name = sender.representedObject as? String { openSet(name) }
+    }
+
+    // `folio open --set <name>` arrives as folio://set/<name>; files as file URLs, which
+    // the document controller handles.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if url.scheme == "folio", url.host == "set" {
+                openSet(url.lastPathComponent)
+            } else if url.isFileURL {
+                open(url)
+            }
         }
     }
 
@@ -72,6 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    var openSetCount: Int { setWindows.count }
+
     // MARK: menus
 
     @objc private func openRecent(_ sender: NSMenuItem) {
@@ -81,6 +166,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if menu.title == "Open Set" {
+            let names = (try? Rust.setNames()) ?? []
+            for name in names {
+                let item = NSMenuItem(title: name, action: #selector(openSetFromMenu(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = name
+                menu.addItem(item)
+            }
+            if names.isEmpty {
+                let none = NSMenuItem(title: "No Sets", action: nil, keyEquivalent: "")
+                none.isEnabled = false
+                menu.addItem(none)
+            }
+            return
+        }
         let urls = NSDocumentController.shared.recentDocumentURLs
         for url in urls {
             let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
@@ -126,6 +226,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             recent.submenu = recentMenu
             m.addItem(recent)
             m.addItem(.separator())
+
+            // Sets: the first two act on the app, the next three on the set window in front.
+            let new = m.addItem(withTitle: "New Set…", action: #selector(newSet(_:)), keyEquivalent: "n")
+            new.keyEquivalentModifierMask = [.command, .shift]
+            new.target = self
+            let sets = NSMenuItem(title: "Open Set", action: nil, keyEquivalent: "")
+            let setsMenu = NSMenu(title: "Open Set")
+            setsMenu.delegate = self
+            sets.submenu = setsMenu
+            m.addItem(sets)
+            m.addItem(withTitle: "Add Files to Set…", action: #selector(SetWindowController.addFilesToSet(_:)), keyEquivalent: "")
+            m.addItem(withTitle: "Remove from Set", action: #selector(SetWindowController.removeFromSet(_:)), keyEquivalent: "")
+            m.addItem(withTitle: "Delete Set…", action: #selector(SetWindowController.deleteSet(_:)), keyEquivalent: "")
+            m.addItem(.separator())
             m.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         }
 
@@ -143,6 +257,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         _ = add("View") { m in
+            // Only set windows have a sidebar, so this is dimmed in the others.
+            let sidebar = m.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+            sidebar.keyEquivalentModifierMask = [.command, .control]
+            m.addItem(.separator())
             let source = m.addItem(withTitle: "Toggle Markdown Source", action: #selector(FolioWindowController.toggleSource(_:)), keyEquivalent: "p")
             source.keyEquivalentModifierMask = [.command, .shift]
             let comments = m.addItem(withTitle: "Toggle Comments", action: #selector(FolioWindowController.toggleComments(_:)), keyEquivalent: "m")

@@ -28,10 +28,10 @@ final class SelfTest {
     private func disk() -> String { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
 
     /// A copy inside its own "repo", so the sidecar lands next to it and the CLI can be run from there.
-    private func tempCopy() throws -> URL {
+    private func tempCopy(named name: String? = nil) throws -> URL {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("folio-selftest-\(UUID().uuidString)").resolvingSymlinksInPath()
-        let copy = folder.appendingPathComponent(source.lastPathComponent)
+        let copy = folder.appendingPathComponent(name ?? source.lastPathComponent)
         try FileManager.default.createDirectory(at: folder.appendingPathComponent(".git"), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: copy)
         dirs.append(folder)
@@ -189,12 +189,124 @@ final class SelfTest {
         }
         await check("the first window kept its document") { self.controller.files.file == copy }
 
+        await setScenario()
+
         let errors = await js("window.__errors") as? [String] ?? []
         await check("no script errors") {
             if !errors.isEmpty { print("    \(errors)") }
             return errors.isEmpty
         }
         return finish()
+    }
+
+    // MARK: sets
+
+    /// A set of two files in separate "repos", opened in its own window: the sidebar, switching
+    /// files in place, badges, and the manifest kept in step with `folio set` from a terminal.
+    private func setScenario() async {
+        // A throwaway config folder, so the real sets are never touched. The CLI inherits it.
+        let config = FileManager.default.temporaryDirectory
+            .appendingPathComponent("folio-selftest-config-\(UUID().uuidString)").resolvingSymlinksInPath()
+        dirs.append(config)
+        setenv("FOLIO_CONFIG_DIR", config.path, 1)
+        defer { unsetenv("FOLIO_CONFIG_DIR") }
+
+        guard let alpha = try? tempCopy(named: "alpha.md"), let beta = try? tempCopy(named: "beta.md"),
+              let gamma = try? tempCopy(named: "gamma.md") else {
+            report("set files are created", false)
+            return
+        }
+        try? (String(contentsOf: beta, encoding: .utf8) + "\nBETA MARKER\n").write(to: beta, atomically: false, encoding: .utf8)
+        do { try Rust.setAdd("demo", files: [alpha, beta]) } catch {
+            report("the set is created: \(error)", false)
+            return
+        }
+        guard let win = app.openSet("demo") else {
+            report("the set opens", false)
+            return
+        }
+        let alphaID = win.sidebar.fileIDs[0], betaID = win.sidebar.fileIDs[1]
+        let betaDir = beta.deletingLastPathComponent()
+        func page(_ source: String) async -> Any? { await js(source, in: win.webView) }
+        func filename() async -> String? { await page("document.getElementById('filename-display')?.textContent") as? String }
+
+        await check("the set opens in a window titled by the set, with its files in a sidebar") {
+            win.window?.title == "demo" && win.sidebar.fileIDs.count == 2 && win.sidebar.selectedID == alphaID
+        }
+        await check("files are grouped under their repo folders") { win.sidebar.headerTitles.count == 2 }
+        await check("the page opens on the first file") { await self.until { await filename() == "alpha.md" } }
+        await check("the bridge answers for the set's files") {
+            await self.until { win.bridge.count("files") > 0 && win.bridge.count("getFile") > 0 }
+        }
+
+        // Picking a file in the sidebar swaps the document in place.
+        win.sidebar.choose(betaID)
+        await check("choosing a file in the sidebar shows it in place") {
+            await self.until { await filename() == "beta.md" }
+        }
+        await check("it is the other file's content") {
+            await self.until { (await page("document.querySelector('.cm-content').innerText") as? String)?.contains("BETA MARKER") == true }
+        }
+        await check("the window subtitle follows") { win.window?.subtitle == "beta.md" && win.currentID == betaID }
+
+        // Edits go to the file on screen, not the first one.
+        _ = await page("document.querySelector('.cm-content').focus()")
+        _ = await page("document.execCommand('insertText', false, 'QQ')")
+        await check("typing is saved to the file shown") {
+            await self.until { (try? String(contentsOf: beta, encoding: .utf8))?.contains("QQ") == true }
+        }
+        await check("and not to the other file") { !((try? String(contentsOf: alpha, encoding: .utf8))?.contains("QQ") ?? true) }
+
+        // An agent annotates the second file; its badge appears.
+        let annotate = cli([
+            "annotate", "beta.md", "--kind", "comment", "--context-before", "Natural wine is made with ",
+            "--target", "minimal intervention", "--comment", "check", "--author", "agent", "--source", "agent",
+        ], in: betaDir)
+        await check("folio annotate on a set file succeeds") { annotate.status == 0 }
+        await check("the sidebar badge counts it") { await self.until { win.sidebar.badge(for: betaID) == 1 } }
+        await check("the other file has no badge") { win.sidebar.badge(for: alphaID) == 0 }
+        // Refreshing the badges must not move the page or the selection off the open file.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        await check("a sidebar refresh keeps the open file open") {
+            let shown = await filename()
+            return win.currentID == betaID && win.sidebar.selectedID == betaID
+                && win.window?.subtitle == "beta.md" && shown == "beta.md"
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await snapshot("\(base)-set.png", of: win)
+        }
+
+        // `folio set add` from a terminal changes the manifest; the sidebar follows.
+        let added = cli(["set", "add", "demo", gamma.path])
+        await check("folio set add succeeds") { added.status == 0 }
+        await check("the sidebar picks up the new file") { await self.until(seconds: 6) { win.sidebar.fileIDs.count == 3 } }
+
+        // Removing a file from the set leaves it on disk.
+        let gammaID = win.sidebar.fileIDs.first { $0 != alphaID && $0 != betaID } ?? ""
+        await withCheckedContinuation { continuation in win.remove(gammaID) { continuation.resume() } }
+        await check("removing a file updates the manifest the CLI reads") {
+            await self.until { self.cli(["set", "list", "demo"]).output.split(separator: "\n").count == 2 }
+        }
+        await check("the file itself stays") { FileManager.default.fileExists(atPath: gamma.path) }
+        await check("the sidebar drops it") { win.sidebar.fileIDs.count == 2 }
+
+        // Removing the file on screen moves the page to another file first, saving it.
+        await withCheckedContinuation { continuation in win.remove(betaID) { continuation.resume() } }
+        await check("removing the open file switches to another") {
+            await self.until { await filename() == "alpha.md" && win.currentID == alphaID }
+        }
+        await check("the removed file kept its edit") { (try? String(contentsOf: beta, encoding: .utf8))?.contains("QQ") == true }
+        await withCheckedContinuation { continuation in win.remove(alphaID) { continuation.resume() } }
+        await check("the last file cannot be removed") { win.sidebar.fileIDs == [alphaID] }
+
+        await check("opening the set again brings the same window forward") { self.app.openSet("demo") === win }
+
+        win.performDeleteSet()
+        await check("deleting the set removes its manifest and closes the window") {
+            (try? Rust.setLoad("demo")) == nil && self.app.openSetCount == 0
+        }
+        await check("deleting the set leaves the files") { FileManager.default.fileExists(atPath: alpha.path) }
     }
 
     // MARK: pictures
@@ -212,11 +324,11 @@ final class SelfTest {
         let press = "new MouseEvent('mousedown', {bubbles: true, cancelable: true})"
         _ = await js("document.querySelector('#annotation-gutter .ann-card').dispatchEvent(\(press))")
         try? await Task.sleep(nanoseconds: 600_000_000)
-        snapshot("\(base)-cards.png")
+        await snapshot("\(base)-cards.png")
 
         _ = await js("document.querySelector('#annotation-gutter .ann-card-focused button[title=More]')?.dispatchEvent(\(press))")
         try? await Task.sleep(nanoseconds: 400_000_000)
-        snapshot("\(base)-menu.png")
+        await snapshot("\(base)-menu.png")
         _ = await js("document.body.dispatchEvent(\(press))")
 
         // Selecting text in the editor drops the focus from the card.
@@ -236,7 +348,7 @@ final class SelfTest {
             })()
             """)
         try? await Task.sleep(nanoseconds: 600_000_000)
-        snapshot("\(base)-floater.png")
+        await snapshot("\(base)-floater.png")
 
         _ = await js("document.querySelector('#comment-floater .af-btn').dispatchEvent(\(press))")
         _ = await js("""
@@ -247,13 +359,16 @@ final class SelfTest {
             })()
             """)
         try? await Task.sleep(nanoseconds: 500_000_000)
-        snapshot("\(base)-form.png")
+        await snapshot("\(base)-form.png")
     }
 
     /// The whole window, title bar and toolbar included.
-    private func snapshot(_ path: String) {
-        controller.window?.makeKeyAndOrderFront(nil)
-        if let number = controller.window?.windowNumber,
+    private func snapshot(_ path: String, of target: EditorWindowController? = nil) async {
+        let window = (target ?? controller).window
+        window?.makeKeyAndOrderFront(nil)
+        // A window that was behind another does not repaint until it is in front.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        if let number = window?.windowNumber,
            let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(number), [.boundsIgnoreFraming]),
            let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: path))
@@ -270,13 +385,13 @@ final class SelfTest {
 
     /// `folio` built from this checkout (or FOLIO_CLI), run from the document's folder
     /// the way an agent would.
-    private func cli(_ arguments: [String]) -> (status: Int32, output: String) {
+    private func cli(_ arguments: [String], in folder: URL? = nil) -> (status: Int32, output: String) {
         let binary = ProcessInfo.processInfo.environment["FOLIO_CLI"]
             ?? AppConfig.dist.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("target/debug/folio").path
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
-        process.currentDirectoryURL = dir
+        process.currentDirectoryURL = folder ?? dir
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -309,7 +424,11 @@ final class SelfTest {
     }
 
     private func js(_ source: String) async -> Any? {
-        try? await web.callAsyncJavaScript("return \(source)", contentWorld: .page)
+        await js(source, in: web)
+    }
+
+    private func js(_ source: String, in view: WKWebView) async -> Any? {
+        try? await view.callAsyncJavaScript("return \(source)", contentWorld: .page)
     }
 
     private func cmText() async -> String {

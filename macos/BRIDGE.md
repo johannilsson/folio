@@ -31,6 +31,14 @@ promise on the JS side.
   `md:changed` and then `folio:changed` (the order the server uses), and reject on failure
   (annotation not found, anchoring failed).
 
+## Sets
+
+A set window answers every op for the file named by `file` (a set file's id); no `file` means
+the first. `info` returns the set's name in `set`, and `files` lists all of its files. The
+page opens on `?file=<id>`. The window's sidebar switches files by calling
+`window.__folioSwitchFile(id)`, which resolves once the page has saved the file it left
+and shows the new one. Events carry the id of the file they are about.
+
 ## Native chrome
 
 The scheme handler serves `index.html` with `class="native-chrome"` on `<html>`, which hides
