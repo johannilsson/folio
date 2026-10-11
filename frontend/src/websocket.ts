@@ -1,5 +1,6 @@
 type EventType = 'md:changed' | 'folio:changed'
-type Handler = () => void
+// `file` is the id of the document the event is about (see /api/files).
+type Handler = (file: string | undefined) => void
 
 const handlers: Map<EventType, Set<Handler>> = new Map()
 
@@ -12,8 +13,8 @@ export function off(event: EventType, handler: Handler): void {
   handlers.get(event)?.delete(handler)
 }
 
-function dispatch(event: EventType): void {
-  handlers.get(event)?.forEach(h => h())
+function dispatch(event: EventType, file: string | undefined): void {
+  handlers.get(event)?.forEach(h => h(file))
 }
 
 function connect(): void {
@@ -24,7 +25,7 @@ function connect(): void {
     try {
       const msg = JSON.parse(e.data as string)
       if (msg.type === 'md:changed' || msg.type === 'folio:changed') {
-        dispatch(msg.type)
+        dispatch(msg.type, msg.file)
       }
     } catch {
       // ignore malformed messages
