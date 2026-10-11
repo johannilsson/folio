@@ -53,17 +53,7 @@ cards, the card menu, the Comment button and the comment form.
 
 ## README screenshot
 
-`docs/screenshot.png` shows the `natural-wine` sample set. To retake it, register the set in a
-throwaway repo and let the app photograph itself (needs a desktop session). The README uses a
-plain markdown image rather than a light/dark `<picture>`: raw HTML in a file makes Folio's own
-WYSIWYG preview read-only, and the README should open editable.
-
-```bash
-# from the repo root: a clean copy, so your own sidecars stay out of the picture
-repo=$PWD
-mkdir -p /tmp/shot/.git && cp demo.md /tmp/shot/ && cp -R demo-set /tmp/shot/
-(cd /tmp/shot && FOLIO_CONFIG_DIR=/tmp/shot-cfg FOLIO=$repo/target/debug/folio demo-set/setup.sh)
-
-FOLIO_CONFIG_DIR=/tmp/shot-cfg macos/.build/debug/Folio --set natural-wine \
-  --screenshot docs/screenshot.png --appearance light      # or: dark
-```
+`docs/screenshot.png` shows the `natural-wine` sample set (`demo-set/setup.sh` registers it).
+The app can photograph itself: `Folio --set <name> --screenshot <png> [--appearance light|dark]`.
+The README uses a plain markdown image, not a light/dark `<picture>`: raw HTML makes Folio's own
+preview read-only, and the README should open editable.
