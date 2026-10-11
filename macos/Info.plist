@@ -44,6 +44,18 @@
             <string>Folio.FolioDocument</string>
         </dict>
     </array>
+    <!-- folio://set/<name> opens a set; `folio open --set` uses it. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>Folio set</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>folio</string>
+            </array>
+        </dict>
+    </array>
     <key>UTImportedTypeDeclarations</key>
     <array>
         <dict>

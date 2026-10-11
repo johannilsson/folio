@@ -5,14 +5,14 @@ import WebKit
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     static let name = "folio"
 
-    let document: Document
+    let workspace: Workspace
     /// Every op the page has sent, so the self-test can see what went through here.
     private(set) var ops: [String] = []
     /// The page's source/comments toggles, for the native toolbar.
     var onUIState: ((_ source: Bool, _ comments: Bool) -> Void)?
 
-    init(document: Document) {
-        self.document = document
+    init(workspace: Workspace) {
+        self.workspace = workspace
     }
 
     func count(_ op: String) -> Int { ops.filter { $0 == op }.count }
@@ -34,22 +34,34 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
+    /// The file a message is about: its `file` id, or the first file when it names none.
+    private func target(_ body: [String: Any]) throws -> Document {
+        let id = body["file"] as? String
+        guard let document = workspace.document(id: id) else {
+            throw RustError(description: "unknown file \(id ?? "")")
+        }
+        return document
+    }
+
     private func handle(_ op: String, _ body: [String: Any]) throws -> Any {
         switch op {
         case "info":
+            let document = try target(body)
             return [
-                "id": Document.id,
+                "id": document.id,
                 "filename": document.file.lastPathComponent,
-                "set": NSNull(),
+                "set": workspace.setName ?? NSNull(),
                 "plantumlUrl": "https://www.plantuml.com/plantuml",
             ] as [String: Any]
         case "files":
-            return [[
-                "id": Document.id,
-                "name": document.file.lastPathComponent,
-                "group": "",
-                "pending": document.pendingCount(),
-            ] as [String: Any]]
+            return workspace.entries.map { entry in
+                [
+                    "id": entry.document.id,
+                    "name": entry.name,
+                    "group": entry.group,
+                    "pending": entry.document.pendingCount(),
+                ] as [String: Any]
+            }
         case "uiState":
             onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false)
             return NSNull()
@@ -57,22 +69,24 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return "https://kroki.io"
 
         case "getFile":
-            return try document.readFile()
+            return try target(body).readFile()
         case "putFile":
             guard let content = body["content"] as? String else { throw RustError(description: "putFile: no content") }
-            try document.writeFile(content)
+            try target(body).writeFile(content)
             return NSNull()
 
         case "getFolio":
-            return try JSONSerialization.jsonObject(with: Data(document.readSidecar().utf8))
+            return try JSONSerialization.jsonObject(with: Data(target(body).readSidecar().utf8))
         case "putFolio":
             guard let text = body["body"] as? String else { throw RustError(description: "putFolio: no body") }
+            let document = try target(body)
             try document.writeSidecar(text)
             // Like the server: tell the page its own write landed (it recognises the echo).
             document.onEvent?("folio:changed")
             return NSNull()
 
         case "anchor", "anchorRaw":
+            let document = try target(body)
             let items = try JSONSerialization.data(withJSONObject: body["items"] ?? [])
             return try JSONSerialization.jsonObject(with: Data(
                 Rust.anchor(doc: document.readFile(), itemsJSON: String(decoding: items, as: UTF8.self), raw: op == "anchorRaw").utf8
@@ -80,6 +94,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "accept":
             guard let id = body["id"] as? String else { throw RustError(description: "accept: no id") }
+            let document = try target(body)
             let result = try Rust.accept(doc: document.readFile(), sidecarJSON: document.readSidecar(), id: id)
             if let patched = result.doc {
                 try document.writeFile(patched)

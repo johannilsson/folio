@@ -8,6 +8,13 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "folio"
     static let entryURL = URL(string: "folio://app/index.html")!
 
+    /// The page opened on a given file of a set (`?file=<id>`, as in the browser).
+    static func entryURL(file id: String) -> URL {
+        var components = URLComponents(url: entryURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "file", value: id)]
+        return components.url!
+    }
+
     private let root: URL
 
     init(root: URL) {

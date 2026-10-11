@@ -1,11 +1,12 @@
 import AppKit
 import WebKit
 
-/// A window showing one document: the web editor, plus the native toolbar for its two
-/// toggles.
-final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate {
+/// A window around the web editor, with the native toolbar for its two toggles. This is
+/// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
+class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate {
     let webView: WKWebView
     let bridge: Bridge
+    let workspace: Workspace
 
     /// Mirrors of the page's toggles (see the `uiState` op).
     private(set) var sourceOn = true
@@ -16,16 +17,18 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
 
     // Plain toolbar items, so the system sizes and draws them like any other app's.
     // A toggle shows as on with the filled form of its symbol.
-    private let sourceItem = NSToolbarItem(itemIdentifier: FolioWindowController.sourceID)
-    private let commentsItem = NSToolbarItem(itemIdentifier: FolioWindowController.commentsID)
+    private let sourceItem = NSToolbarItem(itemIdentifier: EditorWindowController.sourceID)
+    private let commentsItem = NSToolbarItem(itemIdentifier: EditorWindowController.commentsID)
 
-    /// The file IO behind this window. Held directly: `document` is only set once AppKit
-    /// has added this controller to the document, after init.
-    let files: Document
+    /// The only file of a single-file window (the first of a set).
+    var files: Document { workspace.entries[0].document }
 
-    init(document: FolioDocument) {
-        files = document.files
-        bridge = Bridge(document: document.files)
+    /// Toolbar items before the toggles, which sit at the trailing edge.
+    var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
+
+    init(workspace: Workspace, entryURL: URL) {
+        self.workspace = workspace
+        bridge = Bridge(workspace: workspace)
 
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(SchemeHandler(root: AppConfig.dist), forURLScheme: SchemeHandler.scheme)
@@ -64,7 +67,6 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
 
         super.init(window: window)
         shouldCascadeWindows = true
-        windowFrameAutosaveName = "FolioDocumentWindow"
 
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -92,15 +94,23 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
         }
 
         // Stand-in for the WebSocket: file changes reach the page as events.
-        files.onEvent = { [weak self] type in
-            self?.webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(Document.id)')")
-        }
-        files.startWatching()
+        workspace.onEvent = { [weak self] type, id in self?.workspaceEvent(type, id) }
+        workspace.startWatching()
 
-        webView.load(URLRequest(url: SchemeHandler.entryURL))
+        webView.load(URLRequest(url: entryURL))
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// A file changed: tell the page. Subclasses also update what they show.
+    func workspaceEvent(_ type: String, _ id: String) {
+        let quoted = id.replacingOccurrences(of: "'", with: "\\'")
+        webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(quoted)')")
+    }
+
+    func stopWatching() {
+        workspace.stopWatching()
+    }
 
     // MARK: toggles
 
@@ -124,7 +134,7 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.sourceID, Self.commentsID]
+        leadingToolbarItems + [.flexibleSpace, Self.sourceID, Self.commentsID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -167,4 +177,14 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         fputs("navigation failed: \(error)\n", stderr)
     }
+}
+
+/// One markdown file in its own window, owned by an `NSDocument`.
+final class FolioWindowController: EditorWindowController {
+    init(document: FolioDocument) {
+        super.init(workspace: Workspace(single: document.files), entryURL: SchemeHandler.entryURL)
+        windowFrameAutosaveName = "FolioDocumentWindow"
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
 }

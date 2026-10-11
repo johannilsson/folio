@@ -28,6 +28,73 @@ enum Rust {
         return (obj["doc"] as? String, sidecar)
     }
 
+    // MARK: sets
+
+    struct SetFile {
+        let id: String
+        /// Path relative to the root, as the sidebar shows it.
+        let name: String
+        /// Name of the root folder; files are grouped by it.
+        let group: String
+        let path: URL
+        let sidecar: URL
+    }
+
+    struct SetInfo {
+        let name: String
+        /// The set's JSON file, watched so that `folio set add` from a terminal shows up.
+        let manifest: URL
+        let files: [SetFile]
+    }
+
+    static func setNames() throws -> [String] {
+        try object(folio_set_names())["names"] as? [String] ?? []
+    }
+
+    static func setLoad(_ name: String) throws -> SetInfo {
+        let obj = try object(folio_set_load(name))
+        guard let manifest = obj["manifest"] as? String, let files = obj["files"] as? [[String: Any]] else {
+            throw RustError(description: "unexpected set result")
+        }
+        return SetInfo(
+            name: name,
+            manifest: URL(fileURLWithPath: manifest),
+            files: files.compactMap { file in
+                guard let id = file["id"] as? String, let name = file["name"] as? String,
+                      let group = file["group"] as? String, let path = file["path"] as? String,
+                      let sidecar = file["folio_path"] as? String else { return nil }
+                return SetFile(id: id, name: name, group: group, path: URL(fileURLWithPath: path), sidecar: URL(fileURLWithPath: sidecar))
+            }
+        )
+    }
+
+    /// Adds files to the set, creating it if needed. Files already in it are skipped.
+    static func setAdd(_ name: String, files: [URL]) throws {
+        _ = try object(folio_set_add(name, paths(files), nil))
+    }
+
+    static func setRemove(_ name: String, files: [URL]) throws {
+        _ = try object(folio_set_remove(name, paths(files)))
+    }
+
+    /// Deletes the set's manifest. The files and their sidecars stay.
+    static func setDelete(_ name: String) throws {
+        _ = try object(folio_set_delete(name))
+    }
+
+    private static func paths(_ files: [URL]) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: files.map(\.path))) ?? Data("[]".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func object(_ ptr: UnsafeMutablePointer<CChar>?) throws -> [String: Any] {
+        let text = try take(ptr)
+        guard let obj = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        return obj
+    }
+
     /// Copies the result out, frees it, and turns `{"error": ...}` into a thrown error.
     private static func take(_ ptr: UnsafeMutablePointer<CChar>?) throws -> String {
         guard let ptr else { throw RustError(description: "libfolio returned null") }

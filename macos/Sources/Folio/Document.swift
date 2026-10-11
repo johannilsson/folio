@@ -3,9 +3,12 @@ import Foundation
 /// One markdown file and its `.folio` sidecar: the file IO behind the bridge, and the
 /// change detection that replaces watcher.rs.
 final class Document {
-    static let id = "main"
+    /// The id a window with a single file uses, like `folio serve` on one file.
+    static let singleID = "main"
     static let emptySidecar = #"{"version":1,"annotations":[]}"#
 
+    /// What the page calls this file (`?file=<id>`); set files carry the set's id.
+    let id: String
     let file: URL
     let sidecar: URL
 
@@ -22,11 +25,17 @@ final class Document {
     private var sidecarStamp: Stamp
     private var timer: Timer?
 
-    init(file: URL) throws {
+    init(file: URL, sidecar: URL, id: String) {
+        self.id = id
         self.file = file
-        self.sidecar = URL(fileURLWithPath: try Rust.sidecarPath(for: file.path))
+        self.sidecar = sidecar
         fileStamp = Self.stamp(file)
         sidecarStamp = Self.stamp(sidecar)
+    }
+
+    /// A file on its own: the sidecar goes where the git-root rule puts it.
+    convenience init(file: URL) throws {
+        self.init(file: file, sidecar: URL(fileURLWithPath: try Rust.sidecarPath(for: file.path)), id: Self.singleID)
     }
 
     // MARK: reading and writing

@@ -23,6 +23,19 @@ folio open notes.md            # from the CLI; FOLIO_APP=<path to .app> for an u
 
 `FOLIO_SIGN_IDENTITY` selects a signing identity other than ad hoc.
 
+## Sets
+
+A set is a named list of markdown files from any folders, kept in `~/.config/folio/sets`
+and shared with `folio set add/rm/list`. In the app it opens in a window with a sidebar of
+its files (grouped by repo, with a badge for unresolved annotations) beside the editor.
+
+- **File > Open Set** lists the sets; **New Set…** asks for a name and the files to start with.
+- **Add Files to Set…**, **Remove from Set** and **Delete Set…** (File menu, or the + / − under
+  the sidebar and its context menu) change the list. Only the list changes; files and their
+  annotations are never deleted. A set keeps at least one file.
+- Changes made with `folio set` in a terminal appear in an open window within a second.
+- `folio open --set <name>` opens a set from the CLI (it sends `folio://set/<name>` to the app).
+
 ## Test
 
 ```bash
