@@ -113,9 +113,11 @@ final class FolioWindowController: NSWindowController, WKNavigationDelegate, WKU
     }
 
     private func syncButtons() {
+        // The toolbar draws every symbol at its own fixed size (point size, scale and
+        // image size are ignored), so the visual weight is chosen by the symbol.
         sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.plaintext.fill" : "doc.plaintext",
                                    accessibilityDescription: "Markdown Source")
-        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "text.bubble.fill" : "text.bubble",
+        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "bubble.left.fill" : "bubble.left",
                                      accessibilityDescription: "Comments")
     }
 
