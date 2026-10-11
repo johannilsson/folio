@@ -168,6 +168,9 @@ for (const [mode, wrapper] of [['source', '#raw-editor-wrapper'], ['preview', '#
       await page.waitForSelector('#editor-tiptap .ProseMirror', { state: 'visible' })
     }
     const scrollTop = () => page.locator(wrapper).evaluate(el => el.scrollTop)
+    // The document must have laid out before there is anything to scroll.
+    await expect.poll(() => page.locator(wrapper).evaluate(el => el.scrollHeight - el.clientHeight))
+      .toBeGreaterThan(1600)
     await page.locator(wrapper).evaluate(el => { el.scrollTop = 1500 })
     const before = await scrollTop()
     expect(before).toBeGreaterThan(1000)
