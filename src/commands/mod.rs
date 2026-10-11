@@ -6,6 +6,7 @@ pub mod reject;
 pub mod render;
 pub mod review;
 pub mod serve;
+pub mod set;
 
 use std::path::{Path, PathBuf};
 

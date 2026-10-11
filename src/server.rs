@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message, WebSocket},
-        Json, State, WebSocketUpgrade,
+        Json, Query, State, WebSocketUpgrade,
     },
     http::{Response, StatusCode},
     middleware::{self, Next},
@@ -27,11 +27,25 @@ use tower_http::cors::CorsLayer;
 #[folder = "frontend/dist/"]
 struct Assets;
 
+/// One served document. `id` is what the frontend passes as `?file=`; it is only
+/// ever looked up in `AppState::docs`, never used to build a path.
 #[derive(Clone)]
-pub struct AppState {
+pub struct DocEntry {
+    pub id: String,
+    /// Path relative to the root, shown in the sidebar.
+    pub name: String,
+    /// Root directory name, used to group files in the sidebar.
+    pub group: String,
     pub doc_path: PathBuf,
     pub folio_path: PathBuf,
     pub write_token: Arc<Mutex<Option<Instant>>>,
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub docs: Arc<Vec<DocEntry>>,
+    /// Name of the served set; `None` when serving a single file.
+    pub set_name: Option<String>,
     pub tx: broadcast::Sender<String>,
     pub read_only: bool,
     pub token: Option<String>,
@@ -86,29 +100,66 @@ async fn serve_asset(axum::extract::Path(path): axum::extract::Path<String>) -> 
     }
 }
 
-async fn get_file(State(state): State<AppState>) -> impl IntoResponse {
-    match tokio::fs::read_to_string(&state.doc_path).await {
+#[derive(Deserialize)]
+struct FileQuery {
+    file: Option<String>,
+}
+
+/// Resolve `?file=<id>`; a missing param means the first document, which keeps
+/// single-file mode working without the frontend sending an id.
+fn find_doc(state: &AppState, q: &FileQuery) -> Result<DocEntry, Response<Body>> {
+    let found = match &q.file {
+        Some(id) => state.docs.iter().find(|d| &d.id == id),
+        None => state.docs.first(),
+    };
+    found
+        .cloned()
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "unknown file").into_response())
+}
+
+fn event(kind: &str, doc: &DocEntry) -> String {
+    json!({ "type": kind, "file": doc.id }).to_string()
+}
+
+async fn get_file(State(state): State<AppState>, Query(q): Query<FileQuery>) -> impl IntoResponse {
+    let doc = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    match tokio::fs::read_to_string(&doc.doc_path).await {
         Ok(content) => (StatusCode::OK, content).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn put_file(State(state): State<AppState>, body: String) -> impl IntoResponse {
+async fn put_file(
+    State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
+    body: String,
+) -> impl IntoResponse {
     if state.read_only {
         return (StatusCode::FORBIDDEN, "read-only mode").into_response();
     }
-    *state.write_token.lock().unwrap() = Some(Instant::now());
-    match tokio::fs::write(&state.doc_path, &body).await {
+    let doc = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    *doc.write_token.lock().unwrap() = Some(Instant::now());
+    match tokio::fs::write(&doc.doc_path, &body).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn get_folio(State(state): State<AppState>) -> impl IntoResponse {
-    if !state.folio_path.exists() {
+async fn get_folio(State(state): State<AppState>, Query(q): Query<FileQuery>) -> impl IntoResponse {
+    let doc = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    if !doc.folio_path.exists() {
         return Json(json!({"version": 1, "annotations": []})).into_response();
     }
-    match tokio::fs::read_to_string(&state.folio_path).await {
+    match tokio::fs::read_to_string(&doc.folio_path).await {
         Ok(content) => Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "application/json")
@@ -118,27 +169,64 @@ async fn get_folio(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn put_folio(State(state): State<AppState>, body: String) -> impl IntoResponse {
-    if let Some(parent) = state.folio_path.parent() {
+async fn put_folio(
+    State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
+    body: String,
+) -> impl IntoResponse {
+    let doc = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    if let Some(parent) = doc.folio_path.parent() {
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     }
-    match tokio::fs::write(&state.folio_path, &body).await {
+    match tokio::fs::write(&doc.folio_path, &body).await {
         Ok(_) => {
-            let _ = state.tx.send(r#"{"type":"folio:changed"}"#.to_string());
+            let _ = state.tx.send(event("folio:changed", &doc));
             StatusCode::OK.into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn get_info(State(state): State<AppState>) -> impl IntoResponse {
-    let filename = state.doc_path
+async fn get_info(State(state): State<AppState>, Query(q): Query<FileQuery>) -> impl IntoResponse {
+    let doc = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    let filename = doc.doc_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    Json(json!({ "filename": filename, "plantumlUrl": state.plantuml_url }))
+    Json(json!({
+        "id": doc.id,
+        "filename": filename,
+        "set": state.set_name,
+        "plantumlUrl": state.plantuml_url,
+    }))
+    .into_response()
+}
+
+/// All served documents with their unresolved-annotation counts, for the sidebar.
+async fn get_files(State(state): State<AppState>) -> impl IntoResponse {
+    let files: Vec<_> = state
+        .docs
+        .iter()
+        .map(|d| {
+            let pending = if d.folio_path.exists() {
+                Sidecar::load(&d.folio_path)
+                    .map(|s| s.annotations.iter().filter(|a| !a.resolved).count())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            json!({ "id": d.id, "name": d.name, "group": d.group, "pending": pending })
+        })
+        .collect();
+    Json(files)
 }
 
 async fn get_kroki_url(State(state): State<AppState>) -> impl IntoResponse {
@@ -194,9 +282,14 @@ struct AnchorResultItem {
 
 async fn post_anchor(
     State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
     Json(items): Json<Vec<AnchorRequestItem>>,
 ) -> impl IntoResponse {
-    let doc = match tokio::fs::read_to_string(&state.doc_path).await {
+    let entry = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    let doc = match tokio::fs::read_to_string(&entry.doc_path).await {
         Ok(content) => content,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -219,9 +312,14 @@ async fn post_anchor(
 /// CM6 raw-mode editor, which edits the literal markdown source directly.
 async fn post_anchor_raw(
     State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
     Json(items): Json<Vec<AnchorRequestItem>>,
 ) -> impl IntoResponse {
-    let doc = match tokio::fs::read_to_string(&state.doc_path).await {
+    let entry = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    let doc = match tokio::fs::read_to_string(&entry.doc_path).await {
         Ok(content) => content,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -249,6 +347,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/accept", post(post_accept))
         .route("/api/folio", get(get_folio).put(put_folio))
         .route("/api/info", get(get_info))
+        .route("/api/files", get(get_files))
         .route("/api/kroki-url", get(get_kroki_url))
         .route("/ws", get(ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
@@ -266,16 +365,21 @@ struct AcceptRequest {
 /// editor accepts without serializing its document back to markdown.
 async fn post_accept(
     State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
     Json(req): Json<AcceptRequest>,
 ) -> impl IntoResponse {
     if state.read_only {
         return (StatusCode::FORBIDDEN, "read-only mode").into_response();
     }
-    let doc = match tokio::fs::read_to_string(&state.doc_path).await {
+    let entry = match find_doc(&state, &q) {
+        Ok(d) => d,
+        Err(r) => return r,
+    };
+    let doc = match tokio::fs::read_to_string(&entry.doc_path).await {
         Ok(content) => content,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    let mut sidecar = match Sidecar::load(&state.folio_path) {
+    let mut sidecar = match Sidecar::load(&entry.folio_path) {
         Ok(s) => s,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -291,17 +395,17 @@ async fn post_accept(
         Err(msg) => return (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response(),
     };
     if !ops.is_empty() {
-        *state.write_token.lock().unwrap() = Some(Instant::now());
-        if let Err(e) = tokio::fs::write(&state.doc_path, apply_ops(&doc, ops)).await {
+        *entry.write_token.lock().unwrap() = Some(Instant::now());
+        if let Err(e) = tokio::fs::write(&entry.doc_path, apply_ops(&doc, ops)).await {
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
         // The watcher skips our own write, so tell clients to reload.
-        let _ = state.tx.send(r#"{"type":"md:changed"}"#.to_string());
+        let _ = state.tx.send(event("md:changed", &entry));
     }
     mark_accepted(&mut sidecar, &[idx]);
-    if let Err(e) = sidecar.save(&state.folio_path) {
+    if let Err(e) = sidecar.save(&entry.folio_path) {
         return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
     }
-    let _ = state.tx.send(r#"{"type":"folio:changed"}"#.to_string());
+    let _ = state.tx.send(event("folio:changed", &entry));
     StatusCode::OK.into_response()
 }

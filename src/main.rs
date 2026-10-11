@@ -1,6 +1,7 @@
 mod commands;
 mod sidecar;
 mod server;
+mod set;
 mod watcher;
 
 use clap::{Parser, Subcommand};
@@ -17,7 +18,11 @@ struct Cli {
 enum Commands {
     /// Start the editor server
     Serve {
-        file: PathBuf,
+        #[arg(required_unless_present = "set", conflicts_with = "set")]
+        file: Option<PathBuf>,
+        /// Serve a named set of files (see `folio set`)
+        #[arg(long)]
+        set: Option<String>,
         #[arg(short, long)]
         port: Option<u16>,
         #[arg(long, default_value = "127.0.0.1")]
@@ -34,6 +39,11 @@ enum Commands {
         kroki_url: String,
         #[arg(long, default_value = "https://www.plantuml.com/plantuml")]
         plantuml_url: String,
+    },
+    /// Manage named sets of files served together
+    Set {
+        #[command(subcommand)]
+        command: SetCommands,
     },
     /// Print pending annotations
     Review {
@@ -101,6 +111,28 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum SetCommands {
+    /// Add files to a set, creating it if needed
+    Add {
+        name: String,
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Directory that holds the `.folio/` sidecars (default: the file's git root)
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Remove files from a set, or delete the set when no files are given
+    Rm {
+        name: String,
+        files: Vec<PathBuf>,
+    },
+    /// List sets, or the files in one set
+    List {
+        name: Option<String>,
+    },
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -108,6 +140,7 @@ async fn main() {
     let result = match cli.command {
         Commands::Serve {
             file,
+            set,
             port,
             host,
             no_open,
@@ -117,9 +150,14 @@ async fn main() {
             kroki_url,
             plantuml_url,
         } => {
-            commands::serve::run(file, port, host, no_open, no_watch, read_only, token, kroki_url, plantuml_url)
+            commands::serve::run(file, set, port, host, no_open, no_watch, read_only, token, kroki_url, plantuml_url)
                 .await
         }
+        Commands::Set { command } => match command {
+            SetCommands::Add { name, files, root } => commands::set::add(&name, &files, root.as_ref()),
+            SetCommands::Rm { name, files } => commands::set::rm(&name, &files),
+            SetCommands::List { name } => commands::set::list(name.as_deref()),
+        },
         Commands::Review { file, kind, source, json } => {
             commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
         }
