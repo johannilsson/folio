@@ -276,6 +276,9 @@ final class SelfTest {
             win.window?.title == "demo" && win.sidebar.fileIDs.count == 2 && win.sidebar.selectedID == alphaID
         }
         await check("files are grouped under their repo folders") { win.sidebar.headerTitles.count == 2 }
+        await check("the selected file has the soft grey selection, as in Finder") {
+            await self.until { win.sidebar.selectedRowIsSoft }
+        }
         await check("the page opens on the first file") { await self.until { await filename() == "alpha.md" } }
         // The set's page also opens in the preview; the typing checks below use the source editor.
         _ = await self.waitFor("document.getElementById('raw-pane').hidden === true", in: win.webView)

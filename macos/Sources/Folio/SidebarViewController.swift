@@ -40,6 +40,11 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         for case .file(let rowID, _, let pending) in rows where rowID == id { return pending }
         return nil
     }
+    /// The selected row draws the soft grey selection with accent-colored text.
+    var selectedRowIsSoft: Bool {
+        guard let row = table.rowView(atRow: table.selectedRow, makeIfNecessary: false) as? SoftSelectionRowView else { return false }
+        return !row.isEmphasized && row.isSelected
+    }
 
     // MARK: view
 
@@ -154,6 +159,10 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        SoftSelectionRowView()
+    }
+
     func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
         if case .header = rows[row] { return true }
         return false
@@ -243,5 +252,38 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     @objc private func removeFromMenu(_ sender: NSMenuItem) {
         if let id = sender.representedObject as? String { onRemove?(id) }
+    }
+}
+
+/// A selected row as in Finder's sidebar: a soft grey rounded background with the name in the
+/// accent color, instead of the strong accent fill with white text a key window gets by default.
+final class SoftSelectionRowView: NSTableRowView {
+    // Never emphasized, so the selection stays grey whether or not the window is active.
+    override var isEmphasized: Bool {
+        get { false }
+        set {}
+    }
+
+    override var isSelected: Bool {
+        didSet { tint() }
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 8, yRadius: 8).fill()
+    }
+
+    // The cell is added after the row view is created, so tint it when it arrives too.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        tint()
+    }
+
+    private func tint() {
+        for case let cell as NSTableCellView in subviews {
+            cell.textField?.textColor = isSelected ? .controlAccentColor : .labelColor
+            cell.imageView?.contentTintColor = isSelected ? .controlAccentColor : .secondaryLabelColor
+        }
     }
 }
