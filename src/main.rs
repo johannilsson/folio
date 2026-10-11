@@ -1,10 +1,5 @@
-mod commands;
-mod sidecar;
-mod server;
-mod set;
-mod watcher;
-
 use clap::{Parser, Subcommand};
+use folio::commands;
 use std::path::PathBuf;
 
 #[derive(Parser)]

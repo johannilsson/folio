@@ -3,6 +3,11 @@ name = "folio"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "folio"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
 [[bin]]
 name = "folio"
 path = "src/main.rs"
