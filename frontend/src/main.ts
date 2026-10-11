@@ -1,32 +1,43 @@
 import { on } from './websocket'
-import { getFile, getFolio, getInfo } from './api'
-import { initEditor, setContent, getEditor, flushSave } from './editor'
-import { createAnnotationsExtension, updateSidecar, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
+import { getFile, getFolio, getInfo, setActiveFile } from './api'
+import { initEditor, destroyEditor, setContent, getEditor, flushSave } from './editor'
+import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, setRawContent, getRawContent, flushRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
+import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
+import { initFileMenu, refreshFileMenu, setCurrentFile } from './file-menu'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
 
-  const filenameEl = document.getElementById('filename-display')!
-  filenameEl.textContent = info.filename
-  document.title = info.filename
+  // The document of the served set this page currently shows.
+  let currentId = info.id
+
+  function showFilename(filename: string) {
+    document.getElementById('filename-display')!.textContent = filename
+    document.title = filename
+  }
+  showFilename(info.filename)
   setPlantumlUrl(info.plantumlUrl)
 
   updateSidecar(sidecar)
 
   const editorEl = document.getElementById('editor-tiptap')!
   const readOnlyNotice = document.getElementById('preview-readonly-notice')!
-  initEditor(editorEl, initialContent, [createAnnotationsExtension(), createTableUIExtension()], reason => {
-    readOnlyNotice.hidden = reason === null
-    readOnlyNotice.title = reason ?? ''
-  })
+  function mountPreview(content: string) {
+    initEditor(editorEl, content, [createAnnotationsExtension(), createTableUIExtension()], reason => {
+      readOnlyNotice.hidden = reason === null
+      readOnlyNotice.title = reason ?? ''
+    })
+  }
+  mountPreview(initialContent)
 
   // Handle events one at a time: an accept broadcasts md:changed then folio:changed,
   // and re-anchoring must run against the already-reloaded document.
   let eventChain: Promise<void> = Promise.resolve()
-  const sequential = (handler: () => Promise<void>) => () => {
+  // Events for other files of the set are not ours to apply.
+  const sequential = (handler: () => Promise<void>) => (file: string | undefined) => {
+    if (file !== undefined && file !== currentId) return
     eventChain = eventChain.then(handler).catch(console.error)
   }
 
@@ -56,6 +67,9 @@ async function boot(): Promise<void> {
     }
     if (!rawPane.hidden && !isEcho) refreshRawAnnotations()
   }))
+
+  // Any file's annotations changing moves its badge in the file menu.
+  on('folio:changed', () => { void refreshFileMenu() })
 
   // Follow OS color scheme for mermaid diagrams
   const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
@@ -135,6 +149,67 @@ async function boot(): Promise<void> {
   window.addEventListener('folio:open-gutter', () => {
     if (!appEl.classList.contains('gutter-open')) setGutterOpen(true)
   })
+
+  // Swap the document in place. Both editors are reset rather than reused: a
+  // fresh preview editor and a fresh CM6 state each start with empty undo
+  // history, so undo can never reach into the previous file.
+  let switching = false
+  // Scroll position of each file we have left, as a fraction of its scrollable
+  // height (the same measure the source/preview toggle uses), so coming back
+  // lands where the reader left off. Kept for this page session only.
+  const scrollFractions = new Map<string, number>()
+  const visibleWrapper = () => (rawPane.hidden ? editorWrapper : getRawWrapperEl())
+  async function switchFile(id: string, push = true): Promise<void> {
+    if (id === currentId || switching) return
+    switching = true
+    const previous = currentId
+    const leaving = visibleWrapper()
+    if (leaving) scrollFractions.set(previous, leaving.scrollTop / (leaving.scrollHeight - leaving.clientHeight || 1))
+    try {
+      // Save the file we are leaving; pending edits would otherwise be lost.
+      await (rawPane.hidden ? flushSave() : flushPendingRawSave())
+      setActiveFile(id)
+      let loaded
+      try {
+        loaded = await Promise.all([getFile(), getFolio(), getInfo()])
+      } catch (e) {
+        setActiveFile(previous)
+        throw e
+      }
+      const [content, nextSidecar, nextInfo] = loaded
+
+      currentId = id
+      destroyEditor()
+      resetAnnotationState()
+      updateSidecar(nextSidecar)
+      mountPreview(content)
+      resetRawEditor(content)
+      editorWrapper.scrollTop = 0
+      // Wait for layout so the new document has its height before we scroll into it.
+      const fraction = scrollFractions.get(id) ?? 0
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const el = visibleWrapper()
+        if (el && currentId === id) el.scrollTop = fraction * (el.scrollHeight - el.clientHeight)
+      }))
+      showFilename(nextInfo.filename)
+      setCurrentFile(id)
+      if (push) history.pushState(null, '', `/?file=${encodeURIComponent(id)}`)
+      if (!rawPane.hidden) refreshRawAnnotations()
+      scheduleGutterRebuild()
+    } finally {
+      switching = false
+    }
+  }
+
+  const isMultiFile = await initFileMenu(info.id, info.set, id => { void switchFile(id).catch(console.error) })
+  if (isMultiFile) {
+    // Make the address bar name the current file, so back/forward can return to it.
+    history.replaceState(null, '', `/?file=${encodeURIComponent(info.id)}`)
+    window.addEventListener('popstate', () => {
+      const id = new URLSearchParams(location.search).get('file')
+      if (id) void switchFile(id, false).catch(console.error)
+    })
+  }
 }
 
 boot().catch(console.error)

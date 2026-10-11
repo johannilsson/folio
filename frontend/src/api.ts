@@ -1,24 +1,46 @@
-export const getInfo = (): Promise<{ filename: string; plantumlUrl: string }> =>
-  fetch('/api/info').then(r => r.json())
+// Which document of a served set this page shows (`/?file=<id>`). Absent means the
+// server's first document, so single-file mode needs no id.
+let fileParam = new URLSearchParams(location.search).get('file')
+
+/** Point every file-scoped call at another document of the set. */
+export function setActiveFile(id: string): void {
+  fileParam = id
+}
+
+const scoped = (url: string): string =>
+  fileParam ? `${url}?file=${encodeURIComponent(fileParam)}` : url
+
+export const getInfo = (): Promise<{ id: string; filename: string; set: string | null; plantumlUrl: string }> =>
+  fetch(scoped('/api/info')).then(r => r.json())
+
+export interface FileSummary {
+  id: string
+  name: string
+  group: string
+  pending: number
+}
+
+export const getFiles = (): Promise<FileSummary[]> =>
+  fetch('/api/files').then(r => r.json())
 
 export const getFile = (): Promise<string> =>
-  fetch('/api/file').then(r => r.text())
+  fetch(scoped('/api/file')).then(r => r.text())
 
 export const putFile = (content: string): Promise<Response> =>
-  fetch('/api/file', { method: 'PUT', body: content })
+  fetch(scoped('/api/file'), { method: 'PUT', body: content })
 
 export const getFolio = (): Promise<Sidecar> =>
-  fetch('/api/folio').then(r => r.json())
+  fetch(scoped('/api/folio')).then(r => r.json())
 
 export const putFolio = (sidecar: Sidecar): Promise<Response> =>
-  fetch('/api/folio', {
+  fetch(scoped('/api/folio'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sidecar, null, 2),
   })
 
 export const postAccept = (id: string): Promise<Response> =>
-  fetch('/api/accept', {
+  fetch(scoped('/api/accept'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
@@ -40,14 +62,14 @@ export interface AnchorResultItem {
 }
 
 export const postAnchor = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
-  fetch('/api/anchor', {
+  fetch(scoped('/api/anchor'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(items),
   }).then(r => r.json())
 
 export const postAnchorRaw = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
-  fetch('/api/anchor-raw', {
+  fetch(scoped('/api/anchor-raw'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(items),
