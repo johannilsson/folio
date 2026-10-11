@@ -13,6 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             fputs("no index.html in \(AppConfig.dist.path); run `pnpm build` in frontend/\n", stderr)
             exit(66)
         }
+        // From `swift run` there is no bundle to hold the icon; use the one in the checkout.
+        if Bundle.main.url(forResource: "AppIcon", withExtension: "icns") == nil {
+            let checkoutIcon = AppConfig.dist.deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("macos/Resources/AppIcon.icns")
+            if let icon = NSImage(contentsOf: checkoutIcon) { NSApp.applicationIconImage = icon }
+        }
         NSApp.mainMenu = buildMenu()
         NSApp.activate(ignoringOtherApps: true)
 

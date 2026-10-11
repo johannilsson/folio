@@ -8,6 +8,8 @@
     <string>Folio</string>
     <key>CFBundleDisplayName</key>
     <string>Folio</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleExecutable</key>
     <string>Folio</string>
     <key>CFBundlePackageType</key>
