@@ -77,7 +77,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         window.toolbar = toolbar
 
         for (item, label, action) in [
-            (sourceItem, "Markdown Source", #selector(toggleSource(_:))),
+            (sourceItem, "Preview", #selector(toggleSource(_:))),
             (commentsItem, "Comments", #selector(toggleComments(_:))),
         ] {
             item.label = label
@@ -125,8 +125,10 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     private func syncButtons() {
         // The toolbar draws every symbol at its own fixed size (point size, scale and
         // image size are ignored), so the visual weight is chosen by the symbol.
-        sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.text.fill" : "doc.text",
-                                   accessibilityDescription: "Markdown Source")
+        // The document is "selected" while its rendered preview shows; clicking it switches to the source.
+        sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.text" : "doc.text.fill",
+                                   accessibilityDescription: "Preview")
+        sourceItem.toolTip = sourceOn ? "Show the preview" : "Show the markdown source"
         commentsItem.image = NSImage(systemSymbolName: commentsOn ? "bubble.left.fill" : "bubble.left",
                                      accessibilityDescription: "Comments")
     }
