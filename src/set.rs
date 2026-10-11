@@ -152,6 +152,75 @@ pub fn resolve_root(entry: &SetFile) -> PathBuf {
     entry.root.clone().unwrap_or_else(|| detect_root(&entry.path))
 }
 
+/// How a set file is shown and where its sidecar lives.
+pub struct Described {
+    /// Path relative to the root.
+    pub name: String,
+    /// Root directory name, used to group files.
+    pub group: String,
+    pub folio_path: PathBuf,
+}
+
+pub fn describe(entry: &SetFile) -> Described {
+    let root = resolve_root(entry);
+    Described {
+        name: entry.path.strip_prefix(&root).unwrap_or(&entry.path).to_string_lossy().to_string(),
+        group: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        folio_path: folio_path_in(&root, &entry.path),
+    }
+}
+
+/// What `add_files` did with each path.
+pub struct AddOutcome {
+    pub added: Vec<PathBuf>,
+    pub already: Vec<PathBuf>,
+}
+
+/// Add files to the set `name`, creating it if needed. Paths are canonicalised; a
+/// missing or non-file path fails before anything is saved.
+pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::Result<AddOutcome> {
+    let root = match root {
+        Some(r) => Some(
+            r.canonicalize()
+                .map_err(|e| anyhow::anyhow!("cannot read root {}: {}", r.display(), e))?,
+        ),
+        None => None,
+    };
+    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
+    for file in files {
+        let canonical = file
+            .canonicalize()
+            .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
+        if !canonical.is_file() {
+            anyhow::bail!("{} is not a file", file.display());
+        }
+        if current.add(canonical.clone(), root.clone()) {
+            outcome.added.push(canonical);
+        } else {
+            outcome.already.push(canonical);
+        }
+    }
+    save(name, &current)?;
+    Ok(outcome)
+}
+
+/// Remove files from the set `name`; a file that is not in it is an error.
+pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
+    let mut current = load(name)?;
+    let mut removed = Vec::new();
+    for file in files {
+        // The file may no longer exist, so fall back to the path as given.
+        let path = file.canonicalize().unwrap_or_else(|_| file.clone());
+        if !current.remove(&path) {
+            anyhow::bail!("{} is not in set {}", path.display(), name);
+        }
+        removed.push(path);
+    }
+    save(name, &current)?;
+    Ok(removed)
+}
+
 /// `<root>/.folio/<file relative to root>.folio` — what `folio annotate` writes
 /// when run from `root`. Files outside `root` fall back to their absolute path
 /// under `.folio/`, like `commands::folio_path`.
@@ -164,13 +233,14 @@ pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
     root.join(".folio").join(dir).join(format!("{}.folio", name))
 }
 
+// FOLIO_CONFIG_DIR is process-wide, so tests that set it (here and in ffi.rs) run one at a time.
+#[cfg(test)]
+pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // FOLIO_CONFIG_DIR is process-wide, so tests that set it run one at a time.
-    static ENV: Mutex<()> = Mutex::new(());
+    use TEST_ENV as ENV;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

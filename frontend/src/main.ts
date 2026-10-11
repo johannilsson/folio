@@ -211,6 +211,12 @@ async function boot(): Promise<void> {
     }
   }
 
+  // In the native app the window's sidebar picks the file; there is no in-page menu to do it.
+  if (native) {
+    ;(window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile =
+      id => switchFile(id, false)
+  }
+
   const isMultiFile = await initFileMenu(info.id, info.set, id => { void switchFile(id).catch(console.error) })
   if (isMultiFile) {
     // Make the address bar name the current file, so back/forward can return to it.
