@@ -2,19 +2,21 @@ import AppKit
 import WebKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
-    let file: URL
+    let document: Document
     let dist: URL
     let selfTest: Bool
+
+    var file: URL { document.file }
 
     private(set) var window: NSWindow!
     private(set) var webView: WKWebView!
     let bridge: Bridge
 
-    init(file: URL, dist: URL, selfTest: Bool) {
-        self.file = file
+    init(document: Document, dist: URL, selfTest: Bool) {
+        self.document = document
         self.dist = dist
         self.selfTest = selfTest
-        self.bridge = Bridge(file: file)
+        self.bridge = Bridge(document: document)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -55,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         NSApp.mainMenu = MainMenu.build()
         NSApp.activate(ignoringOtherApps: true)
+
+        // Stand-in for the WebSocket: file changes reach the page as events.
+        document.onEvent = { [weak self] type in
+            self?.webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(Document.id)')")
+        }
+        document.startWatching()
 
         webView.load(URLRequest(url: SchemeHandler.entryURL))
     }
