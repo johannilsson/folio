@@ -199,8 +199,7 @@ export function addCommentAnnotation(contextBefore: string, target: string, comm
 function acceptAnnotation(id: string): void {
   void flushSave()
     .then(() => postAccept(id))
-    .then(r => { if (!r.ok) return r.text().then(msg => console.error(`Accept failed: ${msg}`)) })
-    .catch(console.error)
+    .catch(e => console.error(`Accept failed: ${e}`))
 }
 
 // ─── Annotation keyboard navigation ─────────────────────────────────────────

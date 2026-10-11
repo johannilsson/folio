@@ -1,4 +1,6 @@
-type EventType = 'md:changed' | 'folio:changed'
+import { native } from './bridge'
+
+type EventType ='md:changed' | 'folio:changed'
 // `file` is the id of the document the event is about (see /api/files).
 type Handler = (file: string | undefined) => void
 
@@ -37,4 +39,10 @@ function connect(): void {
   }
 }
 
-connect()
+if (native) {
+  // No socket in the native app: Swift's file watchers call this instead.
+  ;(window as unknown as { __folioEmit: (type: EventType, file?: string) => void }).__folioEmit =
+    (type, file) => dispatch(type, file)
+} else {
+  connect()
+}

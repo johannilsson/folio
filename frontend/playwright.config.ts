@@ -34,6 +34,11 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: { baseURL: `http://127.0.0.1:${PORT}`, viewport: { width: 1280, height: 800 } },
+  // Same specs twice: over HTTP, and through the native-app bridge (see e2e/fixtures.ts).
+  projects: [
+    { name: 'http' },
+    { name: 'bridge', use: { bridge: true } },
+  ],
   webServer: [
     {
       command: serve,

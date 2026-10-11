@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './fixtures'
+import type { APIRequestContext, Page } from '@playwright/test'
 
 // Served by the second webServer in playwright.config.ts: a/alpha.md and b/beta.md.
 test.use({ baseURL: 'http://127.0.0.1:7392' })
