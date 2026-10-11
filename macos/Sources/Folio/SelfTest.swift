@@ -166,6 +166,9 @@ final class SelfTest {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('Added by another program.')", seconds: 8)
         }
 
+        // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
+
         // A second window shows its own file.
         guard let secondCopy = try? tempCopy(), let second = await app.openForSelfTest(secondCopy) else {
             report("a second document opens", false)
@@ -186,24 +189,75 @@ final class SelfTest {
         }
         await check("the first window kept its document") { self.controller.files.file == copy }
 
-        // For a human to look at: FOLIO_SNAPSHOT=/path/to.png
-        if let path = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            // The whole window, title bar and toolbar included.
-            controller.window?.makeKeyAndOrderFront(nil)
-            if let number = controller.window?.windowNumber,
-               let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(number), [.boundsIgnoreFraming]),
-               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
-                try? png.write(to: URL(fileURLWithPath: path))
-            }
-        }
-
         let errors = await js("window.__errors") as? [String] ?? []
         await check("no script errors") {
             if !errors.isEmpty { print("    \(errors)") }
             return errors.isEmpty
         }
         return finish()
+    }
+
+    // MARK: pictures
+
+    /// Pictures of the in-page controls, for judging how they look: annotation cards in
+    /// the comments pane (one focused) and the floating comment button over a selection.
+    private func tour(_ base: String) async {        for args in [
+            ["--kind", "comment", "--context-before", "Natural wine is made with ", "--target", "no additives", "--comment", "Is this claim sourced anywhere?"],
+            ["--kind", "replace", "--context-before", "vineyard and the ", "--target", "cave", "--replacement", "cellar"],
+            ["--kind", "highlight", "--context-before", "The last ", "--target", "paragraph"],
+        ] {
+            _ = cli(["annotate", name] + args + ["--author", "agent", "--source", "agent"])
+        }
+        _ = await waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 3", seconds: 8)
+        let press = "new MouseEvent('mousedown', {bubbles: true, cancelable: true})"
+        _ = await js("document.querySelector('#annotation-gutter .ann-card').dispatchEvent(\(press))")
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        snapshot("\(base)-cards.png")
+
+        _ = await js("document.querySelector('#annotation-gutter .ann-card-focused button[title=More]')?.dispatchEvent(\(press))")
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        snapshot("\(base)-menu.png")
+        _ = await js("document.body.dispatchEvent(\(press))")
+
+        // Selecting text in the editor drops the focus from the card.
+        _ = await js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+
+        // Select a word the way a reader would, and show the floating comment button.
+        _ = await js("""
+            (() => {
+              const p = [...document.querySelectorAll('#editor-tiptap p')].find(p => p.textContent.includes('Natural wine'))
+              const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+              const node = walker.nextNode()
+              const range = document.createRange()
+              range.setStart(node, 0); range.setEnd(node, 7)
+              const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range)
+              document.querySelector('#editor-tiptap .ProseMirror').dispatchEvent(new MouseEvent('mouseup', {bubbles: true}))
+              return 1
+            })()
+            """)
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        snapshot("\(base)-floater.png")
+
+        _ = await js("document.querySelector('#comment-floater .af-btn').dispatchEvent(\(press))")
+        _ = await js("""
+            (() => {
+              const t = document.querySelector('.cf-gutter-form textarea, #comment-form-overlay textarea')
+              if (t) { t.focus(); t.value = 'Should this say wild yeast?'; t.dispatchEvent(new Event('input', {bubbles: true})) }
+              return 1
+            })()
+            """)
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        snapshot("\(base)-form.png")
+    }
+
+    /// The whole window, title bar and toolbar included.
+    private func snapshot(_ path: String) {
+        controller.window?.makeKeyAndOrderFront(nil)
+        if let number = controller.window?.windowNumber,
+           let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(number), [.boundsIgnoreFraming]),
+           let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     private func finish() -> Bool {
