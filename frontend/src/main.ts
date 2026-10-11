@@ -133,12 +133,18 @@ async function boot(): Promise<void> {
         refreshRawAnnotations()
         const wrapperEl = getRawWrapperEl()
         if (wrapperEl) wrapperEl.scrollTop = fraction * (wrapperEl.scrollHeight - wrapperEl.clientHeight)
+        // Only now is the source showing; updating earlier left the toggle showing preview.
+        updateViewBtn()
       })
+      return
     }
     updateViewBtn()
   }
 
   viewBtn.addEventListener('click', () => (rawPane.hidden ? showSource() : showPreview()))
+
+  // The macOS app opens in the WYSIWYG preview; the browser keeps the source editor as its default.
+  if (document.documentElement.classList.contains('native-chrome')) showPreview()
 
   // Comments pane: closed by default, toggled with the bubble button
   const appEl = document.getElementById('app')!
