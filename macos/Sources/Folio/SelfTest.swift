@@ -416,11 +416,7 @@ final class SelfTest {
         window?.makeKeyAndOrderFront(nil)
         // A window that was behind another does not repaint until it is in front.
         try? await Task.sleep(nanoseconds: 700_000_000)
-        if let number = window?.windowNumber,
-           let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(number), [.boundsIgnoreFraming]),
-           let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
-            try? png.write(to: URL(fileURLWithPath: path))
-        }
+        if let window { WindowPicture.write(window, to: path) }
     }
 
     private func finish() -> Bool {

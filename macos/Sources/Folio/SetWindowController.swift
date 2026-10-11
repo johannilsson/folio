@@ -8,6 +8,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
     let sidebar: SidebarViewController
     private(set) var currentID: String
 
+    private var sidebarSplitItem: NSSplitViewItem?
+
+    /// Shows the sidebar if the user (or the saved layout) had collapsed it.
+    func showSidebar() {
+        sidebarSplitItem?.isCollapsed = false
+    }
+
     /// The window closed; the app stops tracking it.
     var onClose: (() -> Void)?
 
@@ -50,6 +57,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         sidebarItem.minimumThickness = 190
         sidebarItem.maximumThickness = 340
         split.addSplitViewItem(sidebarItem)
+        sidebarSplitItem = sidebarItem
         split.addSplitViewItem(NSSplitViewItem(viewController: content))
         split.splitView.autosaveName = "FolioSetSplit"
         window?.contentViewController = split

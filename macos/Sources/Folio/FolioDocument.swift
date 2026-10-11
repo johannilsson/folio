@@ -15,6 +15,10 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
+    /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
+    static var openSet: String?
+    static var screenshot: String?
+    static var appearance: String?
 }
 
 /// One open markdown file. The page saves its own edits through the bridge, so this

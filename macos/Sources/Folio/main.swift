@@ -1,6 +1,6 @@
 import AppKit
 
-// Folio [--dist <dir>] [--self-test] [file.md ...]
+// Folio [--dist <dir>] [--self-test] [--set <name> [--screenshot <png> [--appearance light|dark]]] [file.md ...]
 // Finder and `open -a Folio file.md` open files through AppKit; naming them here is
 // for running from a terminal.
 var args = Array(CommandLine.arguments.dropFirst())
@@ -11,6 +11,9 @@ while !args.isEmpty {
     switch arg {
     case "--dist": AppConfig.dist = URL(fileURLWithPath: args.removeFirst())
     case "--self-test": AppConfig.selfTest = true
+    case "--set": AppConfig.openSet = args.removeFirst()
+    case "--screenshot": AppConfig.screenshot = args.removeFirst()
+    case "--appearance": AppConfig.appearance = args.removeFirst()
     // AppKit's own flags (and their values), e.g. -NSDocumentRevisionsDebugMode YES.
     case let flag where flag.hasPrefix("-"): _ = args.isEmpty ? nil : args.removeFirst()
     default: files.append(URL(fileURLWithPath: arg).standardizedFileURL)
