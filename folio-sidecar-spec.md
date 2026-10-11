@@ -10,14 +10,14 @@ The markdown source stays clean at all times. Suggestions, comments, highlights,
 
 ## File Convention
 
-The sidecar lives in the same directory as its markdown file and takes the source filename as a prefix:
+The sidecar lives in a `.folio/` directory at the root of the markdown file's git repository (or in the file's own directory when it is not in a repository), mirroring the file's path and adding `.folio`:
 
 ```
-document.md
-document.md.folio
+docs/spec.md  →  <repo root>/.folio/docs/spec.md.folio
+report.md     →  <repo root>/.folio/report.md.folio
 ```
 
-The `.folio` extension is reserved for this format. The sidecar is excluded from version control — add `*.folio` to `.gitignore`.
+The CLI, the server and the macOS app all use this rule, wherever they are run from. The `.folio` extension is reserved for this format. The sidecars are excluded from version control — add `.folio/` to `.gitignore`.
 
 ---
 
