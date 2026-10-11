@@ -153,6 +153,7 @@
       padding: 0 12px;
       background: var(--bg-raised);
       border-radius: 15px;
+      box-shadow: var(--float-shadow);
     }
     .float-pill-group { display: flex; gap: 8px; }
     .float-pill, .float-pill-btn { box-sizing: border-box; }
@@ -977,6 +978,8 @@
     #comment-form-overlay[hidden] { display: none; }
     .ann-card.ann-overlay,
     .cf-gutter-form.ann-overlay { position: static; }
+    /* The overlay shows only the focused annotation, so no focus border is needed. */
+    .ann-card.ann-overlay { border-color: transparent; }
 
     /* ── Floating comment adder ── */
 
