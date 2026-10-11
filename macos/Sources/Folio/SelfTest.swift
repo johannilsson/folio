@@ -276,6 +276,15 @@ final class SelfTest {
             win.window?.title == "demo" && win.sidebar.fileIDs.count == 2 && win.sidebar.selectedID == alphaID
         }
         await check("files are grouped under their repo folders") { win.sidebar.headerTitles.count == 2 }
+        await check("the sidebar runs to the top of the window, with the editor below the toolbar") {
+            guard let window = win.window, let frame = window.contentView?.superview else { return false }
+            let sidebarTop = win.sidebar.view.convert(win.sidebar.view.bounds, to: nil).maxY
+            let editorTop = win.webView.convert(win.webView.bounds, to: nil).maxY
+            let windowTop = frame.bounds.maxY
+            let titlebarOnTop = frame.subviews.last.map { String(describing: type(of: $0)) == "NSTitlebarContainerView" } ?? false
+            // The sidebar panel is inset a few points; the editor stops where the toolbar ends.
+            return windowTop - sidebarTop < 16 && windowTop - editorTop > 30 && titlebarOnTop
+        }
         await check("the selected file has the soft grey selection, as in Finder") {
             await self.until { win.sidebar.selectedRowIsSoft }
         }

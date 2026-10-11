@@ -26,7 +26,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     /// Toolbar items before the toggles, which sit at the trailing edge.
     var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
 
-    init(workspace: Workspace, entryURL: URL) {
+    /// `fullHeightSidebar`: the window gets a sidebar that runs to its top edge; the subclass
+    /// installs the toolbar once it has built the split view the toolbar has to follow.
+    init(workspace: Workspace, entryURL: URL, fullHeightSidebar: Bool = false) {
         self.workspace = workspace
         bridge = Bridge(workspace: workspace)
 
@@ -56,11 +58,13 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: fullHeightSidebar
+                ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+                : [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.contentView = webView
+        if !fullHeightSidebar { window.contentView = webView }
         window.backgroundColor = background
         window.minSize = NSSize(width: 480, height: 320)
         window.toolbarStyle = .unified
@@ -71,10 +75,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
-        let toolbar = NSToolbar(identifier: "FolioToolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
+        if !fullHeightSidebar { installToolbar() }
 
         for (item, label, action) in [
             (sourceItem, "Preview", #selector(toggleSource(_:))),
@@ -101,6 +102,13 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    func installToolbar() {
+        let toolbar = NSToolbar(identifier: "FolioToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window?.toolbar = toolbar
+    }
 
     /// A file changed: tell the page. Subclasses also update what they show.
     func workspaceEvent(_ type: String, _ id: String) {
