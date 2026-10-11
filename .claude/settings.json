@@ -20,6 +20,7 @@
       "Bash(swift run*)",
       "Bash(swift macos/scripts/*)",
       "Bash(macos/scripts/bundle.sh*)",
+      "Bash(scripts/readme-screenshot.sh*)",
       "Bash(macos/.build/debug/Folio --self-test*)",
       "Bash(timeout * macos/.build/debug/Folio --self-test*)",
       "Bash(FOLIO_SNAPSHOT=* macos/.build/debug/Folio --self-test*)",
