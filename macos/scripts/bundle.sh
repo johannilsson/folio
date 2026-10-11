@@ -16,6 +16,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp macos/.build/release/Folio "$app/Contents/MacOS/Folio"
 cp macos/Info.plist "$app/Contents/Info.plist"
 cp -R frontend/dist "$app/Contents/Resources/dist"
+cp macos/Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 codesign --force --sign "${FOLIO_SIGN_IDENTITY:--}" "$app"
 
 echo "built $app"
