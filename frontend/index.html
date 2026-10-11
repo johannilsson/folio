@@ -204,6 +204,76 @@
     html.native-chrome #frontmatter-box { margin-top: 2rem; }
     html.native-chrome #raw-editor-mount { padding-top: 1.5rem; }
 
+    /* The controls inside the page follow AppKit conventions: the arrow cursor on
+       buttons, interface text that cannot be selected, the system accent color, small
+       radii, hairline borders and menu-style highlights. */
+    html.native-chrome .ann-card,
+    html.native-chrome .ann-card-btn,
+    html.native-chrome .ann-card-icon-btn,
+    html.native-chrome .ann-card-menu-item,
+    html.native-chrome .ann-send-btn,
+    html.native-chrome .af-btn { cursor: default; }
+    html.native-chrome .ann-card-header,
+    html.native-chrome .ann-card-icon-btn,
+    html.native-chrome .ann-card-menu,
+    html.native-chrome .ann-card-btn,
+    html.native-chrome .af-btn,
+    html.native-chrome .cf-title { -webkit-user-select: none; user-select: none; }
+
+    html.native-chrome .ann-card,
+    html.native-chrome .cf-gutter-form,
+    html.native-chrome #annotation-overlay,
+    html.native-chrome #comment-form-overlay { border-radius: 10px; }
+    html.native-chrome .ann-card-focused,
+    html.native-chrome .cf-gutter-form { border-color: color-mix(in srgb, AccentColor 70%, transparent); }
+    html.native-chrome .ann-card.ann-overlay { border-color: transparent; }
+    html.native-chrome .ann-card-btn { border-radius: 5px; }
+
+    /* The accept check as a stroked symbol, like the toolbar glyphs, not a text character. */
+    html.native-chrome .ann-card-icon-btn:is([title="Accept"], [title="Resolve"]) { font-size: 0; }
+    html.native-chrome .ann-card-icon-btn:is([title="Accept"], [title="Resolve"])::before {
+      content: '';
+      width: 14px;
+      height: 14px;
+      background: currentColor;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5 6.5 12 13 4.5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    /* Menus highlight the row under the pointer with the accent color. */
+    html.native-chrome .ann-card-menu {
+      border-color: var(--border);
+      border-radius: 8px;
+      padding: 5px;
+    }
+    html.native-chrome .ann-card-menu-item { border-radius: 4px; padding: 4px 8px; }
+    html.native-chrome .ann-card-menu-item:not(.ann-card-menu-danger):hover { background: AccentColor; color: AccentColorText; }
+
+    /* The floating Comment button is a small translucent popover, not a pill. */
+    html.native-chrome #comment-floater {
+      padding: 2px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--float-bg) 80%, transparent);
+      -webkit-backdrop-filter: blur(20px) saturate(1.8);
+      backdrop-filter: blur(20px) saturate(1.8);
+      box-shadow: 0 0 0 0.5px var(--border-muted), var(--float-shadow);
+    }
+    html.native-chrome .af-btn { border-radius: 6px; padding: 3px 10px; font-weight: 500; letter-spacing: 0; }
+
+    /* Reply field: a regular rounded text field with the system focus ring. */
+    html.native-chrome .ann-reply-box .ann-reply-textarea {
+      background: color-mix(in srgb, var(--text) 6%, var(--bg));
+      border-radius: 6px;
+      padding: 6px 30px 6px 8px;
+      min-height: 28px;
+    }
+    html.native-chrome .ann-reply-textarea:focus {
+      border-color: AccentColor;
+      box-shadow: 0 0 0 3px color-mix(in srgb, AccentColor 40%, transparent);
+    }
+    html.native-chrome .ann-send-btn { width: 20px; height: 20px; right: 4px; bottom: 4px; }
+    html.native-chrome .ann-send-btn svg { width: 11px; height: 11px; }
+    html.native-chrome .ann-send-btn.ready { background: AccentColor; color: AccentColorText; }
+
     /* ── File menu (multi-file sets only) ──
        The title pill opens a floating card styled like the annotation overlay:
        a --bg shell with the float shadow around a --card-tint card (no focus border). */

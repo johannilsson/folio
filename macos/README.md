@@ -33,5 +33,7 @@ macos/.build/debug/Folio --self-test macos/selftest.md       # exits 0 when ever
 
 The self-test works on throwaway copies: it types, undoes, copies and pastes through the
 Edit menu, annotates with the CLI, accepts in both editor modes, replaces the file from
-outside, and opens a second window. `FOLIO_SNAPSHOT=<png>` saves a picture of the window.
+outside, and opens a second window. `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.png`,
+`-menu.png`, `-floater.png` and `-form.png`: pictures of the whole window with annotation
+cards, the card menu, the Comment button and the comment form.
 `FOLIO_CLI` points it at a different `folio` binary.
