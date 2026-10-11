@@ -9,7 +9,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     let workspace: Workspace
 
     /// Mirrors of the page's toggles (see the `uiState` op).
-    private(set) var sourceOn = true
+    private(set) var sourceOn = false
     private(set) var commentsOn = false
 
     private static let sourceID = NSToolbarItem.Identifier("source")

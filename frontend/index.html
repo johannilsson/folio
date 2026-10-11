@@ -200,9 +200,37 @@
     html.native-chrome #file-menu-btn,
     html.native-chrome .float-pill-group { display: none; }
     html.native-chrome #title-pill:not(:has(#preview-readonly-notice:not([hidden]))) { display: none; }
-    html.native-chrome #editor-tiptap .tiptap { padding-top: 2rem; }
-    html.native-chrome #frontmatter-box { margin-top: 2rem; }
-    html.native-chrome #raw-editor-mount { padding-top: 1.5rem; }
+    html.native-chrome #editor-tiptap .tiptap { padding-top: 1rem; }
+    html.native-chrome #editor-tiptap .tiptap > :first-child { margin-top: 0; }
+    html.native-chrome #frontmatter-box { margin-top: 1rem; }
+    html.native-chrome #raw-editor-mount { padding-top: 0; }
+    html.native-chrome #raw-pane .cm-content { padding-top: 1rem; }
+
+    /* The comments pane slides in and out like the window's sidebar, instead of appearing.
+       The cards keep a fixed width, so only the pane's own width animates and nothing
+       inside re-wraps; closed, it is zero wide, hidden once it has finished closing. */
+    html.native-chrome #annotation-gutter,
+    html.native-chrome #raw-annotation-gutter,
+    html.native-chrome #app:not(.gutter-open) #annotation-gutter,
+    html.native-chrome #app:not(.gutter-open) #raw-annotation-gutter {
+      display: block;
+      overflow: hidden;
+      visibility: visible;
+      transition: width 0.25s cubic-bezier(0.42, 0, 0.58, 1), margin-right 0.25s cubic-bezier(0.42, 0, 0.58, 1),
+                  visibility 0s;
+    }
+    html.native-chrome #app:not(.gutter-open) #annotation-gutter,
+    html.native-chrome #app:not(.gutter-open) #raw-annotation-gutter {
+      width: 0;
+      margin-right: 0;
+      visibility: hidden;
+      transition: width 0.25s cubic-bezier(0.42, 0, 0.58, 1), margin-right 0.25s cubic-bezier(0.42, 0, 0.58, 1),
+                  visibility 0s linear 0.25s;
+    }
+    html.native-chrome .ann-card,
+    html.native-chrome .cf-gutter-form { right: auto; width: 272px; box-sizing: border-box; }
+    html.native-chrome .ann-card.ann-overlay,
+    html.native-chrome .cf-gutter-form.ann-overlay { width: auto; }
 
     /* The controls inside the page follow AppKit conventions: the arrow cursor on
        buttons, interface text that cannot be selected, the system accent color, small

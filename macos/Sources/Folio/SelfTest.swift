@@ -45,7 +45,14 @@ final class SelfTest {
         }
         controller = first
 
-        await check("editor boots in source mode") { await self.waitFor("!!document.querySelector('.cm-content')") }
+        await check("the editor opens in the WYSIWYG preview") {
+            await self.waitFor("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")
+        }
+        await check("the toolbar shows the preview as current") { await self.until { !self.controller.sourceOn } }
+        await check("the text starts close under the title bar") {
+            // The first line's top, below the window's content top: no big gap to skip.
+            (await self.js("document.querySelector('#editor-tiptap .tiptap > *').getBoundingClientRect().top") as? Double ?? 999) < 40
+        }
         await check("title comes from the bridge") {
             await self.js("document.getElementById('filename-display').textContent") as? String == self.name
         }
@@ -64,7 +71,18 @@ final class SelfTest {
         }
         await check("the native toolbar has the two toggles") {
             let ids = self.controller.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
-            return ids.filter { $0 == "source" || $0 == "comments" }.count == 2 && self.controller.sourceOn
+            return ids.filter { $0 == "source" || $0 == "comments" }.count == 2
+        }
+
+        // The View menu switches to the source editor, which the typing checks use.
+        send("toggleSource:")
+        await check("the source editor opens from the menu and the toolbar follows") {
+            let shown = await self.waitFor("!!document.querySelector('.cm-content') && document.getElementById('raw-pane').hidden === false")
+            let mirrored = await self.until { self.controller.sourceOn }
+            return shown && mirrored
+        }
+        await check("the source text starts close under the title bar") {
+            (await self.js("document.querySelector('#raw-pane .cm-line').getBoundingClientRect().top") as? Double ?? 999) < 40
         }
 
         // Typing is saved to the file.
@@ -101,6 +119,30 @@ final class SelfTest {
         // An agent annotates through the CLI; the app has to notice. The View menu opens the comments pane.
         send("toggleComments:")
         await check("the toolbar follows the comments toggle") { await self.until { self.controller.commentsOn } }
+        await check("the comments pane slides open") {
+            // It animates its width (like the sidebar) rather than appearing: a transition is set and it ends up open.
+            let animated = await self.js("getComputedStyle(document.getElementById('raw-annotation-gutter')).transitionProperty.includes('width')") as? Bool == true
+            let open = await self.waitFor("document.getElementById('raw-annotation-gutter').getBoundingClientRect().width > 270")
+            return animated && open
+        }
+        // Closing and opening again, sampling the width on the way: it passes through in-between values.
+        await check("the comments pane animates when it closes and opens, rather than jumping") {
+            func sampleWidths() async -> [Double] {
+                var widths: [Double] = []
+                for _ in 0..<12 {
+                    widths.append(await self.js("document.getElementById('raw-annotation-gutter').getBoundingClientRect().width") as? Double ?? -1)
+                    try? await Task.sleep(nanoseconds: 30_000_000)
+                }
+                return widths
+            }
+            self.send("toggleComments:")
+            let closing = await sampleWidths()
+            self.send("toggleComments:")
+            let opening = await sampleWidths()
+            let between = { (w: [Double]) in w.contains { $0 > 15 && $0 < 265 } }
+            return between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 270
+        }
+        await check("the toolbar follows the pane after the animation test") { await self.until { self.controller.commentsOn } }
         let replaceCLI = cli([
             "annotate", name, "--kind", "replace",
             "--context-before", "Natural wine is made with ", "--target", "minimal intervention",
@@ -235,6 +277,12 @@ final class SelfTest {
         }
         await check("files are grouped under their repo folders") { win.sidebar.headerTitles.count == 2 }
         await check("the page opens on the first file") { await self.until { await filename() == "alpha.md" } }
+        // The set's page also opens in the preview; the typing checks below use the source editor.
+        _ = await self.waitFor("document.getElementById('raw-pane').hidden === true", in: win.webView)
+        _ = await page("document.getElementById('view-toggle-btn').click()")
+        await check("the source editor shows for the set") {
+            await self.waitFor("!!document.querySelector('.cm-content') && document.getElementById('raw-pane').hidden === false", in: win.webView)
+        }
         await check("the bridge answers for the set's files") {
             await self.until { win.bridge.count("files") > 0 && win.bridge.count("getFile") > 0 }
         }
@@ -435,8 +483,8 @@ final class SelfTest {
         await js("document.querySelector('.cm-content').innerText") as? String ?? ""
     }
 
-    private func waitFor(_ condition: String, seconds: Double = 5) async -> Bool {
-        await until(seconds: seconds) { await self.js(condition) as? Bool == true }
+    private func waitFor(_ condition: String, seconds: Double = 5, in view: WKWebView? = nil) async -> Bool {
+        await until(seconds: seconds) { await self.js(condition, in: view ?? self.web) as? Bool == true }
     }
 
     private func until(seconds: Double = 5, _ condition: () async -> Bool) async -> Bool {

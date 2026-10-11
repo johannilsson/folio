@@ -44,6 +44,8 @@ and shows the new one. Events carry the id of the file they are about.
 The scheme handler serves `index.html` with `class="native-chrome"` on `<html>`, which hides
 the in-page title pill and toggle buttons (the window title and toolbar replace them). The
 toolbar and View menu act on the page by clicking `#view-toggle-btn` and `#toggle-gutter-btn`.
+The same class makes the page open in the WYSIWYG preview (the browser opens in source), trims
+the space above the text, and slides the comments pane in and out by animating its width.
 
 ## Events (Swift to page)
 
