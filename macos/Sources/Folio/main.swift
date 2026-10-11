@@ -26,12 +26,28 @@ guard let filePath else {
     exit(64)
 }
 
+var fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
+if selfTest {
+    // Work on a throwaway copy inside its own "repo", so the sidecar lands next to it
+    // and the CLI can be run from there.
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("folio-selftest-\(UUID().uuidString)").resolvingSymlinksInPath()
+    let copy = dir.appendingPathComponent(fileURL.lastPathComponent)
+    try FileManager.default.createDirectory(at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: fileURL, to: copy)
+    fileURL = copy
+}
+
+let document: Document
+do {
+    document = try Document(file: fileURL)
+} catch {
+    FileHandle.standardError.write(Data("cannot open \(filePath): \(error)\n".utf8))
+    exit(66)
+}
+
 let app = NSApplication.shared
-let delegate = AppDelegate(
-    file: URL(fileURLWithPath: filePath).standardizedFileURL,
-    dist: distDir ?? defaultDist,
-    selfTest: selfTest
-)
+let delegate = AppDelegate(document: document, dist: distDir ?? defaultDist, selfTest: selfTest)
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()

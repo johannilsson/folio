@@ -25,7 +25,7 @@ promise on the JS side.
 - `putFolio.body` is already serialized (`JSON.stringify(sidecar, null, 2)`); Swift writes
   it verbatim so the bytes match what the server and CLI produce.
 - `anchor`, `anchorRaw` and `accept` read the current files and call the Rust library
-  (`folio_anchor`, `folio_accept`, `macos/include/folio.h`).
+  (`folio_anchor`, `folio_accept`, `macos/Sources/CFolio/include/folio.h`).
 - `accept` patches the markdown and marks the annotation resolved. It must emit
   `md:changed` and then `folio:changed` (the order the server uses), and reject on failure
   (annotation not found, anchoring failed).
