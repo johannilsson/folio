@@ -83,8 +83,8 @@ Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<file>.folio`.
 | `replace` | Red strikethrough + green replacement preview | Accept / Reject |
 | `delete` | Red strikethrough + red bottom border | Accept / Reject |
 | `insert` | Green inline preview widget + green bottom border | Accept / Reject |
-| `highlight` | Amber background | Accept / Reject |
-| `comment` | Yellow background + yellow bottom border | Dismiss |
+| `highlight` | Purple background | Accept / Reject |
+| `comment` | Purple background (same as highlight) | Dismiss |
 
 Each annotation optionally carries a `replies: ThreadReply[]` array (empty = omitted from JSON). Replies have `id`, `author`, `source`, `body`, `created`. The local user posts replies with `source: local`, `author: me`.
 

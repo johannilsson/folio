@@ -201,7 +201,7 @@ Flags a specific span of text for attention. `target` is required. `replacement`
 }
 ```
 
-Rendered as an amber highlight in the preview. Accept/reject behaviour same as `comment`.
+Rendered as a purple highlight in the preview. Accept/reject behaviour same as `comment`.
 
 ---
 
