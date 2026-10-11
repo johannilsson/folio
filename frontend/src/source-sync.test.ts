@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
@@ -6,12 +6,19 @@ import { TableKit } from '@tiptap/extension-table'
 import { buildState, reconcile, joinState, matchesBlocks, createCodec } from './source-sync'
 import type { SyncState } from './source-sync'
 
+// A live editor view keeps a DOM-observer timer running; one still alive when the test
+// environment is torn down fails the run with "document is not defined".
+const editors: Editor[] = []
+afterEach(() => editors.splice(0).forEach(e => e.destroy()))
+
 function makeEditor(source: string) {
-  return new Editor({
+  const editor = new Editor({
     extensions: [StarterKit, TableKit, Markdown],
     content: source,
     contentType: 'markdown',
   })
+  editors.push(editor)
+  return editor
 }
 
 function load(source: string) {
