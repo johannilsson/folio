@@ -54,6 +54,7 @@ cards, the card menu, the Comment button and the comment form.
 ## README screenshot
 
 `docs/screenshot.png` shows the `natural-wine` sample set (`demo-set/setup.sh` registers it).
-The app can photograph itself: `Folio --set <name> --screenshot <png> [--appearance light|dark]`.
+`scripts/readme-screenshot.sh` retakes it from a clean copy of the set. The app photographs
+itself: `Folio --set <name> --screenshot <png> [--appearance light|dark]`.
 The README uses a plain markdown image, not a light/dark `<picture>`: raw HTML makes Folio's own
 preview read-only, and the README should open editable.
