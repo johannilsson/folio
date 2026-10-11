@@ -1,4 +1,5 @@
 import { EditorState, Annotation as CmTxAnnotation } from '@codemirror/state'
+import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
@@ -6,7 +7,7 @@ import { basicSetup } from 'codemirror'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { putFile } from './api'
-import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor, setGutterHidden as setRawGutterHidden } from './raw-annotations'
+import { rawAnnotationExtensions, mountRawGutter, refreshRawAnnotations as refreshRawAnnotationsFor, resetRawAnnotationState, setGutterHidden as setRawGutterHidden } from './raw-annotations'
 import { rawFormattingKeymap } from './raw-formatting'
 import { tableRowLayout } from './raw-table-layout'
 
@@ -38,8 +39,23 @@ function updateListener(update: ViewUpdate): void {
   if (isExternal) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
+    saveTimer = null
     if (view) putFile(view.state.doc.toString())
   }, 300)
+}
+
+function extensions(): Extension[] {
+  return [
+    thinHeadings,
+    basicSetup,
+    markdown(),
+    EditorView.lineWrapping,
+    nonScrollingTheme,
+    rawFormattingKeymap(),
+    tableRowLayout(),
+    ...rawAnnotationExtensions(),
+    EditorView.updateListener.of(updateListener),
+  ]
 }
 
 export function initRawEditor(container: HTMLElement, initialContent: string): void {
@@ -60,21 +76,27 @@ export function initRawEditor(container: HTMLElement, initialContent: string): v
     parent: mount,
     state: EditorState.create({
       doc: initialContent,
-      extensions: [
-        thinHeadings,
-        basicSetup,
-        markdown(),
-        EditorView.lineWrapping,
-        nonScrollingTheme,
-        rawFormattingKeymap(),
-        tableRowLayout(),
-        ...rawAnnotationExtensions(),
-        EditorView.updateListener.of(updateListener),
-      ],
+      extensions: extensions(),
     }),
   })
 
   mountRawGutter(view, wrapper, gutter)
+}
+
+/**
+ * Load a different document into the existing editor. A fresh state drops the
+ * undo history, so undo can never reach into the previous file. Flush pending
+ * edits first: this discards the save timer.
+ */
+export function resetRawEditor(content: string): void {
+  if (!view) return
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  resetRawAnnotationState()
+  view.setState(EditorState.create({ doc: content, extensions: extensions() }))
+  if (wrapperEl) wrapperEl.scrollTop = 0
 }
 
 export function setRawContent(content: string): void {
@@ -97,6 +119,14 @@ export function flushRawSave(): void {
     saveTimer = null
   }
   putFile(view.state.doc.toString())
+}
+
+/** Write only if an edit is still waiting on the debounce timer, so leaving a file never rewrites it unchanged. */
+export function flushPendingRawSave(): Promise<unknown> {
+  if (!view || !saveTimer) return Promise.resolve()
+  clearTimeout(saveTimer)
+  saveTimer = null
+  return putFile(view.state.doc.toString())
 }
 
 export function getRawWrapperEl(): HTMLElement | null {

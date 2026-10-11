@@ -44,6 +44,23 @@ export function initEditor(
   attachSync(initialContent)
 }
 
+/**
+ * Tear the editor down so another document can be mounted, dropping its undo
+ * history with it. Flush pending edits first: this discards the save timer.
+ */
+export function destroyEditor(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  editor?.destroy()
+  editor = null
+  codec = null
+  sync = null
+  lastSynced = ''
+  front = ''
+}
+
 function lock(reason: string): void {
   sync = null
   editor?.setEditable(false, false)

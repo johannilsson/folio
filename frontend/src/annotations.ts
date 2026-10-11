@@ -62,6 +62,16 @@ export function updateSidecar(sidecar: Sidecar): boolean {
   return false
 }
 
+// Forget everything tied to the previous document before another is mounted.
+export function resetAnnotationState(): void {
+  currentSidecar = { version: 1, annotations: [] }
+  annotationKeyboardUndoStack = []
+  replyDrafts.clear()
+  focusedAnnotationId = null
+  shouldFocusReply = false
+  pendingCommentRange = null
+}
+
 export function getSidecar(): Sidecar {
   return currentSidecar
 }
