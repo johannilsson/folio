@@ -45,6 +45,26 @@ Opens the editor at `http://127.0.0.1:7070` by default. Options:
 | `--plantuml-url` | https://www.plantuml.com/plantuml | PlantUML rendering server |
 | `--token` | none | Require `Authorization: Bearer <token>` on all requests |
 
+## Sets: several files in one server
+
+A set is a named list of files, possibly from different repositories, served by one process. The filename pill in the top-left becomes a menu that lists the files with a live count of pending annotations. Picking one swaps the document in place; each file has its own URL (`/?file=<id>`), so back/forward and links work.
+
+```bash
+# Create or extend a set (paths are canonicalised, so relative paths are fine)
+folio set add checkout ~/repo-a/docs/spec.md ~/repo-b/README.md
+
+folio set list              # all sets
+folio set list checkout     # files in a set, with their resolved root
+folio set rm checkout ~/repo-b/README.md   # remove a file
+folio set rm checkout       # delete the set
+
+folio serve --set checkout
+```
+
+Sets live in `~/.config/folio/sets/<name>.json` (override the directory with `FOLIO_CONFIG_DIR`). Restart the server after changing a set.
+
+Each file's sidecar is `<root>/.folio/<path relative to root>.folio`, where `root` is the file's git root (or its directory when there is none). This is where `folio annotate` writes when run from the repo root. Pass `--root <dir>` to `folio set add` to use a different root.
+
 ## CLI commands
 
 ```bash
