@@ -75,5 +75,39 @@ for (const mode of ['preview', 'source'] as const) {
       await page.keyboard.press('Escape')
       await expect(page.locator(`${GUTTER[mode]} .cf-gutter-form`)).toBeHidden()
     })
+
+    // The first line of the document, where the button has no room above the selection.
+    const FIRST_LINE: Record<Mode, string> = { preview: '#editor-tiptap h1', source: '.cm-line' }
+
+    test('selection with room above: the Comment button sits above it', async ({ page }) => {
+      await open(page, mode, 'closed')
+      await page.locator(FIRST_LINE[mode]).first().getByText('Fixture').first().dblclick()
+      const floater = within(page, mode, '#comment-floater')
+      await expect(floater).toBeVisible()
+      await expect(floater).not.toHaveClass(/below/)
+    })
+
+    test('selection at the very top: the Comment button goes below it and stays in view', async ({ page }) => {
+      await open(page, mode, 'closed')
+      // The macOS app trims the space above the text, which leaves the first line this close to the top.
+      await page.evaluate(() => document.documentElement.classList.add('native-chrome'))
+      await page.locator(FIRST_LINE[mode]).first().getByText('Fixture').first().dblclick()
+      const floater = within(page, mode, '#comment-floater')
+      await expect(floater).toBeVisible()
+      await expect(floater).toHaveClass(/below/)
+      const button = (await floater.boundingBox())!
+      const wrapper = (await page.locator(WRAPPER[mode]).boundingBox())!
+      const line = (await page.locator(FIRST_LINE[mode]).first().boundingBox())!
+      expect(button.y).toBeGreaterThanOrEqual(wrapper.y)
+      expect(button.y).toBeGreaterThanOrEqual(line.y + line.height - 1)
+
+      // The comment form that follows has to be fully in view too.
+      await within(page, mode, '#comment-floater .af-btn').click()
+      const form = within(page, mode, '#comment-form-overlay .cf-gutter-form')
+      await expect(form).toBeVisible()
+      const formBox = (await form.boundingBox())!
+      expect(formBox.y).toBeGreaterThanOrEqual(wrapper.y)
+      expect(formBox.y + formBox.height).toBeLessThanOrEqual(wrapper.y + wrapper.height)
+    })
   })
 }
