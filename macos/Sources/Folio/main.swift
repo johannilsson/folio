@@ -1,53 +1,29 @@
 import AppKit
 
-// folio-app [--dist <dir>] [--self-test] <file.md>
+// Folio [--dist <dir>] [--self-test] [file.md ...]
+// Finder and `open -a Folio file.md` open files through AppKit; naming them here is
+// for running from a terminal.
 var args = Array(CommandLine.arguments.dropFirst())
-var distDir: URL?
-var selfTest = false
-var filePath: String?
+var files: [URL] = []
 
 while !args.isEmpty {
     let arg = args.removeFirst()
     switch arg {
-    case "--dist": distDir = URL(fileURLWithPath: args.removeFirst())
-    case "--self-test": selfTest = true
-    default: filePath = arg
+    case "--dist": AppConfig.dist = URL(fileURLWithPath: args.removeFirst())
+    case "--self-test": AppConfig.selfTest = true
+    // AppKit's own flags (and their values), e.g. -NSDocumentRevisionsDebugMode YES.
+    case let flag where flag.hasPrefix("-"): _ = args.isEmpty ? nil : args.removeFirst()
+    default: files.append(URL(fileURLWithPath: arg).standardizedFileURL)
     }
 }
 
-// Development default: the frontend build of the checkout this was compiled from.
-let defaultDist = URL(fileURLWithPath: #filePath)
-    .deletingLastPathComponent().deletingLastPathComponent()
-    .deletingLastPathComponent().deletingLastPathComponent()
-    .appendingPathComponent("frontend/dist")
-
-guard let filePath else {
-    FileHandle.standardError.write(Data("usage: Folio [--dist dir] [--self-test] <file.md>\n".utf8))
+if AppConfig.selfTest && files.count != 1 {
+    FileHandle.standardError.write(Data("usage: Folio --self-test <file.md>\n".utf8))
     exit(64)
 }
 
-var fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
-if selfTest {
-    // Work on a throwaway copy inside its own "repo", so the sidecar lands next to it
-    // and the CLI can be run from there.
-    let dir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("folio-selftest-\(UUID().uuidString)").resolvingSymlinksInPath()
-    let copy = dir.appendingPathComponent(fileURL.lastPathComponent)
-    try FileManager.default.createDirectory(at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
-    try FileManager.default.copyItem(at: fileURL, to: copy)
-    fileURL = copy
-}
-
-let document: Document
-do {
-    document = try Document(file: fileURL)
-} catch {
-    FileHandle.standardError.write(Data("cannot open \(filePath): \(error)\n".utf8))
-    exit(66)
-}
-
 let app = NSApplication.shared
-let delegate = AppDelegate(document: document, dist: distDir ?? defaultDist, selfTest: selfTest)
+let delegate = AppDelegate(initialFiles: files)
 app.delegate = delegate
 app.setActivationPolicy(.regular)
 app.run()

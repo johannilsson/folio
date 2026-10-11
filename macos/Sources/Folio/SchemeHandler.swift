@@ -26,7 +26,16 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
             respond(task, url: url, status: 404, mime: "text/plain", data: Data("not found".utf8))
             return
         }
-        respond(task, url: url, status: 200, mime: Self.mimeType(for: file), data: data)
+        respond(task, url: url, status: 200, mime: Self.mimeType(for: file), data: Self.nativeChrome(data, file))
+    }
+
+    /// The app, not the page, supplies the title and toolbar: tell the page's CSS so
+    /// from the first paint (see "Native app" in index.html).
+    private static func nativeChrome(_ data: Data, _ file: URL) -> Data {
+        guard file.lastPathComponent == "index.html",
+              let html = String(data: data, encoding: .utf8),
+              let range = html.range(of: "<html") else { return data }
+        return Data(html.replacingCharacters(in: range, with: "<html class=\"native-chrome\"").utf8)
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}

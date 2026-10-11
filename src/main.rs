@@ -35,6 +35,10 @@ enum Commands {
         #[arg(long, default_value = "https://www.plantuml.com/plantuml")]
         plantuml_url: String,
     },
+    /// Open a file in the Folio macOS app
+    Open {
+        file: PathBuf,
+    },
     /// Manage named sets of files served together
     Set {
         #[command(subcommand)]
@@ -148,6 +152,7 @@ async fn main() {
             commands::serve::run(file, set, port, host, no_open, no_watch, read_only, token, kroki_url, plantuml_url)
                 .await
         }
+        Commands::Open { file } => commands::open::run(&file),
         Commands::Set { command } => match command {
             SetCommands::Add { name, files, root } => commands::set::add(&name, &files, root.as_ref()),
             SetCommands::Rm { name, files } => commands::set::rm(&name, &files),

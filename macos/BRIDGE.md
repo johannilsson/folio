@@ -18,6 +18,7 @@ promise on the JS side.
 | `getFolio` | | the sidecar object; `{ version: 1, annotations: [] }` if none exists |
 | `putFolio` | `body: string` | `null` |
 | `accept` | `id: string` | `null`; see below |
+| `uiState` | `source: bool, comments: bool` | `null`; the page's view toggles, mirrored by the native toolbar |
 | `krokiUrl` | | string |
 | `anchor` | `items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]` |
 | `anchorRaw` | same | same, offsets into the raw markdown |
@@ -29,6 +30,12 @@ promise on the JS side.
 - `accept` patches the markdown and marks the annotation resolved. It must emit
   `md:changed` and then `folio:changed` (the order the server uses), and reject on failure
   (annotation not found, anchoring failed).
+
+## Native chrome
+
+The scheme handler serves `index.html` with `class="native-chrome"` on `<html>`, which hides
+the in-page title pill and toggle buttons (the window title and toolbar replace them). The
+toolbar and View menu act on the page by clicking `#view-toggle-btn` and `#toggle-gutter-btn`.
 
 ## Events (Swift to page)
 

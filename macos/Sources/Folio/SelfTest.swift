@@ -1,31 +1,70 @@
 import AppKit
 import WebKit
 
-/// Drives the real app against a throwaway copy of the document: edits, undo, copy and
-/// paste through the Edit menu, the `folio` CLI adding annotations from outside, accepting
-/// them in both editor modes, and files changing underneath the app.
+/// Drives the real app against throwaway copies of a document: opening through the
+/// document controller, edits, undo, copy and paste through the Edit menu, the `folio` CLI
+/// adding annotations from outside, accepting them in both editor modes, files changing
+/// underneath the app, the native toolbar, and a second window.
 @MainActor
 final class SelfTest {
     let app: AppDelegate
+    let source: URL
     private var failures = 0
+    private var dirs: [URL] = []
 
-    init(app: AppDelegate) {
+    // Set once the first document is open.
+    private var controller: FolioWindowController!
+
+    init(app: AppDelegate, source: URL) {
         self.app = app
+        self.source = source
     }
 
-    private var web: WKWebView { app.webView }
-    private var dir: URL { app.file.deletingLastPathComponent() }
-    private var name: String { app.file.lastPathComponent }
+    private var web: WKWebView { controller.webView }
+    private var file: URL { controller.files.file }
+    private var dir: URL { file.deletingLastPathComponent() }
+    private var name: String { file.lastPathComponent }
 
-    private func disk() -> String { (try? String(contentsOf: app.file, encoding: .utf8)) ?? "" }
+    private func disk() -> String { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
+
+    /// A copy inside its own "repo", so the sidecar lands next to it and the CLI can be run from there.
+    private func tempCopy() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("folio-selftest-\(UUID().uuidString)").resolvingSymlinksInPath()
+        let copy = folder.appendingPathComponent(source.lastPathComponent)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: source, to: copy)
+        dirs.append(folder)
+        return copy
+    }
 
     func run() async -> Bool {
+        guard let copy = try? tempCopy(), let first = await app.openForSelfTest(copy) else {
+            print("FAIL  open the document")
+            return false
+        }
+        controller = first
+
         await check("editor boots in source mode") { await self.waitFor("!!document.querySelector('.cm-content')") }
         await check("title comes from the bridge") {
             await self.js("document.getElementById('filename-display').textContent") as? String == self.name
         }
+        await check("the window title is the file name, with its proxy icon") {
+            self.controller.window?.title == self.name && self.controller.window?.representedURL == self.file
+        }
+        await check("the file is in Open Recent") {
+            // AppKit records the resolved path (/private/var for /var).
+            NSDocumentController.shared.recentDocumentURLs.contains { $0.resolvingSymlinksInPath() == self.file.resolvingSymlinksInPath() }
+        }
         await check("bridge served info, getFile and getFolio") {
-            ["info", "getFile", "getFolio"].allSatisfy { self.app.bridge.count($0) > 0 }
+            ["info", "getFile", "getFolio"].allSatisfy { self.controller.bridge.count($0) > 0 }
+        }
+        await check("the in-page title pill and buttons are hidden in the native window") {
+            await self.js("['title-pill', 'view-toggle-btn', 'toggle-gutter-btn'].every(id => document.getElementById(id).offsetParent === null)") as? Bool == true
+        }
+        await check("the native toolbar has the two toggles") {
+            let ids = self.controller.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
+            return ids.filter { $0 == "source" || $0 == "comments" }.count == 2 && self.controller.sourceOn
         }
 
         // Typing is saved to the file.
@@ -35,7 +74,7 @@ final class SelfTest {
         await check("typing is written to the file") { await self.until { self.disk().contains("ZZ") } }
 
         // Edit menu actions go through the responder chain, as the menu items do.
-        app.window.makeFirstResponder(web)
+        controller.window?.makeFirstResponder(web)
         send("undo:")
         await check("undo from the Edit menu") { await self.until { !(await self.cmText()).contains("ZZ") } }
         await check("undo is written to the file") { await self.until { !self.disk().contains("ZZ") } }
@@ -59,8 +98,9 @@ final class SelfTest {
         }
         await check("the restored document is on disk") { await self.until { self.disk().contains("The last paragraph.") } }
 
-        // An agent annotates through the CLI; the app has to notice.
-        _ = await js("document.getElementById('toggle-gutter-btn').click()")
+        // An agent annotates through the CLI; the app has to notice. The View menu opens the comments pane.
+        send("toggleComments:")
+        await check("the toolbar follows the comments toggle") { await self.until { self.controller.commentsOn } }
         let replaceCLI = cli([
             "annotate", name, "--kind", "replace",
             "--context-before", "Natural wine is made with ", "--target", "minimal intervention",
@@ -84,7 +124,8 @@ final class SelfTest {
         }
 
         // Preview mode: Tiptap and the diagram node views.
-        _ = await js("document.getElementById('view-toggle-btn').click()")
+        send("toggleSource:")
+        await check("the toolbar follows the source toggle") { await self.until { !self.controller.sourceOn } }
         await check("preview editor renders") {
             await self.waitFor("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")
         }
@@ -99,18 +140,18 @@ final class SelfTest {
         report("plantuml image loads from the external server", plantuml)
 
         // Accept in preview mode goes through the bridge's accept op (Rust anchoring).
-        let deleteCLI = cli([
+        let secondCLI = cli([
             "annotate", name, "--kind", "replace",
             "--context-before", "in both the vineyard and the ", "--target", "cellar",
             "--replacement", "cave", "--author", "agent", "--source", "agent",
         ])
-        await check("second annotation added from the CLI") { deleteCLI.status == 0 }
+        await check("second annotation added from the CLI") { secondCLI.status == 0 }
         await check("it appears in the preview gutter") {
             await self.waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 1", seconds: 8)
         }
         _ = await js("document.querySelector('#annotation-gutter .ann-card button[title=Accept]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))")
         await check("accept goes through the bridge and patches the file") {
-            await self.until { self.app.bridge.count("accept") == 1 && self.disk().contains("vineyard and the cave.") }
+            await self.until { self.controller.bridge.count("accept") == 1 && self.disk().contains("vineyard and the cave.") }
         }
         await check("the preview reloads the patched text") {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('vineyard and the cave.')")
@@ -120,17 +161,39 @@ final class SelfTest {
         // Another program replaces the file the way agents do: write a temp file, rename over it.
         let replacement = dir.appendingPathComponent("incoming.tmp")
         try? (disk() + "\nAdded by another program.\n").write(to: replacement, atomically: false, encoding: .utf8)
-        _ = try? FileManager.default.replaceItemAt(app.file, withItemAt: replacement)
+        _ = try? FileManager.default.replaceItemAt(file, withItemAt: replacement)
         await check("an atomic replace from outside reloads the editor") {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('Added by another program.')", seconds: 8)
         }
 
+        // A second window shows its own file.
+        guard let secondCopy = try? tempCopy(), let second = await app.openForSelfTest(secondCopy) else {
+            report("a second document opens", false)
+            return finish()
+        }
+        let secondName = secondCopy.lastPathComponent
+        await check("a second window opens with its own document") {
+            let windows = NSApp.windows.compactMap { $0.windowController as? FolioWindowController }
+            return windows.count == 2 && second.files.file == secondCopy
+        }
+        await check("the second window loads its own file") {
+            await self.until { second.bridge.count("getFile") > 0 }
+        }
+        await check("the second window's page shows its own file name") {
+            await self.until {
+                (try? await second.webView.callAsyncJavaScript("return document.getElementById('filename-display').textContent", contentWorld: .page)) as? String == secondName
+            }
+        }
+        await check("the first window kept its document") { self.controller.files.file == copy }
+
         // For a human to look at: FOLIO_SNAPSHOT=/path/to.png
         if let path = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             try? await Task.sleep(nanoseconds: 500_000_000)
-            if let image = try? await web.takeSnapshot(configuration: nil),
-               let tiff = image.tiffRepresentation,
-               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            // The whole window, title bar and toolbar included.
+            controller.window?.makeKeyAndOrderFront(nil)
+            if let number = controller.window?.windowNumber,
+               let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(number), [.boundsIgnoreFraming]),
+               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
                 try? png.write(to: URL(fileURLWithPath: path))
             }
         }
@@ -140,8 +203,11 @@ final class SelfTest {
             if !errors.isEmpty { print("    \(errors)") }
             return errors.isEmpty
         }
+        return finish()
+    }
 
-        try? FileManager.default.removeItem(at: dir)
+    private func finish() -> Bool {
+        for folder in dirs { try? FileManager.default.removeItem(at: folder) }
         print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         return failures == 0
     }
@@ -152,7 +218,7 @@ final class SelfTest {
     /// the way an agent would.
     private func cli(_ arguments: [String]) -> (status: Int32, output: String) {
         let binary = ProcessInfo.processInfo.environment["FOLIO_CLI"]
-            ?? app.dist.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("target/debug/folio").path
+            ?? AppConfig.dist.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("target/debug/folio").path
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
