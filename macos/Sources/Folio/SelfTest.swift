@@ -156,6 +156,24 @@ final class SelfTest {
             await self.js("window.webkit.messageHandlers.folio.postMessage({op:'getFolio'}).then(s => s.annotations.map(a => typeof a.resolved).join())") as? String == "boolean"
         }
 
+        // An agent replies to an existing annotation by rewriting the sidecar (temp file, rename).
+        let sidecarURL = controller.files.sidecar
+        if let data = try? Data(contentsOf: sidecarURL),
+           var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           var anns = obj["annotations"] as? [[String: Any]], !anns.isEmpty {
+            anns[0]["replies"] = [[
+                "id": "reply-selftest", "author": "agent", "source": "agent",
+                "body": "Reply from the agent", "created": "2026-01-02T00:00:00Z",
+            ]]
+            obj["annotations"] = anns
+            let tmp = sidecarURL.deletingLastPathComponent().appendingPathComponent("incoming-sidecar.tmp")
+            try? JSONSerialization.data(withJSONObject: obj).write(to: tmp)
+            _ = try? FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmp)
+        }
+        await check("an agent's reply to an existing annotation appears without a reload") {
+            await self.waitFor("document.querySelector('#raw-annotation-gutter').innerText.includes('Reply from the agent')", seconds: 8)
+        }
+
         // Accept in source mode: CodeMirror patches the text and saves both files.
         _ = await js("document.querySelector('#raw-annotation-gutter .ann-card button[title=Accept]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))")
         await check("accepting in source mode patches the file") {
