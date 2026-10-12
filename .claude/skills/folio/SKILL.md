@@ -81,6 +81,31 @@ Always set `source` to `"agent"` and `resolved` to `false`.
 
 ---
 
+## Replying to an existing annotation
+
+To answer a human's comment (or follow up on your own), append a reply to that annotation's `replies` array instead of creating a new annotation. Leave every other field of the annotation unchanged and keep the annotation's `resolved` as it is; resolved annotations are not shown, so a reply to one will not be seen.
+
+```json
+{
+  "id": "ann_k7mxpq2r",
+  "kind": "comment",
+  "...": "...the annotation's existing fields...",
+  "replies": [
+    {
+      "id": "reply_m3nq8w1z",
+      "author": "your-agent-name",
+      "source": "agent",
+      "body": "Markdown text of the reply",
+      "created": "2026-06-01T12:30:00Z"
+    }
+  ]
+}
+```
+
+All five fields are required, and the text goes in `body` (not `text` or `message`). The key is omitted when there are no replies, so create the array if it is missing. Replies appear in array order, oldest first. Write the full sidecar back, preserving the replies the human has already added (`"source": "local"`, `"author": "me"`).
+
+---
+
 ## Anchoring — the most important part
 
 Folio finds your annotation by searching for `context_before + target` in the document's plain rendered text. Getting this right is what makes annotations work.
