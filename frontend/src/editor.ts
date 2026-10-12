@@ -119,6 +119,11 @@ export function setContent(content: string): void {
   attachSync(content)
 }
 
+/** True while the preview can't be mapped back to its source, so it is read-only. */
+export function isLocked(): boolean {
+  return editor !== null && sync === null
+}
+
 export function getMarkdown(): string {
   return decodeHtmlEntities(editor?.getMarkdown() ?? '')
 }
