@@ -1,7 +1,7 @@
 import { on } from './websocket'
 import { call, native } from './bridge'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
-import { initEditor, destroyEditor, setContent, getEditor, flushSave } from './editor'
+import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
 import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
@@ -45,6 +45,13 @@ async function boot(): Promise<void> {
   on('md:changed', sequential(async () => {
     const content = await getFile()
     setContent(content)
+    // Reloading into the existing editor can fail to map back to the source where a
+    // fresh editor succeeds (it left the preview read-only after a git pull); rebuild.
+    if (isLocked()) {
+      destroyEditor()
+      mountPreview(content)
+      scheduleGutterRebuild()
+    }
     const ed = getEditor()
     if (ed) triggerContentReplaced(ed)
     if (!rawPane.hidden) {
