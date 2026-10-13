@@ -273,6 +273,15 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
         let (bp, ch) = chars[i];
 
         if ch == '\n' {
+            // A hard break ("  \n") is a node in the preview, with no text, so
+            // its two spaces are not part of the rendered text.
+            if stripped.ends_with("  ") {
+                while stripped.ends_with(' ') {
+                    stripped.pop();
+                    pos_map.pop();
+                    raw_spans.pop();
+                }
+            }
             at_line_start = true;
             i += 1;
             continue;
@@ -794,6 +803,8 @@ pub fn anchor_chars(
 
             // Fuzzy: strip stray markers, collapse whitespace, try both separators
             let norm_ctx = normalize_for_fuzzy(strip_trailing_table_pipe(&ctx));
+            // The separator loop below supplies any space between context and target.
+            let norm_ctx = norm_ctx.trim_end().to_string();
             let norm_tgt = normalize_for_fuzzy(strip_leading_table_pipe(&tgt));
             let norm_ctx_chars = norm_ctx.chars().count();
             let norm_tgt_chars = norm_tgt.chars().count();
@@ -1542,5 +1553,14 @@ mod tests {
         let a = ann("Hello ", Some("world"));
         let json = serde_json::to_string(&a).unwrap();
         assert!(!json.contains("replies"));
+    }
+
+    #[test]
+    fn anchor_chars_across_markdown_hard_break() {
+        let doc = "### Example section\n\n**Description:**  \nThe sample application processes incoming requests.\n";
+        // The preview has no text for the break, so indices must skip the spaces.
+        assert_eq!(strip_markdown(doc).0, "Example sectionDescription:The sample application processes incoming requests.");
+        assert_eq!(anchor_chars(doc, "Example sectionDescription:", Some("The sample application")), Some((27, 49)));
+        assert_eq!(anchor_chars(doc, "Example sectionDescription:  ", Some("The sample application")), Some((27, 49)));
     }
 }
