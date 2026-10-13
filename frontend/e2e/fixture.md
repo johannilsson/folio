@@ -3,3 +3,6 @@
 Natural wine is made with minimal intervention in both the vineyard and the cellar.
 
 A second paragraph gives the tests something else to select and annotate.
+
+**Description:**  
+The sample application processes incoming requests.
