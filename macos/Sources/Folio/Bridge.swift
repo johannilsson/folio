@@ -9,7 +9,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     /// Every op the page has sent, so the self-test can see what went through here.
     private(set) var ops: [String] = []
     /// The page's source/comments toggles, for the native toolbar.
-    var onUIState: ((_ source: Bool, _ comments: Bool) -> Void)?
+    var onUIState: ((_ source: Bool, _ comments: Bool, _ pending: Int) -> Void)?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -63,7 +63,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 ] as [String: Any]
             }
         case "uiState":
-            onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false)
+            onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false, body["pending"] as? Int ?? 0)
             return NSNull()
         case "krokiUrl":
             return "https://kroki.io"

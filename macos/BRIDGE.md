@@ -18,7 +18,7 @@ promise on the JS side.
 | `getFolio` | | the sidecar object; `{ version: 1, annotations: [] }` if none exists |
 | `putFolio` | `body: string` | `null` |
 | `accept` | `id: string` | `null`; see below |
-| `uiState` | `source: bool, comments: bool` | `null`; the page's view toggles, mirrored by the native toolbar |
+| `uiState` | `source: bool, comments: bool, pending: int` | `null`; the page's view toggles and its unresolved annotation count, mirrored by the native toolbar (the count is the comments icon's badge) |
 | `krokiUrl` | | string |
 | `anchor` | `items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]` |
 | `anchorRaw` | same | same, offsets into the raw markdown |

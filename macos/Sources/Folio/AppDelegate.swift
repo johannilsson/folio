@@ -268,6 +268,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
             m.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
             m.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+            m.addItem(.separator())
+            m.addItem(withTitle: "Find…", action: #selector(EditorWindowController.showFind(_:)), keyEquivalent: "f")
+            m.addItem(withTitle: "Find Next", action: #selector(EditorWindowController.findNext(_:)), keyEquivalent: "g")
+            let previous = m.addItem(withTitle: "Find Previous", action: #selector(EditorWindowController.findPrevious(_:)), keyEquivalent: "g")
+            previous.keyEquivalentModifierMask = [.command, .shift]
         }
 
         _ = add("View") { m in

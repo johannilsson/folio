@@ -152,6 +152,9 @@ final class SelfTest {
         await check("the CLI's annotation appears in the app without a reload") {
             await self.waitFor("document.querySelectorAll('#raw-annotation-gutter .ann-card').length === 1")
         }
+        await check("the comments icon counts the pending annotations") {
+            await self.until { self.controller.pendingCount == 1 }
+        }
         await check("sidecar booleans reach the page as booleans") {
             await self.js("window.webkit.messageHandlers.folio.postMessage({op:'getFolio'}).then(s => s.annotations.map(a => typeof a.resolved).join())") as? String == "boolean"
         }
@@ -438,6 +441,22 @@ final class SelfTest {
             """)
         try? await Task.sleep(nanoseconds: 500_000_000)
         await snapshot("\(base)-form.png")
+
+        // Find: the Edit menu focuses the toolbar's search field, Return selects the match in the page.
+        _ = await js("document.activeElement?.blur(); getSelection().removeAllRanges()")
+        controller.window?.makeFirstResponder(controller.webView)
+        let find = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }?.item(withTitle: "Find…")
+        await check("Edit has Find with ⌘F") { find?.keyEquivalent == "f" && find?.keyEquivalentModifierMask == .command }
+        if let find { NSApp.sendAction(find.action!, to: nil, from: find) }
+        await check("Find focuses the search field") {
+            (controller.window?.firstResponder as? NSText)?.delegate === controller.findItem.searchField
+        }
+        controller.findItem.searchField.stringValue = "last paragraph"
+        controller.findNext(nil)
+        await check("Find selects the match in the page") {
+            await self.until { (await self.js("getSelection().toString()") as? String) == "last paragraph" }
+        }
+        await snapshot("\(base)-find.png")
     }
 
     /// The whole window, title bar and toolbar included.
