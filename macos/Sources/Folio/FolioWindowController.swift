@@ -3,7 +3,7 @@ import WebKit
 
 /// A window around the web editor, with the native toolbar for its two toggles. This is
 /// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
-class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate {
+class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate, NSSearchFieldDelegate {
     let webView: WKWebView
     let bridge: Bridge
     let workspace: Workspace
@@ -11,14 +11,18 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     /// Mirrors of the page's toggles (see the `uiState` op).
     private(set) var sourceOn = false
     private(set) var commentsOn = false
+    /// Unresolved annotations in the file on screen; the badge on the comments icon.
+    private(set) var pendingCount = 0
 
     private static let sourceID = NSToolbarItem.Identifier("source")
     private static let commentsID = NSToolbarItem.Identifier("comments")
+    private static let findID = NSToolbarItem.Identifier("find")
 
     // Plain toolbar items, so the system sizes and draws them like any other app's.
     // A toggle shows as on with the filled form of its symbol.
     private let sourceItem = NSToolbarItem(itemIdentifier: EditorWindowController.sourceID)
     private let commentsItem = NSToolbarItem(itemIdentifier: EditorWindowController.commentsID)
+    let findItem = NSSearchToolbarItem(itemIdentifier: EditorWindowController.findID)
 
     /// The only file of a single-file window (the first of a set).
     var files: Document { workspace.entries[0].document }
@@ -74,6 +78,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
 
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        findItem.searchField.delegate = self
+        findItem.searchField.target = self
+        findItem.searchField.action = #selector(findNext(_:))
 
         if !fullHeightSidebar { installToolbar() }
 
@@ -88,9 +95,10 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             item.isBordered = true
         }
         syncButtons()
-        bridge.onUIState = { [weak self] source, comments in
+        bridge.onUIState = { [weak self] source, comments, pending in
             self?.sourceOn = source
             self?.commentsOn = comments
+            self?.pendingCount = pending
             self?.syncButtons()
         }
 
@@ -130,6 +138,33 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         webView.evaluateJavaScript("document.getElementById('toggle-gutter-btn').click()")
     }
 
+    // MARK: find
+
+    // WKWebView has no find bar on macOS: the toolbar's search field drives `find`, which
+    // selects the match and scrolls to it.
+
+    @objc func showFind(_ sender: Any?) {
+        window?.makeFirstResponder(findItem.searchField)
+        findItem.searchField.selectText(nil)
+    }
+
+    @objc func findNext(_ sender: Any?) { find(backwards: false) }
+
+    @objc func findPrevious(_ sender: Any?) { find(backwards: true) }
+
+    private func find(backwards: Bool) {
+        let text = findItem.searchField.stringValue
+        guard !text.isEmpty else { return }
+        let config = WKFindConfiguration()
+        config.backwards = backwards
+        config.wraps = true
+        webView.find(text, configuration: config) { _ in }
+    }
+
+    func searchFieldDidEndSearching(_ sender: NSSearchField) {
+        window?.makeFirstResponder(webView)
+    }
+
     private func syncButtons() {
         // The toolbar draws every symbol at its own fixed size (point size, scale and
         // image size are ignored), so the visual weight is chosen by the symbol.
@@ -137,14 +172,46 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         sourceItem.image = NSImage(systemSymbolName: sourceOn ? "doc.text" : "doc.text.fill",
                                    accessibilityDescription: "Preview")
         sourceItem.toolTip = sourceOn ? "Show the preview" : "Show the markdown source"
-        commentsItem.image = NSImage(systemSymbolName: commentsOn ? "text.bubble.fill" : "text.bubble",
-                                     accessibilityDescription: "Comments")
+        commentsItem.image = commentsImage()
+        commentsItem.toolTip = pendingCount == 0 ? "Comments" : "Comments (\(pendingCount))"
+    }
+
+    /// The comments bubble; with pending annotations, a plain bubble with their number inside
+    /// (cut out of the filled one), so the count is a quiet detail of the icon itself.
+    private func commentsImage() -> NSImage? {
+        guard pendingCount > 0 else {
+            return NSImage(systemSymbolName: commentsOn ? "text.bubble.fill" : "text.bubble",
+                           accessibilityDescription: "Comments")
+        }
+        // The toolbar scales its own symbols up but draws this image as is, so it starts larger
+        // to match the other icons.
+        guard let bubble = NSImage(systemSymbolName: commentsOn ? "bubble.fill" : "bubble",
+                                   accessibilityDescription: "Comments")?
+            .withSymbolConfiguration(.init(pointSize: 17.5, weight: .regular)) else { return nil }
+        let text = pendingCount > 99 ? "99+" : String(pendingCount)
+        let size = bubble.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            bubble.draw(in: rect)
+            let font = NSFont.systemFont(ofSize: rect.height * (text.count > 1 ? 0.36 : 0.44), weight: .semibold)
+            let attributed = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black])
+            // Digits are centered on their own height, not the line box (which has room for
+            // descenders), and sit a little above the middle: the bubble's body is above its tail.
+            let center = rect.midY + rect.height * 0.07
+            let origin = NSPoint(x: rect.midX - attributed.size().width / 2,
+                                 y: center - font.capHeight / 2 + font.descender)
+            NSGraphicsContext.current?.cgContext.setBlendMode(self.commentsOn ? .destinationOut : .normal)
+            attributed.draw(at: origin)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Comments"
+        return image
     }
 
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        leadingToolbarItems + [.flexibleSpace, Self.sourceID, Self.commentsID]
+        leadingToolbarItems + [.flexibleSpace, Self.findID, Self.sourceID, Self.commentsID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -156,6 +223,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         switch id {
         case Self.sourceID: return sourceItem
         case Self.commentsID: return commentsItem
+        case Self.findID: return findItem
         default: return nil
         }
     }

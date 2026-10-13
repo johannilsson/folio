@@ -2,7 +2,7 @@ import { on } from './websocket'
 import { call, native } from './bridge'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
-import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild } from './annotations'
+import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, getSidecar, onSidecarUpdate } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
@@ -93,8 +93,10 @@ async function boot(): Promise<void> {
   function reportUiState() {
     if (!native) return
     const comments = document.getElementById('app')!.classList.contains('gutter-open')
-    void call('uiState', { source: !rawPane.hidden, comments }).catch(console.error)
+    const pending = getSidecar().annotations.filter(a => !a.resolved).length
+    void call('uiState', { source: !rawPane.hidden, comments, pending }).catch(console.error)
   }
+  onSidecarUpdate(reportUiState)
 
   // Highlighted while the markdown source is showing.
   function updateViewBtn() {

@@ -56,6 +56,7 @@ function updateFocusedCard(): void {
 export function updateSidecar(sidecar: Sidecar): boolean {
   const isEcho = JSON.stringify(sidecar) === JSON.stringify(currentSidecar)
   currentSidecar = sidecar
+  sidecarUpdateCb?.()
   if (isEcho) return true
   annotationKeyboardUndoStack = []
   replyDrafts.clear()
@@ -65,6 +66,7 @@ export function updateSidecar(sidecar: Sidecar): boolean {
 // Forget everything tied to the previous document before another is mounted.
 export function resetAnnotationState(): void {
   currentSidecar = { version: 1, annotations: [] }
+  sidecarUpdateCb?.()
   annotationKeyboardUndoStack = []
   replyDrafts.clear()
   focusedAnnotationId = null
