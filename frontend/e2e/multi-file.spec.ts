@@ -167,6 +167,8 @@ for (const [mode, wrapper] of [['source', '#raw-editor-wrapper'], ['preview', '#
     if (mode === 'preview') {
       await page.click('#view-toggle-btn')
       await page.waitForSelector('#editor-tiptap .ProseMirror', { state: 'visible' })
+      // The toggle carries the source scroll over two frames later; let it land first.
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
     }
     const scrollTop = () => page.locator(wrapper).evaluate(el => el.scrollTop)
     // The document must have laid out before there is anything to scroll.

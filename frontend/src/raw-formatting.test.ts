@@ -1,10 +1,15 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { toggleBold, toggleItalic } from './raw-formatting'
 
+const views: EditorView[] = []
+afterEach(() => views.splice(0).forEach(v => v.destroy()))
+
 function makeView(doc: string, selection: { anchor: number; head?: number }): EditorView {
-  return new EditorView({ state: EditorState.create({ doc, selection }) })
+  const view = new EditorView({ state: EditorState.create({ doc, selection }) })
+  views.push(view)
+  return view
 }
 
 describe('raw-formatting bold/italic commands', () => {
