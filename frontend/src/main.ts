@@ -1,4 +1,5 @@
 import { on } from './websocket'
+import { runPendingFlash } from './feedback'
 import { call, native } from './bridge'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
@@ -54,6 +55,7 @@ async function boot(): Promise<void> {
     }
     const ed = getEditor()
     if (ed) triggerContentReplaced(ed)
+    runPendingFlash()
     if (!rawPane.hidden) {
       setRawContent(content)
       refreshRawAnnotations()

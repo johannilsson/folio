@@ -1281,6 +1281,41 @@
       font-size: 13px;
       padding: 1em 0;
     }
+    /* Feedback after accepting / removing an annotation */
+    #folio-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 1.5rem;
+      transform: translateX(-50%);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: .9rem;
+      padding: .5rem .9rem;
+      border-radius: 8px;
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--ann-ins-bdr);
+      box-shadow: 0 6px 24px rgba(0,0,0,.25);
+      font-size: .85rem;
+      animation: folio-toast-in .15s ease-out;
+    }
+    #folio-toast[hidden] { display: none; }
+    #folio-toast button {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--text-link);
+      font: inherit;
+      cursor: pointer;
+    }
+    @keyframes folio-toast-in {
+      from { opacity: 0; transform: translate(-50%, 8px); }
+    }
+    ::highlight(folio-flash) { background-color: var(--ann-ins-bg); }
+    @media (prefers-reduced-motion: reduce) {
+      #folio-toast { animation: none; }
+    }
   </style>
 </head>
 <body>

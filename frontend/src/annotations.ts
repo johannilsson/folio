@@ -8,6 +8,7 @@ import type { EditorView } from '@tiptap/pm/view'
 import type { Annotation, Sidecar, ThreadReply } from './api'
 import { putFolio, postAnchor, postAccept } from './api'
 import { flushSave } from './editor'
+import { showToast, flashAfterReload } from './feedback'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
@@ -199,9 +200,33 @@ export function addCommentAnnotation(contextBefore: string, target: string, comm
 // broadcasts md:changed + folio:changed; the editor reloads from those events.
 // Pending preview edits are saved first so the server patches the current text.
 function acceptAnnotation(id: string): void {
+  const ann = currentSidecar.annotations.find(a => a.id === id)
+  if (ann) {
+    if (ann.kind === 'replace' || ann.kind === 'insert') flashAfterReload(ann.replacement ?? '')
+    showToast(`Accepted ${ann.kind}`)
+  }
   void flushSave()
     .then(() => postAccept(id))
     .catch(e => console.error(`Accept failed: ${e}`))
+}
+
+// Reject / dismiss: sidecar-only, so the snapshot taken beforehand restores it.
+export function removeAnnotation(ann: Annotation, editor: Editor): void {
+  const snapshot = [...currentSidecar.annotations]
+  annotationKeyboardUndoStack.push({ snapshot, pmDepth: undoDepth(editor.view.state) })
+  resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
+  showToast(ann.kind === 'comment' ? 'Comment dismissed' : `Rejected ${ann.kind}`, () => {
+    const i = annotationKeyboardUndoStack.findIndex(e => e.snapshot === snapshot)
+    if (i >= 0) annotationKeyboardUndoStack.splice(i, 1)
+    restoreSnapshot(snapshot, editor)
+  })
+}
+
+function restoreSnapshot(snapshot: Annotation[], editor: Editor): void {
+  currentSidecar = { ...currentSidecar, annotations: snapshot }
+  putFolio(currentSidecar)
+  sidecarUpdateCb?.()
+  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
 
 // ─── Annotation keyboard navigation ─────────────────────────────────────────
@@ -657,16 +682,12 @@ function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement |
   const header = makeHeader(ann, {
     accept: () => {
       if (ann.kind === 'comment') {
-        annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
-        resolveAnnotation(ann, 'dismissed', editor)
+        removeAnnotation(ann, editor)
       } else {
         acceptAnnotation(ann.id)
       }
     },
-    remove: () => {
-      annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(editor.view.state) })
-      resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
-    },
+    remove: () => removeAnnotation(ann, editor),
     edit: (c, g) => startEditComment(c, ann, g, text => {
       setAnnotationComment(ann.id, text)
       editor.view.dispatch(editor.state.tr)
@@ -926,10 +947,7 @@ export function createAnnotationsExtension(): Extension {
                 const top = annotationKeyboardUndoStack[annotationKeyboardUndoStack.length - 1]
                 if (top && top.pmDepth === undoDepth(view.state)) {
                   annotationKeyboardUndoStack.pop()
-                  currentSidecar = { ...currentSidecar, annotations: top.snapshot }
-                  putFolio(currentSidecar)
-                  sidecarUpdateCb?.()
-                  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
+                  restoreSnapshot(top.snapshot, editor)
                   return true
                 }
               }
@@ -946,8 +964,7 @@ export function createAnnotationsExtension(): Extension {
                 if (event.key === 'Backspace' && focusedAnnotationId) {
                   const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
                   if (ann) {
-                    annotationKeyboardUndoStack.push({ snapshot: [...currentSidecar.annotations], pmDepth: undoDepth(view.state) })
-                    resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
+                    removeAnnotation(ann, editor)
                     return true
                   }
                 }

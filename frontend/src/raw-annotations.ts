@@ -2,7 +2,7 @@ import { StateField, StateEffect } from '@codemirror/state'
 import type { Extension, Range } from '@codemirror/state'
 import { EditorView, Decoration, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
-import { invertedEffects, isolateHistory } from '@codemirror/commands'
+import { invertedEffects, isolateHistory, undo } from '@codemirror/commands'
 import type { Annotation as FolioAnnotation, Sidecar, ThreadReply } from './api'
 import { postAnchorRaw, putFolio, putFile } from './api'
 import {
@@ -20,6 +20,7 @@ import {
   placeFloater,
 } from './annotations'
 import { getEditor } from './editor'
+import { showToast, flashText } from './feedback'
 
 // ─── Undo/redo for sidecar-side action effects ─────────────────────────────
 // CM6's own history already undoes text edits for free. Accept/reject/resolve/
@@ -463,6 +464,8 @@ function applyAcceptRaw(ann: FolioAnnotation, view: EditorView): void {
   })
   putFile(view.state.doc.toString())
   refreshRawAnnotations(view)
+  showToast(`Accepted ${ann.kind}`, () => undo(view))
+  if (ann.kind === 'replace' || ann.kind === 'insert') requestAnimationFrame(() => flashText(ann.replacement ?? ''))
 }
 
 function submitReplyRaw(ann: FolioAnnotation, body: string, view: EditorView): void {
@@ -516,12 +519,14 @@ function makeRawGutterCard(ann: FolioAnnotation, view: EditorView): HTMLElement 
       if (!t) return
       dispatchAction(ann, resolveAnnotation(ann, 'dismissed', t))
       refreshRawAnnotations(view)
+      showToast('Comment dismissed', () => undo(view))
     },
     remove: () => {
       const t = getEditor()
       if (!t) return
       dispatchAction(ann, resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', t))
       refreshRawAnnotations(view)
+      showToast(ann.kind === 'comment' ? 'Comment dismissed' : `Rejected ${ann.kind}`, () => undo(view))
     },
     edit: (c, g) => startEditComment(c, ann, g, text => {
       setAnnotationComment(ann.id, text)
