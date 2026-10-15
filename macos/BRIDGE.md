@@ -20,13 +20,14 @@ promise on the JS side.
 | `accept` | `id: string` | `null`; see below |
 | `uiState` | `source: bool, comments: bool, pending: int` | `null`; the page's view toggles and its unresolved annotation count, mirrored by the native toolbar (the count is the comments icon's badge) |
 | `krokiUrl` | | string |
-| `anchor` | `items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]` |
-| `anchorRaw` | same | same, offsets into the raw markdown |
+| `anchor` | `text: string, items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]`, UTF-16 offsets into `text` |
+| `anchorRaw` | `items` as for `anchor` | same, offsets into the raw markdown |
 
 - `putFolio.body` is already serialized (`JSON.stringify(sidecar, null, 2)`); Swift writes
   it verbatim so the bytes match what the server and CLI produce.
-- `anchor`, `anchorRaw` and `accept` read the current files and call the Rust library
-  (`folio_anchor`, `folio_accept`, `macos/Sources/CFolio/include/folio.h`).
+- `anchor` passes the preview's rendered `text` to the Rust library; `anchorRaw` and
+  `accept` read the current files. All call it (`folio_anchor`, `folio_accept`,
+  `macos/Sources/CFolio/include/folio.h`).
 - `accept` patches the markdown and marks the annotation resolved. It must emit
   `md:changed` and then `folio:changed` (the order the server uses), and reject on failure
   (annotation not found, anchoring failed).

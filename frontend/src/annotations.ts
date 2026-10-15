@@ -109,22 +109,26 @@ const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
 
 // ─── Anchoring ───────────────────────────────────────────────────────────────
 
-// Build a map from each character's index in the document's rendered plain text
-// to its ProseMirror position. Used to convert server-returned char indices to
-// PM positions for decorations.
-export function buildCharPos(doc: PMNode): number[] {
+// Build the document's rendered plain text, which the server anchors against,
+// and a map from each of its indices to the ProseMirror position. Used to
+// convert server-returned indices to PM positions for decorations.
+export function buildCharPos(doc: PMNode): { text: string; charPos: number[] } {
   const charPos: number[] = []
+  let text = ''
   doc.descendants((node, pos) => {
-    // Skip code block content — strip_markdown skips fenced blocks too,
-    // so both sides must agree on what counts as rendered text.
+    // Skip code block content, as strip_markdown skips fenced blocks, so
+    // contexts agents copied from `folio render` keep matching.
     if (node.type.name === 'codeBlock') return false
     if (node.isText) {
       for (let i = 0; i < node.text!.length; i++) {
+        // A soft line break stays a "\n" in the text node; strip_markdown drops it.
+        if (node.text![i] === '\n') continue
+        text += node.text![i]
         charPos.push(pos + i)
       }
     }
   })
-  return charPos
+  return { text, charPos }
 }
 
 // Convert char indices (from, to) in the rendered plain text to ProseMirror
@@ -1004,12 +1008,12 @@ export function createAnnotationsExtension(): Extension {
 
               pendingRequest = true
               pendingVersion = pluginState.anchorVersion
-              const charPos = buildCharPos(view.state.doc)
+              const { text, charPos } = buildCharPos(view.state.doc)
               const items = currentSidecar.annotations
                 .filter(a => !a.resolved)
                 .map(a => ({ id: a.id, context_before: a.context_before, target: a.target ?? undefined }))
 
-              postAnchor(items)
+              postAnchor(text, items)
                 .then(results => {
                   pendingRequest = false
                   if (annotationsKey.getState(view.state)?.anchorVersion !== pendingVersion) {

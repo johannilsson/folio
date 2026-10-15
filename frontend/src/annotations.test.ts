@@ -41,15 +41,22 @@ describe('buildCharPos', () => {
   it('maps each character to its ProseMirror position', () => {
     // "Hello world" at pos 1: H=1 e=2 l=3 l=4 o=5 ' '=6 w=7 o=8 r=9 l=10 d=11
     const doc = paragraphs('Hello world')
-    const charPos = buildCharPos(doc as any)
+    const { charPos } = buildCharPos(doc as any)
     expect(charPos).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
   })
 
   it('concatenates text nodes across block boundaries with no gap in charPos', () => {
     // Two paragraphs: "abc" at pos 1, "def" at pos 1+3+2=6
     const doc = paragraphs('abc', 'def')
-    const charPos = buildCharPos(doc as any)
+    const { charPos } = buildCharPos(doc as any)
     expect(charPos).toEqual([1, 2, 3, 6, 7, 8])
+  })
+
+  it('skips the newline of a soft line break, like strip_markdown', () => {
+    const doc = paragraphs('ab\ncd')
+    const { text, charPos } = buildCharPos(doc as any)
+    expect(text).toBe('abcd')
+    expect(charPos).toEqual([1, 2, 4, 5])
   })
 })
 
@@ -60,14 +67,14 @@ describe('charIndexToRange', () => {
       // context "Hello " = 6 chars → fromIdx=6 → charPos[6]=7
       // target "world" = 5 chars → toIdx=11 → charPos[10]+1=12
       const doc = paragraphs('Hello world')
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       expect(charIndexToRange(charPos, 6, 11)).toEqual({ from: 7, to: 12 })
     })
 
     it('returns from === to for insert/comment annotations (fromIdx === toIdx)', () => {
       // context "Hello " ends at charPos[5]+1 = 6+1 = 7
       const doc = paragraphs('Hello world')
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       const result = charIndexToRange(charPos, 6, 6)
       expect(result.from).toBe(7)
       expect(result.from).toBe(result.to)
@@ -79,7 +86,7 @@ describe('charIndexToRange', () => {
       // "item one" at pos 3: i=3 t=4 e=5 m=6 ' '=7 o=8 n=9 e=10
       // fromIdx=5 ("o") → charPos[5]=8; toIdx=7 → charPos[6]+1=9+1=10
       const doc = bulletList('item one', 'item two')
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       expect(charIndexToRange(charPos, 5, 7)).toEqual({ from: 8, to: 10 })
     })
 
@@ -89,7 +96,7 @@ describe('charIndexToRange', () => {
       // toIdx=8: charPos[7]+1 = 10+1 = 11 — stays inside first item.
       // Must NOT be 15 (the start of "item two").
       const doc = bulletList('item one', 'item two')
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       const result = charIndexToRange(charPos, 5, 8)
       expect(result.from).toBe(8)
       expect(result.to).toBe(11)
@@ -105,7 +112,7 @@ describe('charIndexToRange', () => {
         { text: 'Header', pos: 1 },
         { text: 'First bullet text', pos: 11 },
       ])
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       const result = charIndexToRange(charPos, 6, 11)
       expect(result.from).toBe(11)
       expect(result.from).toBeGreaterThanOrEqual(11)
@@ -117,7 +124,7 @@ describe('charIndexToRange', () => {
         { text: 'Header', pos: 1 },
         { text: 'First bullet text', pos: 11 },
       ])
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       const result = charIndexToRange(charPos, 6, 6)
       expect(result.from).toBe(7)
       expect(result.to).toBe(7)
@@ -132,7 +139,7 @@ describe('charIndexToRange', () => {
         { text: paraText, pos: 1 },
         { text: 'Style', pos: tableStart },
       ])
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       const result = charIndexToRange(charPos, paraText.length, paraText.length)
       expect(result.from).toBe(paraText.length + 1) // charPos[last para char] + 1
       expect(result.to).toBe(result.from)
@@ -150,7 +157,7 @@ describe('charIndexToRange', () => {
         { text: 'Cover crops', pos: 1 },
         { text: ' between rows', pos: 12 },
       ])
-      const charPos = buildCharPos(doc as any)
+      const { charPos } = buildCharPos(doc as any)
       expect(charIndexToRange(charPos, 6, 19)).toEqual({ from: 7, to: 20 })
     })
   })

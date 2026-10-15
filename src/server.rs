@@ -11,7 +11,7 @@ use axum::{
     Router,
 };
 use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
-use crate::sidecar::{anchor_chars, anchor_raw_chars, Sidecar};
+use crate::sidecar::{anchor_raw_chars, anchor_text, Sidecar};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -280,23 +280,20 @@ struct AnchorResultItem {
     char_to: Option<usize>,
 }
 
-async fn post_anchor(
-    State(state): State<AppState>,
-    Query(q): Query<FileQuery>,
-    Json(items): Json<Vec<AnchorRequestItem>>,
-) -> impl IntoResponse {
-    let entry = match find_doc(&state, &q) {
-        Ok(d) => d,
-        Err(r) => return r,
-    };
-    let doc = match tokio::fs::read_to_string(&entry.doc_path).await {
-        Ok(content) => content,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    };
-    let results: Vec<AnchorResultItem> = items
+/// The preview sends its own rendered text, so the offsets (UTF-16, like JS
+/// string indices) line up with its positions; see `anchor_text`.
+#[derive(Deserialize)]
+struct AnchorTextRequest {
+    text: String,
+    items: Vec<AnchorRequestItem>,
+}
+
+async fn post_anchor(Json(req): Json<AnchorTextRequest>) -> impl IntoResponse {
+    let results: Vec<AnchorResultItem> = req
+        .items
         .iter()
         .map(|item| {
-            let result = anchor_chars(&doc, &item.context_before, item.target.as_deref());
+            let result = anchor_text(&req.text, &item.context_before, item.target.as_deref());
             AnchorResultItem {
                 id: item.id.clone(),
                 char_from: result.map(|(f, _)| f),
@@ -307,7 +304,7 @@ async fn post_anchor(
     axum::Json(results).into_response()
 }
 
-/// Same request/response shape as `post_anchor`, but resolves against the raw
+/// Same items/response shape as `post_anchor`, but resolves against the raw
 /// (unstripped) document and returns char offsets into that raw text — for the
 /// CM6 raw-mode editor, which edits the literal markdown source directly.
 async fn post_anchor_raw(

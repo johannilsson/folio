@@ -11,3 +11,15 @@ test('an annotation after a hard break highlights its target in preview', async 
   await page.click('#view-toggle-btn')
   await expect(page.locator('#editor-wrapper .ann-comment-target').first()).toHaveText('The sample application')
 })
+
+test('an anchor saved with the hard break spaces highlights its target in preview', async ({ page, request }) => {
+  await request.put('/api/folio', { data: { version: 1, annotations: [{
+    id: 'hb2', kind: 'comment', source: 'agent', author: 'agent', comment: 'Check',
+    context_before: 'Description:  The ',
+    target: 'sample application', created: '2026-01-01T00:00:00Z', resolved: false,
+  }] } })
+  await page.goto('/')
+  await page.waitForSelector('.cm-content')
+  await page.click('#view-toggle-btn')
+  await expect(page.locator('#editor-wrapper .ann-comment-target').first()).toHaveText('sample application')
+})

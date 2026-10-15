@@ -96,6 +96,13 @@ impl Annotation {
 /// `anchor_raw_chars` (browser raw-mode anchoring) so both work off the same
 /// proven 4-pass matcher without requiring a full `Annotation` in hand.
 fn anchor_raw_bytes(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    anchor_raw_bytes_once(doc, context_before, target).or_else(|| {
+        let (ctx, tgt) = without_hard_break_spaces(context_before, target)?;
+        anchor_raw_bytes_once(doc, &ctx, tgt.as_deref())
+    })
+}
+
+fn anchor_raw_bytes_once(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
     // Decode HTML entities from annotation values so that agents who copied
     // raw entity text (e.g. &amp;) match the same way as agents who used the
     // rendered output (e.g. &).
@@ -769,13 +776,65 @@ pub fn anchor_chars(
     context_before: &str,
     target: Option<&str>,
 ) -> Option<(usize, usize)> {
+    anchor_in_rendered(&strip_markdown(doc).0, context_before, target)
+}
+
+/// Like `anchor_chars`, but searches `text`, the preview's own rendered text, and
+/// returns UTF-16 offsets into it (JS string indices). The preview sends its text
+/// so the offsets line up with its positions whatever markdown it renders
+/// differently from `strip_markdown`.
+pub fn anchor_text(text: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    let (from, to) = anchor_in_rendered(text, context_before, target)?;
+    let utf16 = |ci: usize| text.chars().take(ci).map(char::len_utf16).sum();
+    Some((utf16(from), utf16(to)))
+}
+
+fn anchor_in_rendered(text: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    anchor_chars_once(text, context_before, target).or_else(|| {
+        let (ctx, tgt) = without_hard_break_spaces(context_before, target)?;
+        anchor_chars_once(text, &ctx, tgt.as_deref())
+    })
+}
+
+/// Anchors saved before hard breaks lost their two spaces in the rendered text
+/// still carry them. Returns the fields with runs of 2+ spaces removed, or
+/// `None` when there are none, so callers retry only when it can help.
+fn without_hard_break_spaces(context_before: &str, target: Option<&str>) -> Option<(String, Option<String>)> {
+    let strip = |s: &str| {
+        let mut out = String::new();
+        let mut spaces = 0;
+        for ch in s.chars() {
+            if ch == ' ' {
+                spaces += 1;
+                continue;
+            }
+            if spaces == 1 {
+                out.push(' ');
+            }
+            spaces = 0;
+            out.push(ch);
+        }
+        if spaces == 1 {
+            out.push(' ');
+        }
+        out
+    };
+    let ctx = strip(context_before);
+    let tgt = target.map(strip);
+    (ctx != context_before || tgt.as_deref() != target).then_some((ctx, tgt))
+}
+
+fn anchor_chars_once(
+    stripped_doc: &str,
+    context_before: &str,
+    target: Option<&str>,
+) -> Option<(usize, usize)> {
     let (ctx_stripped, _, _) = strip_markdown(context_before);
     let ctx = ctx_stripped.to_lowercase();
     let ctx_chars = ctx.chars().count();
 
     let tgt_stripped = target.map(|t| strip_markdown(t).0);
 
-    let (stripped_doc, _, _) = strip_markdown(doc);
     let stripped_lower = stripped_doc.to_lowercase();
 
     let byte_to_char = |b: usize| stripped_lower[..b].chars().count();
@@ -1562,5 +1621,23 @@ mod tests {
         assert_eq!(strip_markdown(doc).0, "Example sectionDescription:The sample application processes incoming requests.");
         assert_eq!(anchor_chars(doc, "Example sectionDescription:", Some("The sample application")), Some((27, 49)));
         assert_eq!(anchor_chars(doc, "Example sectionDescription:  ", Some("The sample application")), Some((27, 49)));
+    }
+
+    #[test]
+    fn anchors_saved_with_hard_break_spaces_still_resolve() {
+        let doc = "### Example section\n\n**Description:**  \nThe sample application processes incoming requests.\n";
+        // Anchors written before the break's spaces were dropped still carry them.
+        assert_eq!(anchor_chars(doc, "Description:  The ", Some("sample")), Some((31, 37)));
+        assert_eq!(anchor_chars(doc, "Example section", Some("Description:  The sample")), Some((15, 37)));
+        assert_eq!(anchor_raw_chars(doc, "Description:  The ", Some("sample")), Some((44, 50)));
+        assert_eq!(anchor_raw_chars(doc, "Example sectionDescription:  ", Some("The sample")), Some((40, 50)));
+    }
+
+    #[test]
+    fn anchor_text_returns_utf16_offsets_into_the_given_text() {
+        // The emoji is one char but two UTF-16 units, as the preview counts.
+        assert_eq!(anchor_text("Party 🎉 time is here", "time is ", Some("here")), Some((17, 21)));
+        assert_eq!(anchor_text("Party 🎉 time is here", "time is ", None), Some((17, 17)));
+        assert_eq!(anchor_text("Summary:The example", "Summary:  The ", Some("example")), Some((12, 19)));
     }
 }

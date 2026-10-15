@@ -88,8 +88,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "anchor", "anchorRaw":
             let document = try target(body)
             let items = try JSONSerialization.data(withJSONObject: body["items"] ?? [])
+            // The preview anchors against its own rendered text; source mode against the file.
+            let doc = op == "anchorRaw" ? try document.readFile() : body["text"] as? String ?? ""
             return try JSONSerialization.jsonObject(with: Data(
-                Rust.anchor(doc: document.readFile(), itemsJSON: String(decoding: items, as: UTF8.self), raw: op == "anchorRaw").utf8
+                Rust.anchor(doc: doc, itemsJSON: String(decoding: items, as: UTF8.self), raw: op == "anchorRaw").utf8
             ))
 
         case "accept":

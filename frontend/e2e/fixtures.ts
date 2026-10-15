@@ -26,7 +26,7 @@ function installBridge() {
     accept: m => post('/api/accept' + q(m.file), { id: m.id }).then(check).then(() => null),
     uiState: () => Promise.resolve(null),
     krokiUrl: () => fetch('/api/kroki-url').then(r => r.json()).then(d => d.url),
-    anchor: m => post('/api/anchor' + q(m.file), m.items).then(r => r.json()),
+    anchor: m => post('/api/anchor' + q(m.file), { text: m.text, items: m.items }).then(r => r.json()),
     anchorRaw: m => post('/api/anchor-raw' + q(m.file), m.items).then(r => r.json()),
   }
 

@@ -4,7 +4,7 @@
 
 use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
 use crate::set::{self, detect_root, folio_path_in};
-use crate::sidecar::{anchor_chars, anchor_raw_chars, Sidecar};
+use crate::sidecar::{anchor_raw_chars, anchor_text, Sidecar};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::ffi::{c_char, CStr, CString};
@@ -27,8 +27,8 @@ struct AnchorResultItem {
     char_to: Option<usize>,
 }
 
-/// Same request and response shape as `POST /api/anchor` (and `/api/anchor-raw`
-/// when `raw`).
+/// Same response shape as `POST /api/anchor` (and `/api/anchor-raw` when `raw`).
+/// `doc` is the markdown when `raw`, else the preview's rendered text.
 fn anchor_json(doc: &str, items_json: &str, raw: bool) -> Result<String, String> {
     let items: Vec<AnchorRequestItem> = serde_json::from_str(items_json).map_err(|e| e.to_string())?;
     let results: Vec<AnchorResultItem> = items
@@ -37,7 +37,7 @@ fn anchor_json(doc: &str, items_json: &str, raw: bool) -> Result<String, String>
             let found = if raw {
                 anchor_raw_chars(doc, &item.context_before, item.target.as_deref())
             } else {
-                anchor_chars(doc, &item.context_before, item.target.as_deref())
+                anchor_text(doc, &item.context_before, item.target.as_deref())
             };
             AnchorResultItem {
                 id: item.id.clone(),
@@ -140,6 +140,7 @@ unsafe fn arg<'a>(p: *const c_char) -> Result<&'a str, String> {
 }
 
 /// Returns a JSON array of anchor results, or `{"error": ...}`. Free with `folio_free`.
+/// `doc` is the markdown when `raw`, else the preview's rendered text.
 ///
 /// # Safety
 /// `doc` and `items_json` must be valid NUL-terminated UTF-8 strings.
@@ -244,7 +245,7 @@ mod tests {
             let direct = if raw {
                 anchor_raw_chars(DOC, "The quick ", Some("brown"))
             } else {
-                anchor_chars(DOC, "The quick ", Some("brown"))
+                anchor_text(DOC, "The quick ", Some("brown"))
             }
             .unwrap();
             assert_eq!(out[0]["char_from"], direct.0);

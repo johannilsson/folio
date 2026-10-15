@@ -70,13 +70,14 @@ export interface AnchorResultItem {
   char_to?: number
 }
 
-export const postAnchor = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
+// `text` is the preview's rendered text; the offsets come back as indices into it.
+export const postAnchor = (text: string, items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
   native
-    ? nativeCall('anchor', { items })
+    ? nativeCall('anchor', { text, items })
     : fetch(scoped('/api/anchor'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(items),
+        body: JSON.stringify({ text, items }),
       }).then(r => r.json())
 
 export const postAnchorRaw = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>

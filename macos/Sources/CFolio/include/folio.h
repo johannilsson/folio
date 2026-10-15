@@ -6,7 +6,8 @@
 /* All functions return a heap string owned by the caller: free it with folio_free.
    Failures are reported as a JSON object {"error": "..."}. */
 
-/* Same request/response JSON as POST /api/anchor (raw=false) and /api/anchor-raw (raw=true). */
+/* Same items/response JSON as POST /api/anchor (raw=false) and /api/anchor-raw (raw=true).
+   doc is the markdown when raw, else the preview's rendered text. */
 char *folio_anchor(const char *doc, const char *items_json, bool raw);
 
 /* {"doc": <patched markdown or null>, "sidecar": <sidecar JSON as the CLI writes it>} */
