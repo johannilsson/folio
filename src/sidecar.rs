@@ -1026,7 +1026,16 @@ impl Sidecar {
 
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)?;
+        // Write a temp file next to the target and rename it over, so the watcher, server and
+        // macOS app never read a half-written sidecar.
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".tmp");
+        let tmp = std::path::PathBuf::from(tmp);
+        std::fs::write(&tmp, json)?;
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
         Ok(())
     }
 }
@@ -1082,6 +1091,19 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn save_replaces_the_file_and_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("folio-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.md.folio");
+        std::fs::write(&path, "stale").unwrap();
+        Sidecar::empty().save(&path).unwrap();
+        assert_eq!(Sidecar::load(&path).unwrap().annotations.len(), 0);
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("a.md.folio")]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     use super::*;
 
     fn ann(context_before: &str, target: Option<&str>) -> Annotation {
