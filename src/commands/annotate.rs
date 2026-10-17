@@ -125,3 +125,75 @@ fn validate_fields(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "folio-annotate-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn parse_kind_and_source_reject_unknown_values() {
+        assert!(parse_kind("replace").is_ok());
+        assert!(parse_kind("highlight").is_ok());
+        assert!(parse_kind("bogus").is_err());
+        assert!(parse_source("agent").is_ok());
+        assert!(parse_source("gitlab").is_ok());
+        assert!(parse_source("bogus").is_err());
+    }
+
+    #[test]
+    fn each_kind_requires_its_own_fields() {
+        use AnnotationKind::*;
+        assert!(validate_fields(&Replace, Some("t"), None, None).is_err());
+        assert!(validate_fields(&Replace, None, Some("r"), None).is_err());
+        assert!(validate_fields(&Replace, Some("t"), Some("r"), None).is_ok());
+        assert!(validate_fields(&Delete, None, None, None).is_err());
+        assert!(validate_fields(&Delete, Some("t"), None, None).is_ok());
+        assert!(validate_fields(&Insert, None, None, None).is_err());
+        assert!(validate_fields(&Insert, None, Some("r"), None).is_ok());
+        assert!(validate_fields(&Comment, None, None, None).is_err());
+        assert!(validate_fields(&Comment, None, None, Some("c")).is_ok());
+        assert!(validate_fields(&Highlight, None, None, None).is_err());
+        assert!(validate_fields(&Highlight, Some("t"), None, None).is_ok());
+    }
+
+    #[test]
+    fn an_unanchorable_annotation_is_not_written_to_the_sidecar() {
+        let tmp = temp_dir("unanchored");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let file = tmp.join("a.md");
+        std::fs::write(&file, "Hello world.\n").unwrap();
+
+        let err = run(&file, "delete", "Hello ", Some("nowhere"), None, None, "me", "local")
+            .unwrap_err();
+        assert!(err.to_string().contains("cannot be anchored"));
+        assert!(!super::super::folio_path(&file).exists());
+    }
+
+    #[test]
+    fn an_anchorable_annotation_is_saved() {
+        let tmp = temp_dir("anchored");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let file = tmp.join("a.md");
+        std::fs::write(&file, "Hello world.\n").unwrap();
+
+        run(&file, "delete", "Hello ", Some("world"), None, None, "me", "agent").unwrap();
+        let sidecar = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        assert_eq!(sidecar.annotations.len(), 1);
+        assert_eq!(sidecar.annotations[0].target.as_deref(), Some("world"));
+    }
+}
