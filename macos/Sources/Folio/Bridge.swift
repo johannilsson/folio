@@ -1,31 +1,6 @@
 import Foundation
 import WebKit
 
-/// Where the preview drew an annotation: its top-left and line height, in page coordinates, and
-/// its place in the document (ProseMirror position), which orders the cards.
-struct PageAnchor: Equatable {
-    var id: String
-    var from: Int
-    var top: Double
-    var bottom: Double
-    var left: Double
-}
-
-/// The text the reader has selected in the preview, and the words an annotation on it is anchored by.
-struct PageSelection: Equatable {
-    var from: Int
-    var to: Int
-    /// The first line of the selection.
-    var top: Double
-    var bottom: Double
-    /// The bottom of its last line.
-    var endBottom: Double
-    var left: Double
-    var right: Double
-    var target: String
-    var contextBefore: String
-}
-
 /// The Swift side of macos/BRIDGE.md.
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     static let name = "folio"
@@ -40,8 +15,8 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     var onLayout: ((_ height: Double) -> Void)?
     var onReveal: ((_ top: Double, _ bottom: Double) -> Void)?
     /// What the preview reports for the native annotation UI.
-    var onAnchors: (([PageAnchor]) -> Void)?
-    var onSelection: ((PageSelection?) -> Void)?
+    var onAnchors: (([AnchorRect]) -> Void)?
+    var onSelection: ((SelectionInfo?) -> Void)?
     /// The annotation clicked in the text (nil: none); a click anywhere before it.
     var onFocus: ((String?) -> Void)?
     var onPointer: (() -> Void)?
@@ -105,7 +80,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 guard let id = item["id"] as? String, let from = (item["from"] as? NSNumber)?.intValue,
                       let top = (item["top"] as? NSNumber)?.doubleValue, let bottom = (item["bottom"] as? NSNumber)?.doubleValue,
                       let left = (item["left"] as? NSNumber)?.doubleValue else { return nil }
-                return PageAnchor(id: id, from: from, top: top, bottom: bottom, left: left)
+                return AnchorRect(id: id, from: from, top: top, bottom: bottom, left: left)
             })
             return NSNull()
         case "selection":
@@ -115,7 +90,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                let bottom = number(item, "bottom"), let endBottom = number(item, "endBottom"),
                let left = number(item, "left"), let right = number(item, "right"),
                let target = item["target"] as? String, let before = item["contextBefore"] as? String {
-                onSelection?(PageSelection(from: Int(from), to: Int(to), top: top, bottom: bottom, endBottom: endBottom,
+                onSelection?(SelectionInfo(from: Int(from), to: Int(to), top: top, bottom: bottom, endBottom: endBottom,
                                            left: left, right: right, target: target, contextBefore: before))
             } else {
                 onSelection?(nil)

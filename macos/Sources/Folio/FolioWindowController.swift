@@ -124,7 +124,8 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         bridge.onReveal = { [weak self] top, bottom in self?.scrollHost.reveal(top: top, bottom: bottom) }
         scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
 
-        annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore)
+        annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore,
+                                           preview: PreviewSurface(webView: webView, bridge: bridge))
         (webView as? ForwardingWebView)?.keyHandler = { [weak self] event in self?.annotations.handleKey(event) ?? false }
         bridge.onUIState = { [weak self] source, comments, pending in
             self?.sourceOn = source

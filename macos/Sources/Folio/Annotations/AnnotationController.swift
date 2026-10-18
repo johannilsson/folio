@@ -3,27 +3,31 @@ import WebKit
 
 /// The window's annotation UI: the cards in the comments pane (or the one card that opens next to
 /// the text when the pane is closed), the Comment button over a selection, the form for a new
-/// comment, the toast, and the keyboard shortcuts. The preview only draws the highlights; it
-/// tells this where each annotation is, what is selected and what was clicked (the `anchors`,
-/// `selection` and `focus` ops), and everything the reader does with an annotation happens here.
+/// comment, the toast, and the keyboard shortcuts. The text itself is shown by a surface (the
+/// preview or the source); it draws the highlights and tells this where each annotation is, what
+/// is selected and what was clicked. Everything the reader does with an annotation happens here.
 @MainActor
 final class AnnotationController {
     private unowned let owner: EditorWindowController
     private let host: EditorScrollView
     private var store: AnnotationStore
 
-    // What the preview reported.
-    private(set) var anchors: [String: PageAnchor] = [:]
-    /// False until the preview has anchored the annotations of this file: nothing is "not found" before that.
+    /// The surface that is showing: the preview or the source.
+    private(set) var surface: AnnotationSurface
+    let preview: PreviewSurface
+
+    // What the surface reported.
+    private(set) var anchors: [String: AnchorRect] = [:]
+    /// False until the surface has anchored the annotations of this file: nothing is "not found" before that.
     private(set) var anchorsKnown = false
-    private(set) var selection: PageSelection?
+    private(set) var selection: SelectionInfo?
 
     private(set) var focusedID: String?
     private(set) var cards: [String: AnnotationCardView] = [:]
     private let adder = CommentAdderView()
     private let toast = ToastView()
     private(set) var form: NewCommentView?
-    private var formSelection: PageSelection?
+    private var formSelection: SelectionInfo?
 
     private(set) var sourceOn = false
     private(set) var commentsOn = false
@@ -33,22 +37,36 @@ final class AnnotationController {
     /// The pane is the app's only in the preview; source mode draws its own.
     var paneShown: Bool { commentsOn && !sourceOn }
 
-    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore) {
+    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, preview: PreviewSurface) {
         self.owner = owner
         self.host = host
         self.store = store
+        self.preview = preview
+        surface = preview
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
-
-        let bridge = owner.bridge
-        bridge.onAnchors = { [weak self] list in self?.anchorsChanged(list) }
-        bridge.onSelection = { [weak self] selection in self?.selectionChanged(selection) }
-        bridge.onFocus = { [weak self] id in self?.focus(id) }
-        bridge.onPointer = { [weak self] in self?.pointerDown() }
-        bridge.onTyping = { [weak self] in self?.lastTypingAt = Date() }
+        listen(to: preview)
+        preview.onTyping = { [weak self] in self?.lastTypingAt = Date() }
         attach(store)
         refresh()
+    }
+
+    /// Takes a surface's reports, while it is the one showing: the preview keeps reporting from
+    /// behind the source, and those reports are not about what is on screen.
+    private func listen(to candidate: AnnotationSurface) {
+        candidate.onAnchors = { [weak self, weak candidate] list in
+            if let self, let candidate, candidate === surface { anchorsChanged(list) }
+        }
+        candidate.onSelection = { [weak self, weak candidate] selection in
+            if let self, let candidate, candidate === surface { selectionChanged(selection) }
+        }
+        candidate.onFocus = { [weak self, weak candidate] id in
+            if let self, let candidate, candidate === surface { focus(id) }
+        }
+        candidate.onPointer = { [weak self, weak candidate] in
+            if let self, let candidate, candidate === surface { pointerDown() }
+        }
     }
 
     // MARK: following the window
@@ -80,12 +98,13 @@ final class AnnotationController {
 
     private func attach(_ store: AnnotationStore) {
         self.store = store
-        store.onChange = { [weak self] in self?.refresh() }
+        store.onChange = { [weak self] in self?.storeChanged() }
+        surface.annotationsChanged(store.pending)
     }
 
     // MARK: from the page
 
-    private func anchorsChanged(_ list: [PageAnchor]) {
+    private func anchorsChanged(_ list: [AnchorRect]) {
         let latest = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard latest != anchors || !anchorsKnown else { return }
         anchors = latest
@@ -93,7 +112,7 @@ final class AnnotationController {
         refresh()
     }
 
-    private func selectionChanged(_ latest: PageSelection?) {
+    private func selectionChanged(_ latest: SelectionInfo?) {
         selection = latest
         updateAdder()
     }
@@ -116,7 +135,14 @@ final class AnnotationController {
 
     // MARK: layout
 
-    /// The annotations changed: update the cards, then place everything.
+    /// The annotations themselves changed (an action here, or someone writing the sidecar): the
+    /// surface learns of it (the source anchors them), and the cards follow.
+    private func storeChanged() {
+        surface.annotationsChanged(store.pending)
+        refresh()
+    }
+
+    /// Something about the layout or the anchors changed: update the cards, then place everything.
     func refresh() {
         let pending = store.pending
         let ids = Set(pending.map(\.id))
@@ -209,8 +235,7 @@ final class AnnotationController {
     // MARK: the Comment button and the form
 
     private func updateAdder() {
-        let focusInPage = (owner.window?.firstResponder as? NSView)?.isDescendant(of: owner.webView) ?? false
-        guard let selection, !sourceOn, form == nil, focusInPage || adder.isHidden == false else {
+        guard let selection, form == nil, surface.hasKeyboardFocus || adder.isHidden == false else {
             adder.isHidden = true
             return
         }
@@ -237,7 +262,7 @@ final class AnnotationController {
         formSelection = selection
         adder.isHidden = true
         // Keep the text being commented on highlighted while the form is open.
-        owner.webView.evaluateJavaScript("window.__folioSetPending?.({from: \(selection.from), to: \(selection.to)})")
+        surface.setPending((selection.from, selection.to))
         layout()
         owner.window?.makeFirstResponder(view.field.textView)
     }
@@ -258,8 +283,8 @@ final class AnnotationController {
         form.removeFromSuperview()
         self.form = nil
         formSelection = nil
-        owner.webView.evaluateJavaScript("window.__folioSetPending?.(null)")
-        if refocusPage { owner.window?.makeFirstResponder(owner.webView) }
+        surface.setPending(nil)
+        if refocusPage { surface.focusText() }
         layout()
     }
 
@@ -268,13 +293,13 @@ final class AnnotationController {
     private func accept(_ id: String) {
         guard let annotation = store.annotation(id) else { return }
         if annotation.kind == "replace" || annotation.kind == "insert", let text = annotation.replacement {
-            // The text changes only once the reloaded document arrives; the page waits for it to flash.
-            owner.webView.callAsyncJavaScript("window.__folioFlashAfterReload?.(text)", arguments: ["text": text], in: nil, in: .page) { _ in }
+            // The text changes only once the reloaded document arrives; the surface waits for it to flash.
+            surface.flashAfterReload(text)
         }
         showToast("Accepted \(annotation.kind)")
         Task { @MainActor in
             // Pending edits are saved first, so accepting patches the text as it is on screen.
-            _ = try? await owner.webView.callAsyncJavaScript("await window.__folioFlush?.()", in: nil, contentWorld: .page)
+            await surface.flush()
             do { try store.accept(id) } catch { fail(error) }
         }
     }
@@ -361,7 +386,7 @@ final class AnnotationController {
         let (annotation, anchor) = ordered[next]
         focusedID = annotation.id
         refresh()
-        owner.webView.evaluateJavaScript("window.__folioSelectAnnotation?.('\(annotation.id)')")
+        surface.select(annotation: annotation.id)
         host.reveal(top: CGFloat(anchor.top), bottom: CGFloat(anchor.bottom))
         // The open card sits below its text: bring it into view too.
         if let card = cards[annotation.id], card.isFloating { host.reveal(top: card.frame.minY, bottom: card.frame.maxY) }
