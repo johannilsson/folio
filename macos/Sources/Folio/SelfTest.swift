@@ -229,6 +229,8 @@ final class SelfTest {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('Added by another program.')", seconds: 8)
         }
 
+        await portedBrowserChecks()
+
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
 
@@ -262,6 +264,121 @@ final class SelfTest {
         return finish()
     }
 
+    // MARK: behaviour ported from the browser e2e suite
+
+    /// Replaces the document the way an agent does: write a temp file, rename it over.
+    private func replaceFile(_ text: String) {
+        let tmp = dir.appendingPathComponent("incoming.tmp")
+        try? text.write(to: tmp, atomically: false, encoding: .utf8)
+        _ = try? FileManager.default.replaceItemAt(file, withItemAt: tmp)
+    }
+
+    private func replaceSidecar(_ annotations: [[String: Any]]) {
+        let sidecar = controller.files.sidecar
+        let tmp = sidecar.deletingLastPathComponent().appendingPathComponent("incoming-sidecar.tmp")
+        let object: [String: Any] = ["version": 1, "annotations": annotations]
+        try? JSONSerialization.data(withJSONObject: object).write(to: tmp)
+        _ = try? FileManager.default.replaceItemAt(sidecar, withItemAt: tmp)
+    }
+
+    private func commentJSON(_ id: String, before: String, target: String) -> [String: Any] {
+        [
+            "id": id, "kind": "comment", "source": "agent", "author": "agent", "comment": "Check",
+            "context_before": before, "target": target, "created": "2026-01-01T00:00:00Z", "resolved": false,
+        ]
+    }
+
+    /// Whether the preview marks `text` as the target of a comment.
+    private func previewHighlights(_ text: String) async -> Bool {
+        let quoted = text.replacingOccurrences(of: "'", with: "\\'")
+        return await waitFor("[...document.querySelectorAll('#editor-wrapper .ann-comment-target')].some(e => e.textContent === '\(quoted)')", seconds: 8)
+    }
+
+    /// The checks that used to be Playwright specs and apply to the app as it is: anchoring
+    /// against the preview's own text, reloads, and the bridge's error path. The preview is showing.
+    private func portedBrowserChecks() async {
+        let original = disk()
+
+        // Markdown the preview renders differently from `folio render` must not shift a highlight.
+        replaceFile("""
+        # Title with `code` and *emph*
+
+        Escapes: 1\\. not a list, \\*not emph\\*, a\\_b, back\\\\slash.
+
+        Entities: &amp; &copy; and emoji 🎉 done.
+
+        Autolink <https://example.com> here.
+
+        Line with trailing backslash\\
+        next line.
+
+        A paragraph that is
+        soft wrapped.
+
+        **Summary:**
+        After a hard break.
+
+        1) paren list
+
+        - [ ] task one
+
+        > quote one
+        >
+        > > nested quote
+
+        Setext heading
+        ==============
+
+            indented code block
+
+        | A | B |
+        |:--|--:|
+        | c \\| d | e |
+
+        Text with <span>inline html</span> and [ref link][r].
+
+        [r]: http://ref.com
+
+        Final target sentence here.
+
+        """)
+        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('Final target sentence')", seconds: 8)
+        replaceSidecar([commentJSON("pa1", before: "Final ", target: "target sentence")])
+        await check("a highlight after markdown the CLI renders differently lands on its target") {
+            await self.previewHighlights("target sentence")
+        }
+
+        // Anchors after a hard break (two trailing spaces), written with and without them.
+        replaceFile("# Hard break\n\nA second paragraph gives the tests something else to select and annotate.\n\n**Description:**  \nThe sample application processes incoming requests.\n")
+        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('The sample application')", seconds: 8)
+        replaceSidecar([commentJSON("hb1", before: "A second paragraph gives the tests something else to select and annotate.Description:", target: "The sample application")])
+        await check("an annotation after a hard break highlights its target in preview") {
+            await self.previewHighlights("The sample application")
+        }
+        replaceSidecar([commentJSON("hb2", before: "Description:  The ", target: "sample application")])
+        await check("an anchor saved with the hard break spaces highlights its target in preview") {
+            await self.previewHighlights("sample application")
+        }
+        replaceSidecar([])
+
+        // Reloading changed text into the live preview must not leave it read-only.
+        replaceFile(original + "\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n```js\nlet a = 1\n```\n")
+        await check("the preview shows text that changed underneath it") {
+            await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('let a = 1')", seconds: 8)
+        }
+        await check("the preview stays editable after the reload") {
+            await self.js("document.getElementById('preview-readonly-notice').hidden && document.querySelector('#editor-tiptap .ProseMirror').getAttribute('contenteditable') === 'true'") as? Bool == true
+        }
+        replaceFile(original)
+        _ = await waitFor("!document.querySelector('#editor-tiptap').innerText.includes('let a = 1')", seconds: 8)
+
+        // A failing bridge op rejects rather than hanging the page.
+        await check("a bridge failure rejects instead of hanging") {
+            let message = await self.js("window.webkit.messageHandlers.folio.postMessage({op: 'nope'}).catch(e => e.message)") as? String
+            return message?.contains("unsupported op") == true
+        }
+    }
+
     // MARK: sets
 
     /// A set of two files in separate "repos", opened in its own window: the sidebar, switching
@@ -279,7 +396,10 @@ final class SelfTest {
             report("set files are created", false)
             return
         }
-        try? (String(contentsOf: beta, encoding: .utf8) + "\nBETA MARKER\n").write(to: beta, atomically: false, encoding: .utf8)
+        // The marker leads, since the source editor only renders what is near the top; the long
+        // tail gives the scroll-position check something to scroll.
+        let tail = (1...150).map { "Paragraph \($0) of the long file.\n\n" }.joined()
+        try? ("BETA MARKER\n\n" + String(contentsOf: beta, encoding: .utf8) + "\n" + tail).write(to: beta, atomically: false, encoding: .utf8)
         do { try Rust.setAdd("demo", files: [alpha, beta]) } catch {
             report("the set is created: \(error)", false)
             return
@@ -338,6 +458,48 @@ final class SelfTest {
         }
         await check("and not to the other file") { !((try? String(contentsOf: alpha, encoding: .utf8))?.contains("QQ") ?? true) }
 
+        // Scroll position comes back when a file is shown again, and a new file starts at the top.
+        let scroller = "document.getElementById('raw-editor-wrapper')"
+        _ = await self.waitFor("\(scroller).scrollHeight - \(scroller).clientHeight > 1600", seconds: 8, in: win.webView)
+        _ = await page("\(scroller).scrollTop = 1500")
+        let scrolled = await page("\(scroller).scrollTop") as? Double ?? 0
+        await check("the long file scrolled") { scrolled > 1000 }
+        win.sidebar.choose(alphaID)
+        _ = await until { await filename() == "alpha.md" }
+        await check("another file starts at the top") {
+            await self.until { await page("\(scroller).scrollTop") as? Double == 0 }
+        }
+        win.sidebar.choose(betaID)
+        _ = await until { await filename() == "beta.md" }
+        await check("coming back restores the scroll position") {
+            await self.until {
+                let now = await page("\(scroller).scrollTop") as? Double ?? 0
+                return abs(now - scrolled) < 80
+            }
+        }
+        _ = await page("\(scroller).scrollTop = 0")
+
+        // An edit made just before switching is saved, and undo in the next file stays in that file.
+        _ = await page("document.querySelector('.cm-content').focus()")
+        _ = await page("document.execCommand('insertText', false, 'UNSAVED-MARKER')")
+        win.sidebar.choose(alphaID)
+        await check("an edit made just before switching is saved") {
+            await self.until { (try? String(contentsOf: beta, encoding: .utf8))?.contains("UNSAVED-MARKER") == true }
+        }
+        _ = await until { await filename() == "alpha.md" }
+        let alphaBefore = (try? String(contentsOf: alpha, encoding: .utf8)) ?? ""
+        _ = await page("document.querySelector('.cm-content').focus()")
+        _ = await page("document.execCommand('undo')")
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        await check("undo in the new file never reaches back into the previous one") {
+            let shown = await page("document.querySelector('.cm-content').innerText") as? String ?? ""
+            return !shown.contains("UNSAVED-MARKER")
+                && (try? String(contentsOf: beta, encoding: .utf8))?.contains("UNSAVED-MARKER") == true
+                && (try? String(contentsOf: alpha, encoding: .utf8)) == alphaBefore
+        }
+        win.sidebar.choose(betaID)
+        _ = await until { await filename() == "beta.md" }
+
         // An agent annotates the second file; its badge appears.
         let annotate = cli([
             "annotate", "beta.md", "--kind", "comment", "--context-before", "Natural wine is made with ",
@@ -346,6 +508,13 @@ final class SelfTest {
         await check("folio annotate on a set file succeeds") { annotate.status == 0 }
         await check("the sidebar badge counts it") { await self.until { win.sidebar.badge(for: betaID) == 1 } }
         await check("the other file has no badge") { win.sidebar.badge(for: alphaID) == 0 }
+        // Annotations stay with their file: the cards of the previous file do not linger after a swap.
+        let cards = "document.querySelectorAll('#raw-annotation-gutter .ann-card').length"
+        await check("the annotation's card shows on its own file") { await self.waitFor("\(cards) === 1", in: win.webView) }
+        win.sidebar.choose(alphaID)
+        await check("the other file shows no cards") { await self.waitFor("document.getElementById('filename-display').textContent === 'alpha.md' && \(cards) === 0", in: win.webView) }
+        win.sidebar.choose(betaID)
+        await check("the cards come back with the file") { await self.waitFor("document.getElementById('filename-display').textContent === 'beta.md' && \(cards) === 1", in: win.webView) }
         // Refreshing the badges must not move the page or the selection off the open file.
         try? await Task.sleep(nanoseconds: 700_000_000)
         await check("a sidebar refresh keeps the open file open") {
