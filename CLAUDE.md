@@ -54,8 +54,9 @@ Passing tests have not been enough here: source-mode typing "worked" while the e
 ### Backend (`src/`)
 
 - `main.rs` — CLI entry point (clap); the modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use. `cargo build` does not touch the frontend.
-- `ffi.rs` — C API over anchoring, accept, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
+- `ffi.rs` — C API over anchoring, accept, editor actions, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
+- `edit.rs` — the editor's actions on a sidecar (resolve, add comment, reply, edit comment, restore for undo), applied to what is on disk so an agent's concurrent writes survive; the app's `AnnotationStore` calls it through `folio_edit`
 - `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), git-root detection, per-root sidecar paths
 - `commands/mod.rs` — `folio_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (same rule as sets and the app, via `set::detect_root`)
 - `commands/set.rs` — `folio set add / rm / list`
@@ -66,7 +67,7 @@ Passing tests have not been enough here: source-mode typing "worked" while the e
 
 - `main.ts` — boot: fetches file + sidecar through the bridge, wires the file-changed events
 - `editor.ts` — Tiptap 3 editor (StarterKit + @tiptap/markdown)
-- `annotations.ts` — ProseMirror plugin: inline decorations, scrollable gutter cards, floating comment adder
+- `annotations.ts` — ProseMirror plugin for the preview: inline decorations and anchoring, and it reports anchors, the selection and clicks to the app (`anchors`, `selection`, `focus`). The cards, pane, open card, Comment button and form are the app's. The helpers below its plugin (`makeHeader`, `buildThread`, `repositionCards`, ...) are source mode's, until that is native too.
 - `diagrams.ts` — Tiptap NodeView extension: renders `mermaid` and `plantuml` code blocks as diagrams
 - `api.ts` — bridge-call wrappers + `Annotation`/`Sidecar` TypeScript types; file-scoped calls carry the active file id (from `?file=<id>` on the page URL, then `setActiveFile`)
 - File switching happens in `main.ts` (`switchFile`), called by the app's sidebar through `window.__folioSwitchFile`: in place, no reload. The preview editor is destroyed and recreated (`destroyEditor`), the CM6 state is replaced (`resetRawEditor`), and annotation state is reset (`resetAnnotationState`, `resetRawAnnotationState`) so undo history and anchors never leak between files.
@@ -80,6 +81,7 @@ A SwiftPM package: AppKit windows hosting `frontend/dist` in a `WKWebView` at `f
 
 - `FolioDocument` is one `NSDocument` per file; `SetWindowController` is a window for a set (sidebar + editor; the sidebar switches files by calling `window.__folioSwitchFile(id)` in the page); both build on `EditorWindowController` (web view, toolbar, navigation). `Bridge` answers the page's ops per file id through a `Workspace`; `Document` does the file IO and polls for changes (polling, not FSEvents: atomic saves swap the inode).
 - **Scrolling**: the page lays itself out at its full height and `EditorScrollView` (a `NSScrollView` around the web view, which is exactly as tall as the page) scrolls it. Do not make a box in the page scroll (`overflow: auto`) or rely on the page's own `scrollTop`, `scrollIntoView` (redirected by `layout.ts`) or viewport units: the app would not see them. Nothing may widen the page either: the panes are `min-width: 0` with `overflow-x: clip`, and a wide table scrolls inside its own `.tableWrapper`, otherwise it pushes the comments pane off screen. Scroll positions are kept natively as a fraction, per file and across the source/preview toggle. Details in `macos/BRIDGE.md`.
+- **Annotation UI** (`macos/Sources/Folio/Annotations/`): in the preview the cards, the comments pane, the card that opens next to the text, the Comment button, the new-comment form, the toast and the shortcuts are native. `AnnotationStore` is one file's annotations and every action on them (through libfolio, with undo); `AnnotationController` is a window's glue (page reports in, cards and overlays out, keyboard); `AnnotationCardView` and friends are the views, laid out by hand (heights are measured, not Auto Layout). The cards live in `EditorScrollView`'s canvas beside the web view, so an anchor's page `top` is the card's `y`. Source mode still has the web version (`raw-annotations.ts`) until it is native too. Undo: the document has no undo manager on purpose (see `FolioDocument`), so ⌘Z and Edit ▸ Undo go to the annotation actions while one is the latest thing the reader did in the page, else to the page (`AppDelegate.undoEdit`).
 - Anchoring and accept run in Rust through `Rust.swift` → `ffi.rs`; do not reimplement them in Swift.
 - **A bridge op lives in two places**: `Bridge.swift` and `macos/BRIDGE.md`. Change both together.
 - **App-chrome styling goes under `html.native-chrome`** (the scheme handler adds the class to `index.html`). Chrome follows the system (accent color, system toolbar items, Finder-style sidebar selection); Folio's own purple is for content (annotations, selection, avatars).
@@ -108,12 +110,14 @@ Each annotation optionally carries a `replies: ThreadReply[]` array (empty = omi
 
 `context_before` should be plain rendered text (not markdown syntax). Annotations written by agents must use rendered text too.
 
-## Frontend UI Patterns
+## Annotation UI patterns
 
-- **Gutter layout**: `#annotation-gutter` is a flex sibling of `#editor-tiptap` inside `#editor-wrapper`. Both scroll together, because nothing in the page scrolls: the window's scroll view scrolls the whole page (see "Scrolling" below), so `scrollTop` on the wrappers is always 0.
-- **Card positioning**: `position: absolute` within the gutter. `data-anchor-top` stores the natural anchor Y; `repositionCards()` re-stacks using `card.offsetHeight` (real heights, not a constant). Call after every build and after comment expand/collapse.
-- **Focus indicator**: clicking annotated text (or Ctrl+J/K) sets `focusedAnnotationId`; the matching gutter card gets `ann-card-focused` class.
-- **Annotation overlay**: when the comment pane is closed (`#app` lacks `gutter-open`), the focused annotation's full card is shown in `#annotation-overlay` next to the text (flips above the anchor near the bottom). Only the focused annotation is shown; Esc or clicking elsewhere dismisses it, and opening the pane hides it. The overlay is rebuilt only when the annotation's JSON changes so a focused reply box survives. Raw mode has its own copy in `raw-annotations.ts`.
-- **Event handling**: use `mousedown + e.preventDefault()` on card buttons and the floating comment adder to preserve editor selection.
+How the cards behave, in the preview (native) and in source mode (still web, `raw-annotations.ts`: where it says `#raw-annotation-gutter`, `data-anchor-top` and so on):
+
+- **Pane layout**: the cards sit beside the text and scroll with it, because nothing in the page scrolls: the window's scroll view scrolls the text and the pane together (see "Scrolling" above). The pane takes 304 points (280 plus a 24 margin) of the width when open, and the text reflows.
+- **Card positioning**: a card sits at its anchor's top minus 4, in document order, and is pushed down by 6 points when it would overlap the one above (real heights, measured). Not found in the document: parked after the text, dimmed, "Not found in document".
+- **Focus indicator**: clicking annotated text (or ⌃J/⌃K) focuses an annotation; its card gets the accent border and its reply field. Clicking plain text clears it.
+- **Open card**: when the comments pane is closed, the focused annotation's full card is shown next to the text (flips above the anchor near the bottom of the visible area). Only the focused annotation is shown; Esc or clicking elsewhere dismisses it, and opening the pane puts it back in the pane. It is the same card view as in the pane, so a half-typed reply survives.
+- **Event handling**: the Comment button does not take the keyboard, so the selection in the page stays selected (in source mode: `mousedown + e.preventDefault()`).
 - **CSS `hidden` + `display: flex`**: explicit `display` values on elements override the UA stylesheet's `[hidden] { display: none }`. Always add `selector[hidden] { display: none }` for any element that uses both.
 

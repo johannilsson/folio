@@ -20,6 +20,11 @@ promise on the JS side.
 | `uiState` | `source: bool, comments: bool, pending: int` | `null`; the page's view toggles and its unresolved annotation count, mirrored by the native toolbar (the count is the comments icon's badge) |
 | `layout` | `height: number` | `null`; the page's full height in points, sent whenever it changes (see Scrolling) |
 | `reveal` | `top: number, bottom: number` | `null`; a rectangle of the page, in page coordinates, to bring into view (see Scrolling) |
+| `anchors` | `anchors: [{ id, from, top, bottom, left }]` | `null`; where each pending annotation starts in the preview (page coordinates; `from` is its place in the document), sent once anchoring has answered and whenever it changes |
+| `selection` | `selection: { from, to, top, bottom, endBottom, left, right, target, contextBefore } \| null` | `null`; the text selected in the preview, and the words an annotation on it is anchored by (see Annotations) |
+| `focus` | `id: string \| null` | `null`; the annotation clicked in the text, or null for a click on plain text |
+| `pointer` | | `null`; the reader pressed the mouse somewhere in the page, before the page acted on it |
+| `typing` | | `null`; the reader typed in the page |
 | `krokiUrl` | | string |
 | `anchor` | `text: string, items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]`, UTF-16 offsets into `text` |
 | `anchorRaw` | `items` as for `anchor` | same, offsets into the raw markdown |
@@ -67,6 +72,29 @@ Swift's half of the page API: `window.__folioViewport(height)` (the visible heig
 preview fills it), and `window.__folioRevealSelection()`, which Find calls after selecting a
 match. Scroll positions are kept natively as a fraction of the scrollable height, per file of a
 window and across the source/preview toggle; both layouts are re-measured as the page settles.
+
+## Annotations
+
+In the preview the page draws only the highlights and inline suggestions. The cards, the pane,
+the card that opens next to the text, the Comment button, the new-comment form, the toast and
+the shortcuts (⌃J/⌃K, ⌃↩, ⌃⌫, Esc, ⌘Z) are the app's (`macos/Sources/Folio/Annotations/`), and
+everything the reader does to an annotation is applied by `AnnotationStore` through libfolio
+(`folio_edit`, `folio_accept`) to the sidecar as it is on disk. The page tells the app what it
+needs with `anchors`, `selection`, `focus` and `pointer`; the cards sit in the same scrolling
+canvas as the text, so an anchor's `top` is where its card goes. Source mode still builds its
+own cards in the page (and uses `putFolio` and `accept`).
+
+The page API the app calls:
+
+- `window.__folioSetPending({from, to} | null)`: keep the text being commented on highlighted
+  while the form is open.
+- `window.__folioSelectAnnotation(id)`: put the caret at the start of an annotation.
+- `window.__folioFlush()`: save pending edits, so accepting patches the text on screen.
+- `window.__folioFlashAfterReload(text)`: flash `text` once the document reloads with it.
+
+Undo: the page has its own undo for typing and the window has no undo manager, so ⌘Z and
+Edit ▸ Undo/Redo go to the annotation actions while one of them is the latest thing the reader
+did in the page (`typing` marks the page's side), and to the page otherwise.
 
 ## Events (Swift to page)
 

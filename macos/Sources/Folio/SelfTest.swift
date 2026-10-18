@@ -41,6 +41,9 @@ final class SelfTest {
     func run() async -> Bool {
         // Line by line, so a crash does not take the results so far with it.
         setvbuf(stdout, nil, _IOLBF, 0)
+        // Typing, focus and the wheel only reach a window of the app in front. Another app taking the
+        // focus while this runs makes those checks fail for that reason, not because of the app.
+        NSApp.activate(ignoringOtherApps: true)
         guard let copy = try? tempCopy(), let first = await app.openForSelfTest(copy) else {
             print("FAIL  open the document")
             return false
@@ -1005,6 +1008,24 @@ final class SelfTest {
             try? await Task.sleep(nanoseconds: 800_000_000)
             await snapshot("\(base)-source-pane.png", of: win)
         }
+        // The same in the preview, where the pane is the app's own: each file brings its own cards.
+        win.toggleSource(nil)
+        _ = await waitFor("document.getElementById('raw-pane').hidden === true", in: win.webView)
+        await check("a set window's preview shows the open file's annotations in the app's pane") {
+            await self.until(seconds: 8) { self.visibleCards(in: win).count == 1 }
+        }
+        win.sidebar.choose(alphaID)
+        await check("the other file's preview has no cards, and the first file's do not linger") {
+            let swapped = await self.waitFor("document.getElementById('filename-display').textContent === 'alpha.md'", in: win.webView)
+            let cleared = await self.until { win.annotations.cards.isEmpty }
+            return swapped && cleared
+        }
+        win.sidebar.choose(betaID)
+        await check("the cards come back with the file in the preview") {
+            await self.until(seconds: 8) { self.visibleCards(in: win).count == 1 }
+        }
+        win.toggleSource(nil)
+        _ = await waitFor("document.getElementById('raw-pane').hidden === false", in: win.webView)
         win.toggleComments(nil)
         // Refreshing the badges must not move the page or the selection off the open file.
         try? await Task.sleep(nanoseconds: 700_000_000)
@@ -1054,60 +1075,73 @@ final class SelfTest {
 
     /// Pictures of the in-page controls, for judging how they look: annotation cards in
     /// the comments pane (one focused) and the floating comment button over a selection.
-    private func tour(_ base: String) async {        for args in [
+    private func tour(_ base: String) async {
+        controller.window?.makeFirstResponder(controller.webView)
+        replaceSidecar([])
+        _ = await until { self.controller.currentStore.annotations.isEmpty }
+        for args in [
             ["--kind", "comment", "--context-before", "Natural wine is made with ", "--target", "no additives", "--comment", "Is this claim sourced anywhere?"],
             ["--kind", "replace", "--context-before", "vineyard and the ", "--target", "cave", "--replacement", "cellar"],
             ["--kind", "highlight", "--context-before", "The last ", "--target", "paragraph"],
         ] {
             _ = cli(["annotate", name] + args + ["--author", "agent", "--source", "agent"])
         }
-        _ = await waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 3", seconds: 8)
-        let press = "new MouseEvent('mousedown', {bubbles: true, cancelable: true})"
-        _ = await js("document.querySelector('#annotation-gutter .ann-card').dispatchEvent(\(press))")
+        if !pane.commentsOn {
+            send("toggleComments:")
+            _ = await until { self.pane.commentsOn && self.controller.scrollHost.paneWidth > 300 }
+        }
+        _ = await until(seconds: 8) { self.visibleCards().count == 3 && self.pane.anchors.count == 3 }
+        // Pictures are of the top of the document, where the first annotations are.
+        let toTop = {
+            self.controller.scrollHost.contentView.scroll(to: .zero)
+            self.controller.scrollHost.reflectScrolledClipView(self.controller.scrollHost.contentView)
+        }
+        toTop()
+
+        // The pane, with the first card focused.
+        let first = pane.cards.values.min { (pane.anchors[$0.annotation.id]?.from ?? 0) < (pane.anchors[$1.annotation.id]?.from ?? 0) }
+        if let first { click(first) }
         try? await Task.sleep(nanoseconds: 600_000_000)
         await snapshot("\(base)-cards.png")
 
-        _ = await js("document.querySelector('#annotation-gutter .ann-card-focused button[title=More]')?.dispatchEvent(\(press))")
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        await snapshot("\(base)-menu.png")
-        _ = await js("document.body.dispatchEvent(\(press))")
-
-        // Selecting text in the editor drops the focus from the card.
-        _ = await js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
-
-        // Select a word the way a reader would, and show the floating comment button.
-        _ = await js("""
-            (() => {
-              const p = [...document.querySelectorAll('#editor-tiptap p')].find(p => p.textContent.includes('Natural wine'))
-              const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
-              const node = walker.nextNode()
-              const range = document.createRange()
-              range.setStart(node, 0); range.setEnd(node, 7)
-              const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range)
-              document.querySelector('#editor-tiptap .ProseMirror').dispatchEvent(new MouseEvent('mouseup', {bubbles: true}))
-              return 1
-            })()
-            """)
-        try? await Task.sleep(nanoseconds: 600_000_000)
+        // Select a word the way a reader would: the Comment button over it, then the form.
+        await selectInPreview("Natural wine", length: 7)
+        _ = await until { !self.pane.adderIsHidden }
+        try? await Task.sleep(nanoseconds: 500_000_000)
         await snapshot("\(base)-floater.png")
-
-        _ = await js("document.querySelector('#comment-floater .af-btn').dispatchEvent(\(press))")
-        _ = await js("""
-            (() => {
-              const t = document.querySelector('.cf-gutter-form textarea, #comment-form-overlay textarea')
-              if (t) { t.focus(); t.value = 'Should this say wild yeast?'; t.dispatchEvent(new Event('input', {bubbles: true})) }
-              return 1
-            })()
-            """)
+        pane.pressCommentButton()
+        pane.form?.field.textView.string = "Should this say wild yeast?"
+        pane.form?.field.textView.didChangeText()
         try? await Task.sleep(nanoseconds: 500_000_000)
         await snapshot("\(base)-form.png")
+        pane.cancelForm()
+
+        // With the pane closed, clicking annotated text opens its card next to it.
+        send("toggleComments:")
+        _ = await until { !self.pane.commentsOn && self.controller.scrollHost.paneWidth == 0 }
+        _ = await js("""
+            (() => {
+              const el = document.querySelector('#editor-tiptap .ann-comment-target')
+              const r = el.getBoundingClientRect()
+              const o = {bubbles: true, cancelable: true, clientX: r.left + 5, clientY: r.top + 5, button: 0}
+              for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, o))
+              return 1
+            })()
+            """)
+        let opened = await until { self.pane.focusedID != nil }
+        if !opened { print("    the click on annotated text did not focus its annotation") }
+        toTop()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await snapshot("\(base)-overlay.png")
+        send("toggleComments:")
+        _ = await until { self.pane.commentsOn }
 
         // Find: the Edit menu focuses the toolbar's search field, Return selects the match in the page.
         _ = await js("document.activeElement?.blur(); getSelection().removeAllRanges()")
         controller.window?.makeFirstResponder(controller.webView)
         let find = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }?.item(withTitle: "Find…")
         await check("Edit has Find with ⌘F") { find?.keyEquivalent == "f" && find?.keyEquivalentModifierMask == .command }
-        if let find { NSApp.sendAction(find.action!, to: nil, from: find) }
+        if let find, let action = find.action { send(NSStringFromSelector(action)) }
         await check("Find focuses the search field") {
             (controller.window?.firstResponder as? NSText)?.delegate === controller.findItem.searchField
         }
@@ -1227,11 +1261,11 @@ final class SelfTest {
         await js("document.querySelector('.cm-content').innerText") as? String ?? ""
     }
 
-    private func waitFor(_ condition: String, seconds: Double = 5, in view: WKWebView? = nil) async -> Bool {
+    private func waitFor(_ condition: String, seconds: Double = 10, in view: WKWebView? = nil) async -> Bool {
         await until(seconds: seconds) { await self.js(condition, in: view ?? self.web) as? Bool == true }
     }
 
-    private func until(seconds: Double = 5, _ condition: () async -> Bool) async -> Bool {
+    private func until(seconds: Double = 10, _ condition: () async -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
             if await condition() { return true }

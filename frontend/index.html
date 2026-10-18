@@ -221,12 +221,11 @@
     html.native-chrome #raw-pane { min-width: 0; overflow-x: clip; overflow-y: visible; }
     html.native-chrome .tiptap .tableWrapper { overflow-x: auto; }
 
-    /* The comments pane slides in and out like the window's sidebar, instead of appearing.
-       The cards keep a fixed width, so only the pane's own width animates and nothing
-       inside re-wraps; closed, it is zero wide, hidden once it has finished closing. */
-    html.native-chrome #annotation-gutter,
+    /* The source view's comments pane slides in and out like the window's sidebar, instead of
+       appearing. (The preview's pane is the app's own.) The cards keep a fixed width, so only the
+       pane's own width animates and nothing inside re-wraps; closed, it is zero wide, hidden
+       once it has finished closing. */
     html.native-chrome #raw-annotation-gutter,
-    html.native-chrome #app:not(.gutter-open) #annotation-gutter,
     html.native-chrome #app:not(.gutter-open) #raw-annotation-gutter {
       display: block;
       overflow: hidden;
@@ -234,7 +233,6 @@
       transition: width 0.25s cubic-bezier(0.42, 0, 0.58, 1), margin-right 0.25s cubic-bezier(0.42, 0, 0.58, 1),
                   visibility 0s;
     }
-    html.native-chrome #app:not(.gutter-open) #annotation-gutter,
     html.native-chrome #app:not(.gutter-open) #raw-annotation-gutter {
       width: 0;
       margin-right: 0;
@@ -671,16 +669,15 @@
       border-radius: 3px;
     }
 
-    /* ── Annotation gutter (scrolls with document) ── */
+    /* ── Source view's annotation gutter (scrolls with document) ── */
 
-    #annotation-gutter, #raw-annotation-gutter {
+    #raw-annotation-gutter {
       width: 280px;
       flex-shrink: 0;
       position: relative;
       pointer-events: none;
       margin-right: 1.5rem;
     }
-    #app:not(.gutter-open) #annotation-gutter,
     #app:not(.gutter-open) #raw-annotation-gutter { display: none; }
 
     /* ── Gutter cards ── */
