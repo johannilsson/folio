@@ -2,7 +2,7 @@
 # Registers the "natural-wine" sample set (demo.md plus the two files next to this
 # script) and seeds a few annotations so the sidebar shows pending badges.
 #
-#   demo-set/setup.sh && target/debug/folio serve --set natural-wine
+#   demo-set/setup.sh && target/debug/folio open --set natural-wine
 #
 # Set FOLIO_CONFIG_DIR to keep the set out of ~/.config/folio, FOLIO to use another
 # binary. Annotations are only seeded for files that have no sidecar yet.

@@ -1,6 +1,6 @@
 # Folio for macOS
 
-A native shell around the same editor bundle the browser uses: AppKit windows (one per
+A native shell around the editor bundle: AppKit windows (one per
 markdown file, via `NSDocument`) hosting `frontend/dist` in a `WKWebView` at `folio://app/`.
 The Rust core (anchoring, accept) is linked as `libfolio.a`. The bridge between page and
 Swift is in [BRIDGE.md](BRIDGE.md).
@@ -8,8 +8,8 @@ Swift is in [BRIDGE.md](BRIDGE.md).
 ## Run
 
 ```bash
-(cd frontend && pnpm build)                      # the bundle the app serves
-FOLIO_SKIP_FRONTEND_BUILD=1 cargo build --release  # libfolio.a
+(cd frontend && pnpm build)   # the bundle the app serves
+cargo build --release         # libfolio.a
 swift run --package-path macos Folio notes.md
 ```
 
@@ -39,7 +39,7 @@ its files (grouped by repo, with a badge for unresolved annotations) beside the 
 ## Test
 
 ```bash
-FOLIO_SKIP_FRONTEND_BUILD=1 cargo build                      # the `folio` CLI the test drives
+cargo build                                                  # the `folio` CLI the test drives
 swift build --package-path macos
 macos/.build/debug/Folio --self-test macos/selftest.md       # exits 0 when every check passes
 ```

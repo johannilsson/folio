@@ -9,7 +9,7 @@ Apply these principles during every step execution to keep changes focused and s
 
 ## Project Overview
 
-Folio is a local markdown editor and annotation review tool. A Rust/Axum binary serves a Vite + Tiptap 3 SPA embedded via rust-embed. Agents write annotations to a `.folio` sidecar file; humans review them in the browser, in the native macOS app (`macos/`, a Swift shell around the same editor), or via CLI.
+Folio is a local markdown editor and annotation review tool for macOS. The app (`macos/`) is a Swift shell around a Vite + Tiptap 3 SPA; the Rust crate is the CLI and the engine (anchoring, accept, sets) the app links as a static library. Agents write annotations to a `.folio` sidecar file with the CLI; humans review them in the app. There is no browser or server mode.
 
 **Core constraint:** The markdown source file is always clean. Annotations live exclusively in the `.folio` sidecar — never embedded in the `.md` file.
 
@@ -19,18 +19,10 @@ Folio is a local markdown editor and annotation review tool. A Rust/Axum binary 
 # Frontend
 cd frontend && pnpm install && pnpm build
 
-# Rust binary (skip frontend rebuild)
-FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
-
-# After frontend-only changes (index.html, *.ts, *.css):
-# MUST run pnpm build first — rust-embed embeds from dist/, not the source files.
-# Skipping pnpm build causes the binary to re-embed stale dist/ output.
-cd frontend && pnpm build && cd .. && touch src/main.rs && FOLIO_SKIP_FRONTEND_BUILD=1 cargo build
-
-# Full build (build.rs runs pnpm install + build automatically)
+# Rust CLI
 cargo build
 
-# macOS app: needs the frontend build and a *release* libfolio.a (the app links it).
+# macOS app: needs the frontend build (the app reads frontend/dist) and a *release* libfolio.a (the app links it).
 # A stale libfolio.a shows up only as a bare "linker command failed" from swift build.
 cargo build --release && swift build --package-path macos
 macos/scripts/bundle.sh   # -> macos/build/Folio.app
@@ -45,19 +37,15 @@ cargo test
 # Frontend unit tests (findAnchor)
 cd frontend && pnpm test
 
-# Browser e2e (Playwright; starts its own servers against temp copies of e2e/fixture.md:
-# :7391 single file, :7392 a two-file set for multi-file.spec.ts)
-cd frontend && pnpm e2e
-
 # macOS app: drives the real app against throwaway copies and the real CLI (needs a desktop session)
 macos/.build/debug/Folio --self-test macos/selftest.md
 
-# Everything: frontend build, cargo build/test, unit tests, e2e, and on macOS the app build + self-test
-# (--skip-e2e / --skip-macos to leave a part out)
+# Everything: frontend build, cargo build/test, unit tests, and on macOS the app build + self-test
+# (--skip-macos to leave that part out)
 ./scripts/verify.sh
 ```
 
-Run `./scripts/verify.sh` after UI changes to confirm them in a real browser. Add a spec in `frontend/e2e/` for new UI behaviour instead of writing throwaway scripts. The browser boots in source (CM6) mode (the macOS app opens in preview); click `#view-toggle-btn` for preview. Floater/overlay ids exist in both modes, so scope selectors to `#editor-wrapper` or `#raw-editor-wrapper`.
+Run `./scripts/verify.sh` after UI changes to confirm them in the real app. Add a check to the self-test for new UI behaviour instead of writing throwaway scripts. The app opens in preview; the View menu switches to the source (CM6) editor. Floater/overlay ids exist in both modes, so scope selectors to `#editor-wrapper` or `#raw-editor-wrapper`.
 
 Passing tests have not been enough here: source-mode typing "worked" while the editor was hidden, and a sidebar refresh bounced the page to the first file with every check green. For UI changes, assert what is visible, not just the DOM, and look at a picture of the result (the self-test saves window pictures with `FOLIO_SNAPSHOT=<base>`).
 
@@ -65,29 +53,25 @@ Passing tests have not been enough here: source-mode typing "worked" while the e
 
 ### Backend (`src/`)
 
-- `main.rs` — CLI entry point (clap); the modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use
+- `main.rs` — CLI entry point (clap); the modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use. `cargo build` does not touch the frontend.
 - `ffi.rs` — C API over anchoring, accept, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
-- `server.rs` — Axum router, rust-embed asset serving, AppState
-- `watcher.rs` — notify → tokio broadcast → WebSocket events
 - `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), git-root detection, per-root sidecar paths
-- `commands/mod.rs` — `folio_path` / `lock_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (same rule as sets and the app, via `set::detect_root`)
+- `commands/mod.rs` — `folio_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (same rule as sets and the app, via `set::detect_root`)
 - `commands/set.rs` — `folio set add / rm / list`
 - `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app
-- `commands/serve.rs` — lock file, port binding, graceful shutdown; serves one file or a set (`--set`)
 - `commands/accept.rs` — anchoring + reverse-order patch application
 
 ### Frontend (`frontend/src/`)
 
-- `main.ts` — boot: fetches file + sidecar, wires WebSocket events
+- `main.ts` — boot: fetches file + sidecar through the bridge, wires the file-changed events
 - `editor.ts` — Tiptap 3 editor (StarterKit + @tiptap/markdown)
 - `annotations.ts` — ProseMirror plugin: inline decorations, scrollable gutter cards, floating comment adder
 - `diagrams.ts` — Tiptap NodeView extension: renders `mermaid` and `plantuml` code blocks as diagrams
-- `api.ts` — fetch wrappers + `Annotation`/`Sidecar` TypeScript types; file-scoped calls append `?file=<id>` from the page URL
-- `file-menu.ts` — the title pill becomes a menu (floating card, annotation-card style) of the set's files with pending badges; only when the server serves more than one file
-- File switching happens in `main.ts` (`switchFile`): in place, no reload. The preview editor is destroyed and recreated (`destroyEditor`), the CM6 state is replaced (`resetRawEditor`), and annotation state is reset (`resetAnnotationState`, `resetRawAnnotationState`) so undo history and anchors never leak between files. The URL is kept in sync with `history.pushState` / `popstate`.
-- `websocket.ts` — WebSocket client with typed event subscriptions
-- `bridge.ts` — detects the macOS app's script message handler; `api.ts` and `websocket.ts` use it instead of `fetch`/WebSocket when present (events arrive through `window.__folioEmit`)
+- `api.ts` — bridge-call wrappers + `Annotation`/`Sidecar` TypeScript types; file-scoped calls carry the active file id (from `?file=<id>` on the page URL, then `setActiveFile`)
+- File switching happens in `main.ts` (`switchFile`), called by the app's sidebar through `window.__folioSwitchFile`: in place, no reload. The preview editor is destroyed and recreated (`destroyEditor`), the CM6 state is replaced (`resetRawEditor`), and annotation state is reset (`resetAnnotationState`, `resetRawAnnotationState`) so undo history and anchors never leak between files.
+- `websocket.ts` — typed event subscriptions (`md:changed`, `folio:changed`); events arrive through `window.__folioEmit`, called by Swift's file watchers (the name predates the removal of the server)
+- `bridge.ts` — the macOS app's script message handler; `api.ts` sends every backend call through it
 
 ## macOS app (`macos/`)
 
@@ -95,8 +79,8 @@ A SwiftPM package: AppKit windows hosting `frontend/dist` in a `WKWebView` at `f
 
 - `FolioDocument` is one `NSDocument` per file; `SetWindowController` is a window for a set (sidebar + editor; the sidebar switches files by calling `window.__folioSwitchFile(id)` in the page); both build on `EditorWindowController` (web view, toolbar, navigation). `Bridge` answers the page's ops per file id through a `Workspace`; `Document` does the file IO and polls for changes (polling, not FSEvents: atomic saves swap the inode).
 - Anchoring and accept run in Rust through `Rust.swift` → `ffi.rs`; do not reimplement them in Swift.
-- **A bridge op lives in three places**: `Bridge.swift`, the mock in `frontend/e2e/fixtures.ts` (the Playwright "bridge" project runs every spec through it), and `macos/BRIDGE.md`. Change all three together.
-- **Native-only styling goes under `html.native-chrome`** (the scheme handler adds the class to `index.html`), so the browser look is unchanged. Chrome follows the system (accent color, system toolbar items, Finder-style sidebar selection); Folio's own purple is for content (annotations, selection, avatars).
+- **A bridge op lives in two places**: `Bridge.swift` and `macos/BRIDGE.md`. Change both together.
+- **App-chrome styling goes under `html.native-chrome`** (the scheme handler adds the class to `index.html`). Chrome follows the system (accent color, system toolbar items, Finder-style sidebar selection); Folio's own purple is for content (annotations, selection, avatars).
 - A set window has a full-height sidebar like Finder or Preview: `.fullSizeContentView`, an `NSSplitViewController`, and a toolbar installed *after* the split view exists, with `.toggleSidebar` and an `NSTrackingSeparatorToolbarItem`. Do not give that window an intermediate `contentView` first: the replacement ends up above the title bar and hides the traffic lights and toolbar, which no check notices (the self-test asserts the order).
 - Toolbar glyphs are drawn at a fixed size whatever symbol configuration you give them; choose a symbol, not a size.
 - The self-test (`SelfTest.swift`) is the regression suite for the app; add a check there for new app behaviour. Pictures for judging looks come from `FOLIO_SNAPSHOT`; the README screenshot from `scripts/readme-screenshot.sh`.

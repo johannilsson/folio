@@ -13,8 +13,7 @@ Folio is a local markdown editor built for review. An agent reads a document and
 ## Ways to use it
 
 - **macOS app.** A native window for each document, or for a whole set of files with a sidebar. It opens in a WYSIWYG preview, with a source view one click away. `folio open <file>` launches it from the terminal. See [macos/README.md](macos/README.md).
-- **Browser.** `folio serve <file>` runs the same editor from a local server. The way to use Folio on platforms other than macOS.
-- **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent. `folio --help` lists everything.
+- **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
 - **Sets.** Group files from different folders or repositories under a name (`folio set`) and review them together, with a pending count per file.
 
 Fenced `mermaid` and `plantuml` blocks render as diagrams, and tables are editable.
@@ -22,7 +21,7 @@ Fenced `mermaid` and `plantuml` blocks render as diagrams, and tables are editab
 ## Using it with an agent
 
 1. **Ask your agent to review a file.** For example: *"Review docs/spec.md for clarity and annotate it with Folio."* The agent reads the markdown and writes annotations to its sidecar. It never edits the `.md` itself.
-2. **Open the document** in the app or the browser. Annotations appear as highlights in the text and as cards in the comments pane, and update live while the agent works.
+2. **Open the document** in the app. Annotations appear as highlights in the text and as cards in the comments pane, and update live while the agent works.
 3. **Triage.** Accept a replacement, deletion or insertion to apply it to the file, reject it to discard it, or dismiss a comment. You can reply on any card to start a thread.
 4. **Hand it back.** Replies and resolved annotations are stored in the same sidecar, so the agent can read your answers and continue where you left off.
 
@@ -44,4 +43,4 @@ Every annotation records who wrote it (`local`, `agent`, or an imported review s
 
 ## Build
 
-Folio needs Rust and Node with pnpm. A plain `cargo build` builds the frontend and the `folio` binary. The macOS app is a Swift package built on top of that; [macos/README.md](macos/README.md) has the steps. `scripts/verify.sh` builds everything and runs all the tests.
+Folio needs Rust, and Node with pnpm for the app's editor. `cargo build` builds the `folio` command-line tool. The macOS app is a Swift package built on top of that and of the frontend; [macos/README.md](macos/README.md) has the steps. `scripts/verify.sh` builds everything and runs all the tests.

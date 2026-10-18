@@ -6,8 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 (cd frontend && pnpm build)
-touch src/main.rs
-FOLIO_SKIP_FRONTEND_BUILD=1 cargo build --release
+cargo build --release
 # SwiftPM does not relink when only libfolio.a changed, which ships stale Rust code.
 rm -f macos/.build/release/Folio
 swift build -c release --package-path macos
