@@ -53,15 +53,6 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 "set": workspace.setName ?? NSNull(),
                 "plantumlUrl": "https://www.plantuml.com/plantuml",
             ] as [String: Any]
-        case "files":
-            return workspace.entries.map { entry in
-                [
-                    "id": entry.document.id,
-                    "name": entry.name,
-                    "group": entry.group,
-                    "pending": entry.document.pendingCount(),
-                ] as [String: Any]
-            }
         case "uiState":
             onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false, body["pending"] as? Int ?? 0)
             return NSNull()
@@ -81,7 +72,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             guard let text = body["body"] as? String else { throw RustError(description: "putFolio: no body") }
             let document = try target(body)
             try document.writeSidecar(text)
-            // Like the server: tell the page its own write landed (it recognises the echo).
+            // Tell the page its own write landed (it recognises the echo).
             document.onEvent?("folio:changed")
             return NSNull()
 

@@ -1,13 +1,12 @@
 import { on } from './websocket'
 import { runPendingFlash } from './feedback'
-import { call, native } from './bridge'
+import { call } from './bridge'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
 import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, getSidecar, onSidecarUpdate } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
-import { initFileMenu, refreshFileMenu, setCurrentFile } from './file-menu'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -78,9 +77,6 @@ async function boot(): Promise<void> {
     if (!rawPane.hidden && !isEcho) refreshRawAnnotations()
   }))
 
-  // Any file's annotations changing moves its badge in the file menu.
-  on('folio:changed', () => { void refreshFileMenu() })
-
   // Follow OS color scheme for mermaid diagrams
   const colorScheme = window.matchMedia('(prefers-color-scheme: light)')
   setMermaidTheme(colorScheme.matches ? 'default' : 'dark')
@@ -93,7 +89,6 @@ async function boot(): Promise<void> {
 
   // The native app's toolbar mirrors the source and comments toggles.
   function reportUiState() {
-    if (!native) return
     const comments = document.getElementById('app')!.classList.contains('gutter-open')
     const pending = getSidecar().annotations.filter(a => !a.resolved).length
     void call('uiState', { source: !rawPane.hidden, comments, pending }).catch(console.error)
@@ -154,8 +149,8 @@ async function boot(): Promise<void> {
 
   viewBtn.addEventListener('click', () => (rawPane.hidden ? showSource() : showPreview()))
 
-  // The macOS app opens in the WYSIWYG preview; the browser keeps the source editor as its default.
-  if (document.documentElement.classList.contains('native-chrome')) showPreview()
+  // The app opens in the WYSIWYG preview.
+  showPreview()
 
   // Comments pane: closed by default, toggled with the bubble button
   const appEl = document.getElementById('app')!
@@ -186,7 +181,7 @@ async function boot(): Promise<void> {
   // lands where the reader left off. Kept for this page session only.
   const scrollFractions = new Map<string, number>()
   const visibleWrapper = () => (rawPane.hidden ? editorWrapper : getRawWrapperEl())
-  async function switchFile(id: string, push = true): Promise<void> {
+  async function switchFile(id: string): Promise<void> {
     if (id === currentId || switching) return
     switching = true
     const previous = currentId
@@ -219,8 +214,6 @@ async function boot(): Promise<void> {
         if (el && currentId === id) el.scrollTop = fraction * (el.scrollHeight - el.clientHeight)
       }))
       showFilename(nextInfo.filename)
-      setCurrentFile(id)
-      if (push) history.pushState(null, '', `/?file=${encodeURIComponent(id)}`)
       if (!rawPane.hidden) refreshRawAnnotations()
       scheduleGutterRebuild()
     } finally {
@@ -228,21 +221,8 @@ async function boot(): Promise<void> {
     }
   }
 
-  // In the native app the window's sidebar picks the file; there is no in-page menu to do it.
-  if (native) {
-    ;(window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile =
-      id => switchFile(id, false)
-  }
-
-  const isMultiFile = await initFileMenu(info.id, info.set, id => { void switchFile(id).catch(console.error) })
-  if (isMultiFile) {
-    // Make the address bar name the current file, so back/forward can return to it.
-    history.replaceState(null, '', `/?file=${encodeURIComponent(info.id)}`)
-    window.addEventListener('popstate', () => {
-      const id = new URLSearchParams(location.search).get('file')
-      if (id) void switchFile(id, false).catch(console.error)
-    })
-  }
+  // The window's sidebar picks the file; there is no in-page menu to do it.
+  ;(window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile = switchFile
 }
 
 boot().catch(console.error)

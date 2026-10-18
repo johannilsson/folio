@@ -1,7 +1,5 @@
-import { native } from './bridge'
-
 type EventType ='md:changed' | 'folio:changed'
-// `file` is the id of the document the event is about (see /api/files).
+// `file` is the id of the document the event is about.
 type Handler = (file: string | undefined) => void
 
 const handlers: Map<EventType, Set<Handler>> = new Map()
@@ -19,30 +17,6 @@ function dispatch(event: EventType, file: string | undefined): void {
   handlers.get(event)?.forEach(h => h(file))
 }
 
-function connect(): void {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const ws = new WebSocket(`${proto}//${location.host}/ws`)
-
-  ws.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data as string)
-      if (msg.type === 'md:changed' || msg.type === 'folio:changed') {
-        dispatch(msg.type, msg.file)
-      }
-    } catch {
-      // ignore malformed messages
-    }
-  }
-
-  ws.onclose = () => {
-    setTimeout(connect, 2000)
-  }
-}
-
-if (native) {
-  // No socket in the native app: Swift's file watchers call this instead.
-  ;(window as unknown as { __folioEmit: (type: EventType, file?: string) => void }).__folioEmit =
-    (type, file) => dispatch(type, file)
-} else {
-  connect()
-}
+// Swift's file watchers call this when a file or its sidecar changes on disk.
+;(window as unknown as { __folioEmit: (type: EventType, file?: string) => void }).__folioEmit =
+  (type, file) => dispatch(type, file)

@@ -2,13 +2,12 @@ import Foundation
 import UniformTypeIdentifiers
 import WebKit
 
-/// Serves the built frontend (`frontend/dist`) under `folio://app/`, replacing the
-/// rust-embed asset routes of the HTTP server.
+/// Serves the built frontend (`frontend/dist`) under `folio://app/`.
 final class SchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "folio"
     static let entryURL = URL(string: "folio://app/index.html")!
 
-    /// The page opened on a given file of a set (`?file=<id>`, as in the browser).
+    /// The page opened on a given file of a set (`?file=<id>`).
     static func entryURL(file id: String) -> URL {
         var components = URLComponents(url: entryURL, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "file", value: id)]

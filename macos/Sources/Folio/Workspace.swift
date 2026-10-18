@@ -41,7 +41,7 @@ final class Workspace {
 
     var documents: [Document] { entries.map(\.document) }
 
-    /// The file for a page's `file` id; no id means the first, as with `folio serve`.
+    /// The file for a page's `file` id; no id means the first.
     func document(id: String?) -> Document? {
         guard let id else { return entries.first?.document }
         return entries.first { $0.document.id == id }?.document

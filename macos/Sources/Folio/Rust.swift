@@ -5,8 +5,7 @@ struct RustError: Error, CustomStringConvertible {
     let description: String
 }
 
-/// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI and
-/// the HTTP server use.
+/// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI uses.
 enum Rust {
     static func sidecarPath(for file: String) throws -> String {
         try take(folio_sidecar_path(file))

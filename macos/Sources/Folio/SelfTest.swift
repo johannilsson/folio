@@ -437,7 +437,7 @@ final class SelfTest {
             await self.waitFor("!!document.querySelector('.cm-content') && document.getElementById('raw-pane').hidden === false", in: win.webView)
         }
         await check("the bridge answers for the set's files") {
-            await self.until { win.bridge.count("files") > 0 && win.bridge.count("getFile") > 0 }
+            await self.until { win.bridge.count("info") > 0 && win.bridge.count("getFile") > 0 }
         }
 
         // Picking a file in the sidebar swaps the document in place.

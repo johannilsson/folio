@@ -1,9 +1,9 @@
 import Foundation
 
 /// One markdown file and its `.folio` sidecar: the file IO behind the bridge, and the
-/// change detection that replaces watcher.rs.
+/// change detection.
 final class Document {
-    /// The id a window with a single file uses, like `folio serve` on one file.
+    /// The id a window with a single file uses.
     static let singleID = "main"
     static let emptySidecar = #"{"version":1,"annotations":[]}"#
 
@@ -75,7 +75,7 @@ final class Document {
 
     /// Polls rather than using FSEvents or a vnode source: those follow an inode and go
     /// quiet after an atomic save (write temp, rename), which is how agents and most
-    /// editors write. Same reasoning and interval as watcher.rs.
+    /// editors write.
     func startWatching() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in self?.poll() }
     }

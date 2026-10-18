@@ -34,10 +34,6 @@ jobs:
         working-directory: frontend
         run: pnpm dedupe --check
 
-      - name: Install Playwright browser
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
-
-      # Frontend build, cargo build/test, unit tests and e2e; the macOS app steps only run on macOS.
+      # Frontend build, cargo build/test and unit tests; the macOS app steps only run on macOS.
       - name: Verify
         run: ./scripts/verify.sh

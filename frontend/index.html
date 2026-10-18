@@ -197,7 +197,7 @@
        The macOS app adds class native-chrome to <html>. The window then supplies the
        title and the source/comments toolbar, so the floating pills go (the read-only
        notice stays) and the text can start higher. */
-    html.native-chrome #file-menu-btn,
+    html.native-chrome #filename-display,
     html.native-chrome .float-pill-group { display: none; }
     html.native-chrome #title-pill:not(:has(#preview-readonly-notice:not([hidden]))) { display: none; }
     html.native-chrome #editor-tiptap .tiptap { padding-top: 1rem; }
@@ -301,95 +301,6 @@
     html.native-chrome .ann-send-btn { width: 20px; height: 20px; right: 4px; bottom: 4px; }
     html.native-chrome .ann-send-btn svg { width: 11px; height: 11px; }
     html.native-chrome .ann-send-btn.ready { background: AccentColor; color: AccentColorText; }
-
-    /* ── File menu (multi-file sets only) ──
-       The title pill opens a floating card styled like the annotation overlay:
-       a --bg shell with the float shadow around a --card-tint card (no focus border). */
-
-    #file-menu-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-      cursor: default;
-    }
-    #title-pill.has-menu #file-menu-btn { cursor: pointer; }
-    #title-pill.has-menu:hover { background: var(--chip-bg); }
-    #file-menu-btn svg { display: none; width: 13px; height: 13px; color: var(--text-2); }
-    #title-pill.has-menu #file-menu-btn svg { display: block; }
-
-    #file-menu {
-      position: absolute;
-      top: 48px;
-      left: 32px;
-      z-index: 25;
-      width: 280px;
-      max-height: calc(100vh - 72px);
-      overflow-y: auto;
-      border-radius: 12px;
-      background: var(--bg);
-      box-shadow: var(--float-shadow);
-    }
-    #file-menu[hidden] { display: none; }
-
-    .fm-card {
-      background: var(--card-tint);
-      border-radius: 12px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .fm-title {
-      margin-bottom: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--card-author);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .fm-group {
-      margin-top: 8px;
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text-3);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .fm-title + .fm-group { margin-top: 4px; }
-    .fm-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 5px 8px;
-      margin: 0 -8px;
-      border-radius: 6px;
-      font-size: 12px;
-      color: var(--card-body);
-      text-decoration: none;
-    }
-    .fm-item:hover { background: var(--af-hover); color: var(--af-text); }
-    .fm-item.current { background: var(--chip-bg); color: var(--af-text); }
-    .fm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fm-badge {
-      flex: none;
-      min-width: 18px;
-      padding: 0 5px;
-      border-radius: 9px;
-      background: var(--ann-com-bg);
-      color: var(--af-text);
-      font-size: 11px;
-      line-height: 18px;
-      text-align: center;
-    }
-    .fm-badge[hidden] { display: none; }
 
     /* ── WYSIWYG area: editor + gutter side by side, scrolling together ── */
 
@@ -1323,10 +1234,7 @@
     <div id="editor-pane">
       <div id="editor-toolbar">
         <div class="float-pill" id="title-pill">
-          <button id="file-menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="file-menu">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
-            <span id="filename-display"></span>
-          </button>
+          <span id="filename-display"></span>
           <span id="preview-readonly-notice" hidden>Read-only preview</span>
         </div>
         <div class="float-pill-group">
@@ -1340,7 +1248,6 @@
           </div>
         </div>
       </div>
-      <nav id="file-menu" aria-label="Files" hidden></nav>
       <div id="editor-wrapper" hidden>
         <div id="editor-tiptap"></div>
       </div>
