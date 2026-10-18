@@ -460,10 +460,15 @@ final class SelfTest {
 
         // Scroll position comes back when a file is shown again, and a new file starts at the top.
         let scroller = "document.getElementById('raw-editor-wrapper')"
-        _ = await self.waitFor("\(scroller).scrollHeight - \(scroller).clientHeight > 1600", seconds: 8, in: win.webView)
-        _ = await page("\(scroller).scrollTop = 1500")
-        let scrolled = await page("\(scroller).scrollTop") as? Double ?? 0
-        await check("the long file scrolled") { scrolled > 1000 }
+        // Retried until it holds: the document may not have its full height yet right after a build.
+        var scrolled = 0.0
+        await check("the long file scrolled") {
+            await self.until(seconds: 15) {
+                _ = await page("\(scroller).scrollTop = 1500")
+                scrolled = await page("\(scroller).scrollTop") as? Double ?? 0
+                return scrolled > 1000
+            }
+        }
         win.sidebar.choose(alphaID)
         _ = await until { await filename() == "alpha.md" }
         await check("another file starts at the top") {
