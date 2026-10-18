@@ -27,6 +27,15 @@ enum Rust {
         return (obj["doc"] as? String, sidecar)
     }
 
+    /// Applies one editor action (see src/edit.rs) to the sidecar text. Returns the new
+    /// sidecar text and the id of the annotation or reply the action created.
+    static func edit(sidecarJSON: String, edit: [String: Any]) throws -> (sidecar: String, id: String?) {
+        let body = String(decoding: try JSONSerialization.data(withJSONObject: edit), as: UTF8.self)
+        let out = try object(folio_edit(sidecarJSON, body))
+        guard let sidecar = out["sidecar"] as? String else { throw RustError(description: "unexpected edit result") }
+        return (sidecar, out["id"] as? String)
+    }
+
     // MARK: sets
 
     struct SetFile {

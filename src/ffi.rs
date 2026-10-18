@@ -70,6 +70,16 @@ fn accept_json(doc: &str, sidecar_json: &str, id: &str) -> Result<String, String
     Ok(json!({ "doc": new_doc, "sidecar": sidecar_out }).to_string())
 }
 
+/// Apply one editor action (see `edit::Edit`) to a sidecar. Returns the new sidecar
+/// (serialized exactly as `Sidecar::save` writes it) and the id of what the action created.
+fn edit_json(sidecar_json: &str, edit_json: &str) -> Result<String, String> {
+    let sidecar: Sidecar = serde_json::from_str(sidecar_json).map_err(|e| e.to_string())?;
+    let edit: crate::edit::Edit = serde_json::from_str(edit_json).map_err(|e| e.to_string())?;
+    let edited = crate::edit::apply(sidecar, edit)?;
+    let sidecar_out = serde_json::to_string_pretty(&edited.sidecar).map_err(|e| e.to_string())?;
+    Ok(json!({ "sidecar": sidecar_out, "id": edited.id }).to_string())
+}
+
 /// Where the sidecar for `file` lives: `<git root or file's folder>/.folio/<relative path>.folio`.
 fn sidecar_path(file: &str) -> String {
     let file = Path::new(file);
@@ -157,6 +167,15 @@ pub unsafe extern "C" fn folio_anchor(doc: *const c_char, items_json: *const c_c
 #[no_mangle]
 pub unsafe extern "C" fn folio_accept(doc: *const c_char, sidecar_json: *const c_char, id: *const c_char) -> *mut c_char {
     finish((|| accept_json(arg(doc)?, arg(sidecar_json)?, arg(id)?))())
+}
+
+/// Returns `{"sidecar": <string>, "id": <string|null>}` or `{"error": ...}`. Free with `folio_free`.
+///
+/// # Safety
+/// Both arguments must be valid NUL-terminated UTF-8 strings.
+#[no_mangle]
+pub unsafe extern "C" fn folio_edit(sidecar_json: *const c_char, edit_json_arg: *const c_char) -> *mut c_char {
+    finish((|| edit_json(arg(sidecar_json)?, arg(edit_json_arg)?))())
 }
 
 /// Returns the sidecar path as a plain string, or `{"error": ...}`. Free with `folio_free`.
@@ -283,6 +302,21 @@ mod tests {
         assert!(accept_json(DOC, &sc, "missing").unwrap_err().contains("no pending"));
         let unanchored = sc.replace("fox", "wolf");
         assert!(accept_json(DOC, &unanchored, "x1").unwrap_err().contains("anchoring failed"));
+    }
+
+    #[test]
+    fn edit_returns_the_sidecar_as_save_writes_it_and_the_new_id() {
+        let sc = sidecar_with("comment", r#","target":"fox","comment":"hm""#);
+        let add = r#"{"op":"add_comment","context_before":"The quick ","target":"brown","comment":"n","author":"me","source":"local"}"#;
+        let out: Value = serde_json::from_str(&edit_json(&sc, add).unwrap()).unwrap();
+        let saved: Sidecar = serde_json::from_str(out["sidecar"].as_str().unwrap()).unwrap();
+        assert_eq!(saved.annotations.len(), 2);
+        assert_eq!(out["id"], saved.annotations[1].id.as_str());
+        assert_eq!(out["sidecar"].as_str().unwrap(), serde_json::to_string_pretty(&saved).unwrap());
+        // An action that creates nothing has a null id; a bad one is an error.
+        let resolved: Value = serde_json::from_str(&edit_json(&sc, r#"{"op":"resolve","id":"x1"}"#).unwrap()).unwrap();
+        assert!(resolved["id"].is_null());
+        assert!(edit_json(&sc, r#"{"op":"resolve","id":"nope"}"#).unwrap_err().contains("no annotation"));
     }
 
     #[test]

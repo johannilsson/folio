@@ -13,6 +13,11 @@ char *folio_anchor(const char *doc, const char *items_json, bool raw);
 /* {"doc": <patched markdown or null>, "sidecar": <sidecar JSON as the CLI writes it>} */
 char *folio_accept(const char *doc, const char *sidecar_json, const char *id);
 
+/* Applies one editor action to a sidecar: {"op": "resolve" | "restore" | "add_comment" | "remove" |
+   "reply" | "edit_comment", ...} (src/edit.rs).
+   {"sidecar": <sidecar JSON as the CLI writes it>, "id": <id of the new annotation or reply, or null>} */
+char *folio_edit(const char *sidecar_json, const char *edit_json);
+
 /* <git root or file's folder>/.folio/<relative path>.folio, as a plain string. */
 char *folio_sidecar_path(const char *file);
 
