@@ -206,6 +206,17 @@
     html.native-chrome #raw-editor-mount { padding-top: 0; }
     html.native-chrome #raw-pane .cm-content { padding-top: 1rem; }
 
+    /* The window's scroll view scrolls the page, which lays itself out at its full height
+       (src/layout.ts reports it). No box in the page scrolls; a short preview still fills
+       the window, so a click below the text lands in the editor. */
+    html.native-chrome, html.native-chrome body { height: auto; overflow: visible; }
+    html.native-chrome #app { height: auto; }
+    html.native-chrome #editor-pane,
+    html.native-chrome #raw-pane,
+    html.native-chrome #editor-wrapper,
+    html.native-chrome #raw-editor-wrapper { overflow: visible; }
+    html.native-chrome #editor-tiptap .tiptap { min-height: var(--viewport-h, 0px); }
+
     /* The comments pane slides in and out like the window's sidebar, instead of appearing.
        The cards keep a fixed width, so only the pane's own width animates and nothing
        inside re-wraps; closed, it is zero wide, hidden once it has finished closing. */

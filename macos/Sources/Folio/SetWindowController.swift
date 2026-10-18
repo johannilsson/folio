@@ -47,13 +47,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         // Its top edge is the bottom of the toolbar, which now floats over the content side.
         let content = NSViewController()
         let contentRoot = NSView()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        contentRoot.addSubview(webView)
+        scrollHost.translatesAutoresizingMaskIntoConstraints = false
+        contentRoot.addSubview(scrollHost)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
+            scrollHost.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
+            scrollHost.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
+            scrollHost.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
+            scrollHost.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
         ])
         content.view = contentRoot
         let split = NSSplitViewController()
@@ -97,6 +97,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
             completion?()
             return
         }
+        rememberScroll(of: currentID)
         currentID = id
         window?.subtitle = entry.name
         sidebar.select(id)
@@ -112,6 +113,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
             if case .success(let swapped) = result, swapped as? Bool == true {} else {
                 self?.webView.load(URLRequest(url: SchemeHandler.entryURL(file: id)))
             }
+            self?.restoreScroll(of: id)
             completion?()
         }
     }

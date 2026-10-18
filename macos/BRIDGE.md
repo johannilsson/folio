@@ -18,6 +18,8 @@ promise on the JS side.
 | `putFolio` | `body: string` | `null` |
 | `accept` | `id: string` | `null`; see below |
 | `uiState` | `source: bool, comments: bool, pending: int` | `null`; the page's view toggles and its unresolved annotation count, mirrored by the native toolbar (the count is the comments icon's badge) |
+| `layout` | `height: number` | `null`; the page's full height in points, sent whenever it changes (see Scrolling) |
+| `reveal` | `top: number, bottom: number` | `null`; a rectangle of the page, in page coordinates, to bring into view (see Scrolling) |
 | `krokiUrl` | | string |
 | `anchor` | `text: string, items: [{ id, context_before, target? }]` | `[{ id, char_from?, char_to? }]`, UTF-16 offsets into `text` |
 | `anchorRaw` | `items` as for `anchor` | same, offsets into the raw markdown |
@@ -45,6 +47,26 @@ the in-page title pill and toggle buttons (the window title and toolbar replace 
 toolbar and View menu act on the page by clicking `#view-toggle-btn` and `#toggle-gutter-btn`.
 The page opens in the WYSIWYG preview. The same class trims the space above the text and
 slides the comments pane in and out by animating its width.
+
+## Scrolling
+
+No box in the page scrolls. The page lays itself out at its full height and the window's
+`EditorScrollView` scrolls it: the web view inside is exactly as tall as the page, so page
+coordinates are the scroll view's document coordinates. `frontend/src/layout.ts` is the page's
+half:
+
+- `layout` reports `document.body`'s height (a `ResizeObserver`), so growth from diagrams or
+  typing resizes the web view.
+- `reveal` asks the scroll view to show a rectangle: the caret or selection after typing or
+  keyboard navigation (not after the page changes the selection by itself), and anything that
+  calls `scrollIntoView`, which `layout.ts` redirects here.
+- The web view hands wheel events to the scroll view, and a drag past the window's edge
+  autoscrolls it.
+
+Swift's half of the page API: `window.__folioViewport(height)` (the visible height; a short
+preview fills it), and `window.__folioRevealSelection()`, which Find calls after selecting a
+match. Scroll positions are kept natively as a fraction of the scrollable height, per file of a
+window and across the source/preview toggle; both layouts are re-measured as the page settles.
 
 ## Events (Swift to page)
 

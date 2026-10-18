@@ -70,6 +70,7 @@ Passing tests have not been enough here: source-mode typing "worked" while the e
 - `diagrams.ts` — Tiptap NodeView extension: renders `mermaid` and `plantuml` code blocks as diagrams
 - `api.ts` — bridge-call wrappers + `Annotation`/`Sidecar` TypeScript types; file-scoped calls carry the active file id (from `?file=<id>` on the page URL, then `setActiveFile`)
 - File switching happens in `main.ts` (`switchFile`), called by the app's sidebar through `window.__folioSwitchFile`: in place, no reload. The preview editor is destroyed and recreated (`destroyEditor`), the CM6 state is replaced (`resetRawEditor`), and annotation state is reset (`resetAnnotationState`, `resetRawAnnotationState`) so undo history and anchors never leak between files.
+- `layout.ts` — the page's half of native scrolling: reports its height (`layout`) and what must come into view (`reveal`), and redirects `scrollIntoView` to the app
 - `websocket.ts` — typed event subscriptions (`md:changed`, `folio:changed`); events arrive through `window.__folioEmit`, called by Swift's file watchers (the name predates the removal of the server)
 - `bridge.ts` — the macOS app's script message handler; `api.ts` sends every backend call through it
 
@@ -78,6 +79,7 @@ Passing tests have not been enough here: source-mode typing "worked" while the e
 A SwiftPM package: AppKit windows hosting `frontend/dist` in a `WKWebView` at `folio://app/`, no server. `macos/README.md` has the run/build/test steps, `macos/BRIDGE.md` the page-to-Swift contract.
 
 - `FolioDocument` is one `NSDocument` per file; `SetWindowController` is a window for a set (sidebar + editor; the sidebar switches files by calling `window.__folioSwitchFile(id)` in the page); both build on `EditorWindowController` (web view, toolbar, navigation). `Bridge` answers the page's ops per file id through a `Workspace`; `Document` does the file IO and polls for changes (polling, not FSEvents: atomic saves swap the inode).
+- **Scrolling**: the page lays itself out at its full height and `EditorScrollView` (a `NSScrollView` around the web view, which is exactly as tall as the page) scrolls it. Do not make a box in the page scroll (`overflow: auto`) or rely on the page's own `scrollTop`, `scrollIntoView` (redirected by `layout.ts`) or viewport units: the app would not see them. Scroll positions are kept natively as a fraction, per file and across the source/preview toggle. Details in `macos/BRIDGE.md`.
 - Anchoring and accept run in Rust through `Rust.swift` → `ffi.rs`; do not reimplement them in Swift.
 - **A bridge op lives in two places**: `Bridge.swift` and `macos/BRIDGE.md`. Change both together.
 - **App-chrome styling goes under `html.native-chrome`** (the scheme handler adds the class to `index.html`). Chrome follows the system (accent color, system toolbar items, Finder-style sidebar selection); Folio's own purple is for content (annotations, selection, avatars).
@@ -108,7 +110,7 @@ Each annotation optionally carries a `replies: ThreadReply[]` array (empty = omi
 
 ## Frontend UI Patterns
 
-- **Gutter layout**: `#annotation-gutter` is a flex sibling of `#editor-tiptap` inside `#editor-wrapper` (the scroll container). Both scroll together.
+- **Gutter layout**: `#annotation-gutter` is a flex sibling of `#editor-tiptap` inside `#editor-wrapper`. Both scroll together, because nothing in the page scrolls: the window's scroll view scrolls the whole page (see "Scrolling" below), so `scrollTop` on the wrappers is always 0.
 - **Card positioning**: `position: absolute` within the gutter. `data-anchor-top` stores the natural anchor Y; `repositionCards()` re-stacks using `card.offsetHeight` (real heights, not a constant). Call after every build and after comment expand/collapse.
 - **Focus indicator**: clicking annotated text (or Ctrl+J/K) sets `focusedAnnotationId`; the matching gutter card gets `ann-card-focused` class.
 - **Annotation overlay**: when the comment pane is closed (`#app` lacks `gutter-open`), the focused annotation's full card is shown in `#annotation-overlay` next to the text (flips above the anchor near the bottom). Only the focused annotation is shown; Esc or clicking elsewhere dismisses it, and opening the pane hides it. The overlay is rebuilt only when the annotation's JSON changes so a focused reply box survives. Raw mode has its own copy in `raw-annotations.ts`.

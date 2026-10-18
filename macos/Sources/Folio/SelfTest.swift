@@ -379,6 +379,64 @@ final class SelfTest {
         }
     }
 
+    /// The page never scrolls, so the scroll view has to follow the wheel, the caret, Find
+    /// and a selection dragged past the window's edge. Run on a long document in the source
+    /// editor, scrolled to the top.
+    private func scrollingChecks(_ win: SetWindowController, page: (String) async -> Any?) async {
+        let host = win.scrollHost
+        func toTop() {
+            host.contentView.scroll(to: .zero)
+            host.reflectScrolledClipView(host.contentView)
+        }
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: win.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+
+        // The web view gets the wheel; it has nothing to scroll, so the scroll view must.
+        if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -400, wheel2: 0, wheel3: 0),
+           let wheel = NSEvent(cgEvent: cg) {
+            win.webView.scrollWheel(with: wheel)
+        }
+        await check("a wheel event over the page scrolls the window's scroll view") {
+            await self.until { host.scrollOffset > 100 }
+        }
+        toTop()
+
+        // Typing at the end of a long document keeps the caret in view.
+        _ = await page("(() => { const c = document.querySelector('.cm-content'); c.focus(); const s = getSelection(); s.selectAllChildren(c); s.collapseToEnd(); return 1 })()")
+        _ = await page("document.execCommand('insertText', false, 'X')")
+        await check("typing at the end of the document scrolls the caret into view") {
+            await self.until {
+                // The line around the caret: a collapsed range has no box of its own in some positions.
+                guard let rect = await page("(() => { const n = getSelection().focusNode; const r = (n instanceof Element ? n : n.parentElement).getBoundingClientRect(); return [r.top, r.bottom] })()") as? [Double],
+                      rect.count == 2, rect[0] > 1000 else { return false }
+                return rect[0] >= host.scrollOffset && rect[1] <= host.scrollOffset + host.contentSize.height
+            }
+        }
+        toTop()
+
+        // Find selects a match far down, and the window goes to it.
+        win.findItem.searchField.stringValue = "Paragraph 100 of"
+        win.findNext(nil)
+        await check("Find scrolls the window to the match") { await self.until { host.scrollOffset > 1000 } }
+        toTop()
+
+        // A selection dragged below the window's bottom edge scrolls the document.
+        if let area = Optional(host.convert(host.bounds, to: nil)) {
+            let start = NSPoint(x: area.minX + 160, y: area.maxY - 90)
+            let outside = NSPoint(x: area.minX + 300, y: area.minY - 40)
+            if let down = mouse(.leftMouseDown, at: start) { win.webView.mouseDown(with: down) }
+            for _ in 0..<8 {
+                if let drag = mouse(.leftMouseDragged, at: outside) { win.webView.mouseDragged(with: drag) }
+                try? await Task.sleep(nanoseconds: 60_000_000)
+            }
+            if let up = mouse(.leftMouseUp, at: outside) { win.webView.mouseUp(with: up) }
+        }
+        await check("dragging a selection past the edge scrolls the window") { host.scrollOffset > 40 }
+        toTop()
+    }
+
     // MARK: sets
 
     /// A set of two files in separate "repos", opened in its own window: the sidebar, switching
@@ -459,30 +517,33 @@ final class SelfTest {
         await check("and not to the other file") { !((try? String(contentsOf: alpha, encoding: .utf8))?.contains("QQ") ?? true) }
 
         // Scroll position comes back when a file is shown again, and a new file starts at the top.
-        let scroller = "document.getElementById('raw-editor-wrapper')"
-        // Retried until it holds: the document may not have its full height yet right after a build.
+        // The window's scroll view scrolls the page, which is as tall as its text.
+        let host = win.scrollHost
         var scrolled = 0.0
-        await check("the long file scrolled") {
+        await check("the page is as tall as its text, and the long file scrolled") {
             await self.until(seconds: 15) {
-                _ = await page("\(scroller).scrollTop = 1500")
-                scrolled = await page("\(scroller).scrollTop") as? Double ?? 0
+                let height = await page("Math.ceil(document.body.getBoundingClientRect().height)") as? Double ?? 0
+                guard height > 1600, abs(host.contentHeight - height) < 2, abs(win.webView.frame.height - height) < 2 else { return false }
+                host.contentView.scroll(to: NSPoint(x: 0, y: 1500))
+                host.reflectScrolledClipView(host.contentView)
+                scrolled = host.scrollOffset
                 return scrolled > 1000
             }
         }
         win.sidebar.choose(alphaID)
         _ = await until { await filename() == "alpha.md" }
         await check("another file starts at the top") {
-            await self.until { await page("\(scroller).scrollTop") as? Double == 0 }
+            await self.until { host.scrollOffset == 0 }
         }
         win.sidebar.choose(betaID)
         _ = await until { await filename() == "beta.md" }
         await check("coming back restores the scroll position") {
-            await self.until {
-                let now = await page("\(scroller).scrollTop") as? Double ?? 0
-                return abs(now - scrolled) < 80
-            }
+            await self.until { abs(host.scrollOffset - scrolled) < 80 }
         }
-        _ = await page("\(scroller).scrollTop = 0")
+        host.contentView.scroll(to: .zero)
+        host.reflectScrolledClipView(host.contentView)
+
+        await scrollingChecks(win, page: page)
 
         // An edit made just before switching is saved, and undo in the next file stays in that file.
         _ = await page("document.querySelector('.cm-content').focus()")

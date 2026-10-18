@@ -10,6 +10,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     private(set) var ops: [String] = []
     /// The page's source/comments toggles, for the native toolbar.
     var onUIState: ((_ source: Bool, _ comments: Bool, _ pending: Int) -> Void)?
+    /// The page's full height, and a rectangle of it (top and bottom, in page coordinates)
+    /// that has to come into view.
+    var onLayout: ((_ height: Double) -> Void)?
+    var onReveal: ((_ top: Double, _ bottom: Double) -> Void)?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -55,6 +59,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             ] as [String: Any]
         case "uiState":
             onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false, body["pending"] as? Int ?? 0)
+            return NSNull()
+        case "layout":
+            onLayout?((body["height"] as? NSNumber)?.doubleValue ?? 0)
+            return NSNull()
+        case "reveal":
+            onReveal?((body["top"] as? NSNumber)?.doubleValue ?? 0, (body["bottom"] as? NSNumber)?.doubleValue ?? 0)
             return NSNull()
         case "krokiUrl":
             return "https://kroki.io"

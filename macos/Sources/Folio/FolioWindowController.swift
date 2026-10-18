@@ -5,8 +5,13 @@ import WebKit
 /// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
 class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate, NSSearchFieldDelegate {
     let webView: WKWebView
+    /// Holds the web view, which is as tall as its page; this is what scrolls.
+    let scrollHost: EditorScrollView
     let bridge: Bridge
     let workspace: Workspace
+
+    /// Where each file of the window was scrolled to when it was left (see `EditorScrollView.scrollFraction`).
+    private var scrollFractions: [String: CGFloat] = [:]
 
     /// Mirrors of the page's toggles (see the `uiState` op).
     private(set) var sourceOn = false
@@ -49,8 +54,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = ForwardingWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
+        scrollHost = EditorScrollView(webView: webView)
 
         // The page's own background, so resizing and loading never flash white.
         let background = NSColor(name: nil) { appearance in
@@ -68,7 +74,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             backing: .buffered,
             defer: false
         )
-        if !fullHeightSidebar { window.contentView = webView }
+        if !fullHeightSidebar { window.contentView = scrollHost }
         window.backgroundColor = background
         window.minSize = NSSize(width: 480, height: 320)
         window.toolbarStyle = .unified
@@ -95,6 +101,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             item.isBordered = true
         }
         syncButtons()
+        bridge.onLayout = { [weak self] height in self?.scrollHost.setContentHeight(height) }
+        bridge.onReveal = { [weak self] top, bottom in self?.scrollHost.reveal(top: top, bottom: bottom) }
+        scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
         bridge.onUIState = { [weak self] source, comments, pending in
             self?.sourceOn = source
             self?.commentsOn = comments
@@ -118,6 +127,21 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         window?.toolbar = toolbar
     }
 
+    /// The page sizes a short document to fill the window (see `__folioViewport` in layout.ts).
+    private func pushViewportHeight(_ height: CGFloat) {
+        webView.evaluateJavaScript("window.__folioViewport?.(\(Int(height)))")
+    }
+
+    /// Remember where `id` is scrolled to before another file replaces it.
+    func rememberScroll(of id: String) {
+        scrollFractions[id] = scrollHost.scrollFraction
+    }
+
+    /// Scroll to where `id` was left, or its top for a file not seen before.
+    func restoreScroll(of id: String) {
+        scrollHost.restoreScroll(scrollFractions[id] ?? 0)
+    }
+
     /// A file changed: tell the page. Subclasses also update what they show.
     func workspaceEvent(_ type: String, _ id: String) {
         let quoted = id.replacingOccurrences(of: "'", with: "\\'")
@@ -131,6 +155,8 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     // MARK: toggles
 
     @objc func toggleSource(_ sender: Any?) {
+        // The other view is laid out differently; keep the reader about as far into the document.
+        scrollHost.restoreScroll(scrollHost.scrollFraction, for: 1.5)
         webView.evaluateJavaScript("document.getElementById('view-toggle-btn').click()")
     }
 
@@ -141,7 +167,8 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     // MARK: find
 
     // WKWebView has no find bar on macOS: the toolbar's search field drives `find`, which
-    // selects the match and scrolls to it.
+    // selects the match. The page is as tall as its content, so it cannot scroll to the
+    // match itself: it reports the selection and the scroll view goes there.
 
     @objc func showFind(_ sender: Any?) {
         window?.makeFirstResponder(findItem.searchField)
@@ -158,7 +185,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         let config = WKFindConfiguration()
         config.backwards = backwards
         config.wraps = true
-        webView.find(text, configuration: config) { _ in }
+        webView.find(text, configuration: config) { [weak self] result in
+            if result.matchFound { self?.webView.evaluateJavaScript("window.__folioRevealSelection?.()") }
+        }
     }
 
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
@@ -246,6 +275,11 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
         return nil
+    }
+
+    // A page loaded after the window was laid out has not been told how tall the window is.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pushViewportHeight(scrollHost.contentSize.height)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {

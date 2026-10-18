@@ -1,12 +1,13 @@
 import { on } from './websocket'
 import { runPendingFlash } from './feedback'
 import { call } from './bridge'
+import { initLayoutReporting } from './layout'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
 import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, getSidecar, onSidecarUpdate } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations, getRawWrapperEl } from './raw-editor'
+import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations } from './raw-editor'
 
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
@@ -111,8 +112,6 @@ async function boot(): Promise<void> {
 
   function showPreview() {
     if (!rawPane.hidden) {
-      const wrapperEl = getRawWrapperEl()
-      const fraction = wrapperEl ? wrapperEl.scrollTop / (wrapperEl.scrollHeight - wrapperEl.clientHeight || 1) : 0
       flushRawSave()
       const ed = getEditor()!
       // Switching to preview is a pure render step, never a save trigger.
@@ -121,24 +120,18 @@ async function boot(): Promise<void> {
       rawPane.hidden = true
       triggerContentReplaced(ed)
       scheduleGutterRebuild()
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        editorWrapper.scrollTop = fraction * (editorWrapper.scrollHeight - editorWrapper.clientHeight)
-      }))
     }
     updateViewBtn()
   }
 
   function showSource() {
     if (rawPane.hidden) {
-      const fraction = editorWrapper.scrollTop / (editorWrapper.scrollHeight - editorWrapper.clientHeight || 1)
       flushSave().then(getFile).then(content => {
         initRawEditor(rawPane, content)
         setRawContent(content)
         editorWrapper.hidden = true
         rawPane.hidden = false
         refreshRawAnnotations()
-        const wrapperEl = getRawWrapperEl()
-        if (wrapperEl) wrapperEl.scrollTop = fraction * (wrapperEl.scrollHeight - wrapperEl.clientHeight)
         // Only now is the source showing; updating earlier left the toggle showing preview.
         updateViewBtn()
       })
@@ -176,17 +169,10 @@ async function boot(): Promise<void> {
   // fresh preview editor and a fresh CM6 state each start with empty undo
   // history, so undo can never reach into the previous file.
   let switching = false
-  // Scroll position of each file we have left, as a fraction of its scrollable
-  // height (the same measure the source/preview toggle uses), so coming back
-  // lands where the reader left off. Kept for this page session only.
-  const scrollFractions = new Map<string, number>()
-  const visibleWrapper = () => (rawPane.hidden ? editorWrapper : getRawWrapperEl())
   async function switchFile(id: string): Promise<void> {
     if (id === currentId || switching) return
     switching = true
     const previous = currentId
-    const leaving = visibleWrapper()
-    if (leaving) scrollFractions.set(previous, leaving.scrollTop / (leaving.scrollHeight - leaving.clientHeight || 1))
     try {
       // Save the file we are leaving; pending edits would otherwise be lost.
       await (rawPane.hidden ? flushSave() : flushPendingRawSave())
@@ -206,13 +192,6 @@ async function boot(): Promise<void> {
       updateSidecar(nextSidecar)
       mountPreview(content)
       resetRawEditor(content)
-      editorWrapper.scrollTop = 0
-      // Wait for layout so the new document has its height before we scroll into it.
-      const fraction = scrollFractions.get(id) ?? 0
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const el = visibleWrapper()
-        if (el && currentId === id) el.scrollTop = fraction * (el.scrollHeight - el.clientHeight)
-      }))
       showFilename(nextInfo.filename)
       if (!rawPane.hidden) refreshRawAnnotations()
       scheduleGutterRebuild()
@@ -223,6 +202,8 @@ async function boot(): Promise<void> {
 
   // The window's sidebar picks the file; there is no in-page menu to do it.
   ;(window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile = switchFile
+
+  initLayoutReporting()
 }
 
 boot().catch(console.error)
