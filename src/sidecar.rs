@@ -1106,6 +1106,41 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn days_to_ymd_handles_epoch_leap_days_and_year_ends() {
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+        assert_eq!(days_to_ymd(11016), (2000, 2, 29)); // century leap year
+        assert_eq!(days_to_ymd(19782), (2024, 2, 29));
+        assert_eq!(days_to_ymd(19783), (2024, 3, 1));
+        assert_eq!(days_to_ymd(20453), (2025, 12, 31));
+        assert_eq!(days_to_ymd(20454), (2026, 1, 1));
+    }
+
+    #[test]
+    fn now_iso8601_has_the_expected_shape() {
+        let t = now_iso8601();
+        assert_eq!(t.len(), 20);
+        assert!(t.ends_with('Z') && t.as_bytes()[10] == b'T', "{t}");
+    }
+
+    #[test]
+    fn load_rejects_unsupported_version_and_points_at_bad_json() {
+        let dir = std::env::temp_dir().join(format!("folio-load-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.md.folio");
+
+        std::fs::write(&path, r#"{"version": 2, "annotations": []}"#).unwrap();
+        let err = Sidecar::load(&path).unwrap_err().to_string();
+        assert!(err.contains("unsupported sidecar version 2"), "{err}");
+
+        std::fs::write(&path, "{\n  \"version\": 1,\n  \"annotations\": [,]\n}").unwrap();
+        let err = Sidecar::load(&path).unwrap_err().to_string();
+        assert!(err.contains("invalid sidecar JSON") && err.contains("^-- here"), "{err}");
+
+        assert!(Sidecar::load(&dir.join("missing.folio")).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     fn ann(context_before: &str, target: Option<&str>) -> Annotation {
         Annotation {
             id: "test".into(),
