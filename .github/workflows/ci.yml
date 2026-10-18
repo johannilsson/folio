@@ -29,6 +29,11 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      # Duplicate copies of a package (e.g. prosemirror-model) break the frontend type check.
+      - name: Check lockfile has no duplicates
+        working-directory: frontend
+        run: pnpm dedupe --check
+
       - name: Install Playwright browser
         working-directory: frontend
         run: pnpm exec playwright install --with-deps chromium
