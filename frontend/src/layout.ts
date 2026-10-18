@@ -1,4 +1,5 @@
 import { call } from './bridge'
+import { scheduleAnchorReport } from './annotations'
 
 // The page does not scroll: it lays itself out at its full height and the app's scroll
 // view scrolls it. So the app needs two things from the page: how tall it is, and what has
@@ -46,8 +47,14 @@ export function initLayoutReporting(): void {
   const reportHeight = () => {
     const height = Math.ceil(document.body.getBoundingClientRect().height)
     void call('layout', { height }).catch(console.error)
+    // Text may have moved (a window resize, a diagram that finished loading).
+    scheduleAnchorReport()
   }
   new ResizeObserver(reportHeight).observe(document.body)
+
+  // A click anywhere in the page, before the page acts on it: the app closes what it has open
+  // over the text. A click on annotated text then reports it (`focus`).
+  document.addEventListener('mousedown', () => { void call('pointer').catch(console.error) }, true)
 
   // Typing and keyboard selection move the selection under the reader's hands, so it is
   // revealed; the page changing it by itself (a reload) must not move the window.
@@ -55,6 +62,8 @@ export function initLayoutReporting(): void {
   for (const type of ['keydown', 'input', 'mousedown', 'mouseup', 'compositionend']) {
     document.addEventListener(type, () => { lastInput = performance.now() }, true)
   }
+  // The app routes Undo to the last thing the reader did, so it needs to know about typing.
+  document.addEventListener('input', () => { void call('typing').catch(console.error) }, true)
   document.addEventListener('selectionchange', () => {
     if (performance.now() - lastInput < 300) revealSelection()
   })

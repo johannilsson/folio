@@ -48,6 +48,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     /// The annotations of the file on screen.
     var currentStore: AnnotationStore { store(for: currentDocument) }
 
+    /// The annotation UI of this window: the comments pane, the open card, the comment form.
+    private(set) var annotations: AnnotationController!
+
     /// Toolbar items before the toggles, which sit at the trailing edge.
     var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
 
@@ -120,11 +123,18 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         bridge.onLayout = { [weak self] height in self?.scrollHost.setContentHeight(height) }
         bridge.onReveal = { [weak self] top, bottom in self?.scrollHost.reveal(top: top, bottom: bottom) }
         scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
+
+        annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore)
+        if let web = webView as? ForwardingWebView {
+            web.keyHandler = { [weak self] event in self?.annotations.handleKey(event) ?? false }
+            web.undoManagerProvider = { [weak self] in self?.annotations.undoManagerForEdit() }
+        }
         bridge.onUIState = { [weak self] source, comments, pending in
             self?.sourceOn = source
             self?.commentsOn = comments
             self?.pendingCount = pending
             self?.syncButtons()
+            self?.annotations.setModes(source: source, comments: comments)
         }
 
         // Stand-in for the WebSocket: file changes reach the page as events.

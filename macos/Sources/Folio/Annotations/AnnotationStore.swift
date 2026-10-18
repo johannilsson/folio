@@ -7,7 +7,7 @@ import Foundation
 final class AnnotationStore {
     /// An action that can be undone: the annotation as it was and as it became (nil: it did not
     /// exist before, or does not now).
-    struct Entry {
+    struct Entry: Equatable {
         let id: String
         let before: Annotation?
         let after: Annotation?
@@ -21,13 +21,19 @@ final class AnnotationStore {
     /// The annotations changed: by an action here, or by someone else writing the sidecar.
     var onChange: (() -> Void)?
 
-    private(set) var undoStack: [Entry] = []
-    private(set) var redoStack: [Entry] = []
+    /// Undo and redo of the actions below. The editor's own undo is the page's; the web view
+    /// offers this one while an action here is the latest thing the reader did.
+    let undoManager = UndoManager()
+    private(set) var lastEntry: Entry?
     /// When the last action, undo or redo happened, so Undo can tell it from a text edit.
     private(set) var lastActionAt = Date.distantPast
 
+    var canUndo: Bool { undoManager.canUndo }
+    var canRedo: Bool { undoManager.canRedo }
+
     init(document: Document) {
         self.document = document
+        undoManager.groupsByEvent = false
         annotations = Self.read(document)
     }
 
@@ -44,8 +50,8 @@ final class AnnotationStore {
         let latest = Self.read(document)
         guard latest != annotations else { return false }
         annotations = latest
-        undoStack = []
-        redoStack = []
+        undoManager.removeAllActions()
+        lastEntry = nil
         onChange?()
         return true
     }
@@ -95,37 +101,21 @@ final class AnnotationStore {
 
     // MARK: undo
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
-
-    /// Undoes `entry`, or the last action.
+    /// Undoes the last action. `entry` guards against undoing something newer than the action
+    /// the caller means (a toast's Undo button).
     @discardableResult
     func undo(_ entry: Entry? = nil) -> Bool {
-        guard let entry = entry ?? undoStack.last else { return false }
-        undoStack.removeAll { $0.id == entry.id && $0.after == entry.after }
-        do {
-            if let before = entry.before {
-                try perform(["op": "restore", "annotation": try before.sidecarObject()])
-            } else {
-                try perform(["op": "remove", "id": entry.id])
-            }
-        } catch {
-            return false
-        }
-        redoStack.append(entry)
+        if let entry, entry != lastEntry { return false }
+        guard undoManager.canUndo else { return false }
+        undoManager.undo()
         lastActionAt = Date()
         return true
     }
 
     @discardableResult
     func redo() -> Bool {
-        guard let entry = redoStack.popLast(), let after = entry.after else { return false }
-        do {
-            try perform(["op": "restore", "annotation": try after.sidecarObject()])
-        } catch {
-            return false
-        }
-        undoStack.append(entry)
+        guard undoManager.canRedo else { return false }
+        undoManager.redo()
         lastActionAt = Date()
         return true
     }
@@ -145,9 +135,35 @@ final class AnnotationStore {
 
     private func record(id: String, before: Annotation?) -> Entry {
         let entry = Entry(id: id, before: before, after: annotation(id))
-        undoStack.append(entry)
-        redoStack = []
+        // One group per action: they are not grouped by run-loop turn, so two quick actions stay two steps.
+        undoManager.beginUndoGrouping()
+        register(entry, undoing: true)
+        undoManager.endUndoGrouping()
+        lastEntry = entry
         lastActionAt = Date()
         return entry
+    }
+
+    /// Registers the way back from `entry`: undoing puts the annotation as it was, and what
+    /// the undo registers in turn is the redo.
+    private func register(_ entry: Entry, undoing: Bool) {
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.step(entry, undoing: undoing) }
+        }
+    }
+
+    private func step(_ entry: Entry, undoing: Bool) {
+        let target = undoing ? entry.before : entry.after
+        do {
+            if let target {
+                try perform(["op": "restore", "annotation": try target.sidecarObject()])
+            } else {
+                try perform(["op": "remove", "id": entry.id])
+            }
+        } catch {
+            return
+        }
+        register(entry, undoing: !undoing)
+        lastEntry = entry
     }
 }

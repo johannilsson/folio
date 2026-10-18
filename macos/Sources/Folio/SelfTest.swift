@@ -39,6 +39,8 @@ final class SelfTest {
     }
 
     func run() async -> Bool {
+        // Line by line, so a crash does not take the results so far with it.
+        setvbuf(stdout, nil, _IOLBF, 0)
         guard let copy = try? tempCopy(), let first = await app.openForSelfTest(copy) else {
             print("FAIL  open the document")
             return false
@@ -211,20 +213,21 @@ final class SelfTest {
         )
         report("plantuml image loads from the external server", plantuml)
 
-        // Accept in preview mode goes through the bridge's accept op (Rust anchoring).
+        // Accept in preview mode is the app's own card (Rust anchors and patches).
         let secondCLI = cli([
             "annotate", name, "--kind", "replace",
             "--context-before", "in both the vineyard and the ", "--target", "cellar",
             "--replacement", "cave", "--author", "agent", "--source", "agent",
         ])
         await check("second annotation added from the CLI") { secondCLI.status == 0 }
-        await check("it appears in the preview gutter") {
-            await self.waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 1", seconds: 8)
+        await check("it appears in the comments pane of the preview, on screen") {
+            await self.until(seconds: 8) { self.visibleCards().count == 1 }
         }
-        _ = await js("document.querySelector('#annotation-gutter .ann-card button[title=Accept]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))")
-        await check("accept goes through the bridge and patches the file") {
-            await self.until { self.controller.bridge.count("accept") == 1 && self.disk().contains("vineyard and the cave.") }
+        press("accept", inCardOf: pane.cards.keys.first)
+        await check("accepting patches the file") {
+            await self.until { self.disk().contains("vineyard and the cave.") }
         }
+        await check("accepting shows a toast") { self.pane.toastMessage == "Accepted replace" }
         await check("the preview reloads the patched text") {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('vineyard and the cave.')")
         }
@@ -236,7 +239,7 @@ final class SelfTest {
             "--comment", "Pane in source", "--author", "agent", "--source", "agent",
         ])
         await check("a comment added from the CLI shows in the preview pane") {
-            let shown = await self.waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 1", seconds: 8)
+            let shown = await self.until(seconds: 8) { self.visibleCards().count == 1 }
             return thirdCLI.status == 0 && shown
         }
         send("toggleSource:")
@@ -417,7 +420,9 @@ final class SelfTest {
             """
         }
         await check("a wide table in the preview does not push the comments pane off screen") {
-            await self.waitFor(onScreen("#annotation-gutter"), seconds: 8)
+            let narrow = await self.waitFor("document.documentElement.scrollWidth <= window.innerWidth + 1", seconds: 8)
+            let shown = await self.until(seconds: 8) { self.visibleCards().count == 1 }
+            return narrow && shown
         }
         await check("the wide table scrolls sideways inside itself") {
             await self.js("""
@@ -870,6 +875,39 @@ final class SelfTest {
         for folder in dirs { try? FileManager.default.removeItem(at: folder) }
         print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         return failures == 0
+    }
+
+    // MARK: the native annotation UI
+
+    private var pane: AnnotationController { controller.annotations }
+
+    /// The cards that are in the window: in the comments pane, with a size, inside it from side to side.
+    /// Where they are down the page is where their text is, and may be below the fold.
+    private func visibleCards(in win: EditorWindowController? = nil) -> [AnnotationCardView] {
+        let target = win ?? controller!
+        let host = target.scrollHost
+        return target.annotations.cards.values.filter { card in
+            guard card.window != nil, !card.isHidden, card.frame.width > 200, card.frame.height > 20 else { return false }
+            let rect = host.convert(card.bounds, from: card)
+            return rect.minX >= 0 && rect.maxX <= host.bounds.width + 1
+        }
+    }
+
+    /// The button with this accessibility identifier, somewhere below `view`.
+    private func button(_ id: String, in view: NSView) -> NSView? {
+        if view.accessibilityIdentifier() == id { return view }
+        for sub in view.subviews { if let found = button(id, in: sub) { return found } }
+        return nil
+    }
+
+    /// Clicks a button of an annotation's card the way a reader does.
+    private func press(_ id: String, inCardOf annotationID: String?, in win: EditorWindowController? = nil) {
+        let target = win ?? controller!
+        guard let annotationID, let card = target.annotations.cards[annotationID], let found = button(id, in: card) else {
+            print("    no \(id) button in the card of \(annotationID ?? "nil")")
+            return
+        }
+        (found as? NSControl)?.performClick(nil)
     }
 
     // MARK: the folio CLI

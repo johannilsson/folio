@@ -103,6 +103,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         currentID = id
         window?.subtitle = entry.name
         sidebar.select(id)
+        annotations.fileChanged(store: currentStore)
         webView.callAsyncJavaScript(
             """
             if (typeof window.__folioSwitchFile !== 'function') return false

@@ -4,7 +4,7 @@ import { call } from './bridge'
 import { initLayoutReporting } from './layout'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
-import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleGutterRebuild, getSidecar, onSidecarUpdate } from './annotations'
+import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleAnchorReport, getSidecar, onSidecarUpdate } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
 import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations } from './raw-editor'
@@ -51,7 +51,7 @@ async function boot(): Promise<void> {
     if (isLocked()) {
       destroyEditor()
       mountPreview(content)
-      scheduleGutterRebuild()
+      scheduleAnchorReport()
     }
     const ed = getEditor()
     if (ed) triggerContentReplaced(ed)
@@ -119,7 +119,7 @@ async function boot(): Promise<void> {
       editorWrapper.hidden = false
       rawPane.hidden = true
       triggerContentReplaced(ed)
-      scheduleGutterRebuild()
+      scheduleAnchorReport()
     }
     updateViewBtn()
   }
@@ -156,7 +156,7 @@ async function boot(): Promise<void> {
     window.dispatchEvent(new Event('folio:gutter-toggled'))
     if (open) {
       // Cards were laid out while display:none (zero heights) — rebuild now.
-      scheduleGutterRebuild()
+      scheduleAnchorReport()
       refreshRawAnnotations()
     }
   }
@@ -194,7 +194,7 @@ async function boot(): Promise<void> {
       resetRawEditor(content)
       showFilename(nextInfo.filename)
       if (!rawPane.hidden) refreshRawAnnotations()
-      scheduleGutterRebuild()
+      scheduleAnchorReport()
     } finally {
       switching = false
     }
