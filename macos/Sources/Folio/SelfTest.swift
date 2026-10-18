@@ -152,6 +152,15 @@ final class SelfTest {
         await check("the CLI's annotation appears in the app without a reload") {
             await self.waitFor("document.querySelectorAll('#raw-annotation-gutter .ann-card').length === 1")
         }
+        // In the DOM is not the same as on screen: the card has to have a size and sit inside the window.
+        await check("the card is visible in the comments pane of the source view") {
+            await self.waitFor("""
+                (() => {
+                  const r = document.querySelector('#raw-annotation-gutter .ann-card').getBoundingClientRect()
+                  return r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
+                })()
+                """)
+        }
         await check("the comments icon counts the pending annotations") {
             await self.until { self.controller.pendingCount == 1 }
         }
@@ -220,6 +229,28 @@ final class SelfTest {
             await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('vineyard and the cave.')")
         }
         await check("the CLI sees both annotations resolved") { await self.until { self.pendingFromCLI() == 0 } }
+
+        // The comments pane is open in the preview; switching to the source view must keep it.
+        let thirdCLI = cli([
+            "annotate", name, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph",
+            "--comment", "Pane in source", "--author", "agent", "--source", "agent",
+        ])
+        await check("a comment added from the CLI shows in the preview pane") {
+            let shown = await self.waitFor("document.querySelectorAll('#annotation-gutter .ann-card').length === 1", seconds: 8)
+            return thirdCLI.status == 0 && shown
+        }
+        send("toggleSource:")
+        await check("the card is visible in the comments pane after switching to the source view") {
+            await self.waitFor("""
+                (() => {
+                  const r = document.querySelector('#raw-annotation-gutter .ann-card')?.getBoundingClientRect()
+                  return !!r && r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
+                })()
+                """, seconds: 8)
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-source-after-preview.png") }
+        send("toggleSource:")
+        _ = await waitFor("!document.getElementById('editor-wrapper').hidden", seconds: 8)
 
         // Another program replaces the file the way agents do: write a temp file, rename over it.
         let replacement = dir.appendingPathComponent("incoming.tmp")
@@ -581,6 +612,21 @@ final class SelfTest {
         await check("the other file shows no cards") { await self.waitFor("document.getElementById('filename-display').textContent === 'alpha.md' && \(cards) === 0", in: win.webView) }
         win.sidebar.choose(betaID)
         await check("the cards come back with the file") { await self.waitFor("document.getElementById('filename-display').textContent === 'beta.md' && \(cards) === 1", in: win.webView) }
+        // The comments pane of a set window, in the source view: the card is on screen, not just in the page.
+        win.toggleComments(nil)
+        await check("the card is visible in the comments pane of a set window") {
+            await self.waitFor("""
+                (() => {
+                  const r = document.querySelector('#raw-annotation-gutter .ann-card')?.getBoundingClientRect()
+                  return !!r && r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
+                })()
+                """, in: win.webView)
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await snapshot("\(base)-source-pane.png", of: win)
+        }
+        win.toggleComments(nil)
         // Refreshing the badges must not move the page or the selection off the open file.
         try? await Task.sleep(nanoseconds: 700_000_000)
         await check("a sidebar refresh keeps the open file open") {
