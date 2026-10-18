@@ -1,6 +1,6 @@
 # Drift reviews
 
-A weekly review of design drift and maintainability in Folio. Each run adds a dated file to this folder (`YYYY-MM-DD.md`) and one new row to this table. The pinned "Drift review" issue always holds the latest run's summary.
+A weekly review of design drift and maintainability in Folio. Each run adds a dated file to this folder (`YYYY-MM-DD.md`) and one new row to this table. Each run arrives as a pull request labelled `drift-review` with a short summary in its description.
 
 | Date | Trend | Top finding | Opened | Closed |
 |---|---|---|---|---|
