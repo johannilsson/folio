@@ -262,6 +262,7 @@ final class SelfTest {
 
         await portedBrowserChecks()
         await wideTableChecks()
+        await storeChecks()
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
@@ -324,6 +325,72 @@ final class SelfTest {
     private func previewHighlights(_ text: String) async -> Bool {
         let quoted = text.replacingOccurrences(of: "'", with: "\\'")
         return await waitFor("[...document.querySelectorAll('#editor-wrapper .ann-comment-target')].some(e => e.textContent === '\(quoted)')", seconds: 8)
+    }
+
+    /// The annotation store: each action is applied to the sidecar as it is on disk, and can be undone.
+    private func storeChecks() async {
+        replaceSidecar([])
+        let store = controller.currentStore
+        _ = await until { store.reload(); return store.annotations.isEmpty }
+
+        let first = cli(["annotate", name, "--kind", "comment", "--context-before", "Natural wine is made with ",
+                         "--target", "no additives", "--comment", "First", "--author", "agent", "--source", "agent"])
+        await check("the store sees an annotation an agent wrote") {
+            let seen = await self.until { store.pending.count == 1 }
+            return first.status == 0 && seen
+        }
+        let firstID = store.pending.first?.id ?? ""
+
+        // An agent annotates again, and the reader acts before the store has noticed: the new
+        // annotation must survive, because the action is applied to the file, not to the store's copy.
+        let second = cli(["annotate", name, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph",
+                          "--comment", "Second", "--author", "agent", "--source", "agent"])
+        var resolved: AnnotationStore.Entry?
+        do { resolved = try store.resolve(firstID) } catch { print("    resolve failed: \(error)") }
+        await check("resolving keeps an annotation an agent wrote in the meantime") {
+            second.status == 0 && resolved != nil && self.pendingFromCLI() == 1
+                && store.pending.map(\.comment) == ["Second"] && store.annotation(firstID)?.resolvedAs == "dismissed"
+        }
+        await check("the CLI accepts the sidecar the app wrote") { self.cli(["check", self.name]).status == 0 }
+
+        await check("undo puts the annotation back") {
+            store.undo() && store.pending.count == 2 && self.pendingFromCLI() == 2
+                && store.annotation(firstID)?.resolved == false && store.annotation(firstID)?.resolvedAs == nil
+        }
+        await check("redo resolves it again") { store.redo() && store.pending.count == 1 && self.pendingFromCLI() == 1 }
+
+        var added: AnnotationStore.Entry?
+        do { added = try store.addComment(contextBefore: "The last ", target: "paragraph", comment: "From the reader") } catch {
+            print("    add failed: \(error)")
+        }
+        await check("a comment from the reader is saved as local, by me") {
+            let ann = store.annotation(added?.id ?? "")
+            return ann?.author == "me" && ann?.source == "local" && ann?.comment == "From the reader"
+                && ann?.id.hasPrefix("ann_") == true && self.pendingFromCLI() == 2
+        }
+        await check("undoing an added comment removes it, and redo brings it back") {
+            let undone = store.undo() && store.annotation(added?.id ?? "") == nil && self.pendingFromCLI() == 1
+            return undone && store.redo() && store.annotation(added?.id ?? "") != nil
+        }
+
+        let target = added?.id ?? ""
+        _ = try? store.reply(to: target, body: "A reply")
+        _ = try? store.editComment(target, to: "Edited")
+        await check("a reply and an edited comment are saved") {
+            let ann = store.annotation(target)
+            return ann?.replies?.map(\.body) == ["A reply"] && ann?.replies?.first?.author == "me" && ann?.comment == "Edited"
+        }
+        await check("undo steps back through the edit and the reply") {
+            store.undo() && store.annotation(target)?.comment == "From the reader"
+                && store.undo() && store.annotation(target)?.replies?.isEmpty != false
+        }
+
+        // Someone else changing the sidecar makes the undo history stale.
+        _ = try? store.resolve(target)
+        replaceSidecar([])
+        await check("a change from outside empties the history") {
+            await self.until { !store.canUndo && store.annotations.isEmpty }
+        }
     }
 
     /// A table wider than the window must not widen the page: nothing in the page scrolls, so

@@ -32,6 +32,22 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     /// The only file of a single-file window (the first of a set).
     var files: Document { workspace.entries[0].document }
 
+    /// The file on screen: the only one, or the one chosen in a set's sidebar.
+    var currentDocument: Document { files }
+
+    private var stores: [String: AnnotationStore] = [:]
+
+    /// The annotations of `document`; one store per file, so a set keeps each file's history.
+    func store(for document: Document) -> AnnotationStore {
+        if let store = stores[document.id] { return store }
+        let store = AnnotationStore(document: document)
+        stores[document.id] = store
+        return store
+    }
+
+    /// The annotations of the file on screen.
+    var currentStore: AnnotationStore { store(for: currentDocument) }
+
     /// Toolbar items before the toggles, which sit at the trailing edge.
     var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
 
@@ -144,6 +160,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
 
     /// A file changed: tell the page. Subclasses also update what they show.
     func workspaceEvent(_ type: String, _ id: String) {
+        if type == "folio:changed", let document = workspace.document(id: id) { store(for: document).reload() }
         let quoted = id.replacingOccurrences(of: "'", with: "\\'")
         webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(quoted)')")
     }

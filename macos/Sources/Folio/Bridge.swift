@@ -97,14 +97,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "accept":
             guard let id = body["id"] as? String else { throw RustError(description: "accept: no id") }
-            let document = try target(body)
-            let result = try Rust.accept(doc: document.readFile(), sidecarJSON: document.readSidecar(), id: id)
-            if let patched = result.doc {
-                try document.writeFile(patched)
-                document.onEvent?("md:changed")
-            }
-            try document.writeSidecar(result.sidecar)
-            document.onEvent?("folio:changed")
+            try target(body).accept(id: id)
             return NSNull()
 
         default:

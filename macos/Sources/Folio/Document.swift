@@ -57,10 +57,23 @@ final class Document {
         fileStamp = Self.stamp(file)
     }
 
+    /// Atomic (temp file, then rename), like `Sidecar::save`, so nobody reads a half-written sidecar.
     func writeSidecar(_ body: String) throws {
         try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(body.utf8).write(to: sidecar)
+        try Data(body.utf8).write(to: sidecar, options: .atomic)
         sidecarStamp = Self.stamp(sidecar)
+    }
+
+    /// Applies one annotation to the markdown and marks it resolved, as `folio accept` does:
+    /// the patched file and the sidecar are written, and the page is told, in that order.
+    func accept(id: String) throws {
+        let result = try Rust.accept(doc: readFile(), sidecarJSON: readSidecar(), id: id)
+        if let patched = result.doc {
+            try writeFile(patched)
+            onEvent?("md:changed")
+        }
+        try writeSidecar(result.sidecar)
+        onEvent?("folio:changed")
     }
 
     /// Unresolved annotations, for the file menu badge.

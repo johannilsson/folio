@@ -20,6 +20,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
 
     var setName: String { workspace.setName ?? "" }
 
+    override var currentDocument: Document { workspace.document(id: currentID) ?? files }
+
     private var split: NSSplitViewController?
 
     // The sidebar runs to the top of the window, as in Finder, Notes and Preview: the
