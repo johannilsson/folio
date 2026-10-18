@@ -8,10 +8,6 @@ final class ForwardingWebView: WKWebView {
     /// Gets key presses first: the annotation shortcuts, which the page no longer knows. Returns
     /// whether it used the key.
     var keyHandler: ((NSEvent) -> Bool)?
-    /// The undo history Edit ▸ Undo should use now, when it is not the page's own.
-    var undoManagerProvider: (() -> UndoManager?)?
-
-    override var undoManager: UndoManager? { undoManagerProvider?() ?? super.undoManager }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if keyHandler?(event) == true { return true }

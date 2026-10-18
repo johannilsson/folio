@@ -125,10 +125,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
 
         annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore)
-        if let web = webView as? ForwardingWebView {
-            web.keyHandler = { [weak self] event in self?.annotations.handleKey(event) ?? false }
-            web.undoManagerProvider = { [weak self] in self?.annotations.undoManagerForEdit() }
-        }
+        (webView as? ForwardingWebView)?.keyHandler = { [weak self] event in self?.annotations.handleKey(event) ?? false }
         bridge.onUIState = { [weak self] source, comments, pending in
             self?.sourceOn = source
             self?.commentsOn = comments

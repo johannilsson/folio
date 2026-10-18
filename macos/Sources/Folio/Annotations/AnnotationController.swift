@@ -305,6 +305,11 @@ final class AnnotationController {
 
     var toastMessage: String? { toast.isHidden ? nil : toast.message }
 
+    // What the self-test looks at and presses.
+    var adderIsHidden: Bool { adder.isHidden }
+    var adderFrame: NSRect? { adder.isHidden ? nil : adder.frame }
+    func pressCommentButton() { adder.onClick?() }
+
     private func fail(_ error: Error) {
         guard let window = owner.window else { return }
         NSAlert(error: error).beginSheetModal(for: window)
@@ -325,6 +330,11 @@ final class AnnotationController {
             case "\u{7f}": return act(on: focusedID) { resolve($0) }
             default: return false
             }
+        }
+        // ⌘Z and ⇧⌘Z reach the page first; they are ours only while an annotation action is the latest.
+        if event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if flags == [.command] { return undoIfLatest() }
+            if flags == [.command, .shift] { return redoIfLatest() }
         }
         if flags.isEmpty, event.keyCode == 53 {
             if form != nil { cancelForm(refocusPage: true); return true }
@@ -360,10 +370,20 @@ final class AnnotationController {
 
     // MARK: Undo
 
-    /// The undo history Edit ▸ Undo should use now: this window's annotation actions, while the
-    /// latest thing the reader did was one of them. Otherwise the page's own.
-    func undoManagerForEdit() -> UndoManager? {
-        guard store.lastActionAt > lastTypingAt, store.canUndo || store.canRedo else { return nil }
-        return store.undoManager
+    // The page has its own undo for what is typed, and the window has no undo manager that would
+    // join the two (the document has none on purpose: it would keep WebKit's undo from the editors).
+    // So Undo and Redo go to the annotation actions while one of them is the latest thing the
+    // reader did, and to the page otherwise.
+
+    private var annotationActionIsLatest: Bool { store.lastActionAt > lastTypingAt }
+
+    /// Undoes the last annotation action if it is the latest thing the reader did.
+    /// Returns false when Undo belongs to the page.
+    func undoIfLatest() -> Bool {
+        annotationActionIsLatest && store.canUndo && store.undo()
+    }
+
+    func redoIfLatest() -> Bool {
+        annotationActionIsLatest && store.canRedo && store.redo()
     }
 }

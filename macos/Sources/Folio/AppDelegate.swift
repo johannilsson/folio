@@ -173,6 +173,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: menus
 
+    // MARK: undo
+
+    /// Undo takes back the last annotation action (a rejected suggestion, a reply) while that is
+    /// the latest thing the reader did in the page, and otherwise the page's own typing as before.
+    /// A text field of the annotation UI keeps its own undo.
+    @MainActor @objc private func undoEdit(_ sender: Any?) {
+        if let controller = annotationsInPage, controller.undoIfLatest() { return }
+        frontWindow?.firstResponder?.tryToPerform(Selector(("undo:")), with: sender)
+    }
+
+    @MainActor @objc private func redoEdit(_ sender: Any?) {
+        if let controller = annotationsInPage, controller.redoIfLatest() { return }
+        frontWindow?.firstResponder?.tryToPerform(Selector(("redo:")), with: sender)
+    }
+
+    /// The window Undo is for: the key window, or the front editor window if the app is not active.
+    @MainActor private var frontWindow: NSWindow? {
+        NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController is EditorWindowController }
+    }
+
+    /// The annotation UI of the front window, when the reader is in the page rather than in one of its text fields.
+    @MainActor private var annotationsInPage: AnnotationController? {
+        guard let window = frontWindow, let controller = window.windowController as? EditorWindowController,
+              (window.firstResponder as? NSView)?.isDescendant(of: controller.webView) == true else { return nil }
+        return controller.annotations
+    }
+
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         open(url)
@@ -257,11 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         }
 
-        // WKWebView only gets cut/copy/paste/undo from the responder chain; these items
-        // have no target, so they reach it as first responder.
+        // WKWebView only gets cut/copy/paste from the responder chain; these items have no target,
+        // so they reach it as first responder. Undo and Redo first ask the window's annotation actions.
         _ = add("Edit") { m in
-            m.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-            let redo = m.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+            m.addItem(withTitle: "Undo", action: #selector(undoEdit(_:)), keyEquivalent: "z").target = self
+            let redo = m.addItem(withTitle: "Redo", action: #selector(redoEdit(_:)), keyEquivalent: "z")
+            redo.target = self
             redo.keyEquivalentModifierMask = [.command, .shift]
             m.addItem(.separator())
             m.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
