@@ -2,10 +2,15 @@ import AppKit
 import WebKit
 
 /// The page never scrolls: it lays itself out at its full height and `EditorScrollView`
-/// scrolls it. Wheel events the web view receives go to the enclosing scroll view.
+/// scrolls it. Vertical wheel events the web view receives go to the enclosing scroll view;
+/// sideways ones stay with the page, where a wide table or code block scrolls itself.
 final class ForwardingWebView: WKWebView {
     override func scrollWheel(with event: NSEvent) {
-        nextResponder?.scrollWheel(with: event)
+        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
+            nextResponder?.scrollWheel(with: event)
+        }
     }
 
     /// Dragging a selection past the window's edge: the page has nothing of its own to

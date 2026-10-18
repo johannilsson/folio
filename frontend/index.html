@@ -211,11 +211,15 @@
        the window, so a click below the text lands in the editor. */
     html.native-chrome, html.native-chrome body { height: auto; overflow: visible; }
     html.native-chrome #app { height: auto; }
-    html.native-chrome #editor-pane,
-    html.native-chrome #raw-pane,
     html.native-chrome #editor-wrapper,
     html.native-chrome #raw-editor-wrapper { overflow: visible; }
     html.native-chrome #editor-tiptap .tiptap { min-height: var(--viewport-h, 0px); }
+    /* Nothing may widen the page: with no scrolling box around it, a flex item grows to its
+       widest content (a wide table) and pushes the comments pane off screen. Wide tables
+       scroll inside their own box instead. */
+    html.native-chrome #editor-pane,
+    html.native-chrome #raw-pane { min-width: 0; overflow-x: clip; overflow-y: visible; }
+    html.native-chrome .tiptap .tableWrapper { overflow-x: auto; }
 
     /* The comments pane slides in and out like the window's sidebar, instead of appearing.
        The cards keep a fixed width, so only the pane's own width animates and nothing

@@ -261,6 +261,7 @@ final class SelfTest {
         }
 
         await portedBrowserChecks()
+        await wideTableChecks()
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
@@ -323,6 +324,55 @@ final class SelfTest {
     private func previewHighlights(_ text: String) async -> Bool {
         let quoted = text.replacingOccurrences(of: "'", with: "\\'")
         return await waitFor("[...document.querySelectorAll('#editor-wrapper .ann-comment-target')].some(e => e.textContent === '\(quoted)')", seconds: 8)
+    }
+
+    /// A table wider than the window must not widen the page: nothing in the page scrolls, so
+    /// the extra width would push the comments pane off screen. The preview is showing and the
+    /// comments pane is open.
+    private func wideTableChecks() async {
+        let original = disk()
+        let cells = (1...8).map { _ in String(repeating: "W", count: 60) }
+        let row = "| " + cells.joined(separator: " | ") + " |"
+        let header = "| " + (1...8).map { "Column\($0)" }.joined(separator: " | ") + " |"
+        let rule = "|" + String(repeating: " --- |", count: 8)
+        replaceFile("# Wide\n\n\(header)\n\(rule)\n\(row)\n\(row)\n\nFinal line after the table.\n")
+        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('Final line after the table.')", seconds: 8)
+        replaceSidecar([commentJSON("wt1", before: "Final ", target: "line after")])
+
+        // The page is no wider than the window, and the pane's card is on screen.
+        func onScreen(_ gutter: String) -> String {
+            """
+            (() => {
+              const r = document.querySelector('\(gutter) .ann-card')?.getBoundingClientRect()
+              return document.documentElement.scrollWidth <= window.innerWidth + 1
+                && !!r && r.width > 200 && r.left >= 0 && r.right <= window.innerWidth
+            })()
+            """
+        }
+        await check("a wide table in the preview does not push the comments pane off screen") {
+            await self.waitFor(onScreen("#annotation-gutter"), seconds: 8)
+        }
+        await check("the wide table scrolls sideways inside itself") {
+            await self.js("""
+                (() => {
+                  const w = document.querySelector('#editor-tiptap .tableWrapper')
+                  w.scrollLeft = 200
+                  return w.scrollWidth > w.clientWidth + 200 && w.scrollLeft > 0
+                })()
+                """) as? Bool == true
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-wide-table.png") }
+        send("toggleSource:")
+        await check("a wide table in the source view does not push the comments pane off screen") {
+            let shown = await self.waitFor("document.getElementById('raw-pane').hidden === false", seconds: 8)
+            let visible = await self.waitFor(onScreen("#raw-annotation-gutter"), seconds: 8)
+            return shown && visible
+        }
+        send("toggleSource:")
+        _ = await waitFor("!document.getElementById('editor-wrapper').hidden", seconds: 8)
+        replaceSidecar([])
+        replaceFile(original)
+        _ = await waitFor("!document.querySelector('#editor-tiptap').innerText.includes('Final line after the table.')", seconds: 8)
     }
 
     /// The checks that used to be Playwright specs and apply to the app as it is: anchoring
