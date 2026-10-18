@@ -1026,8 +1026,8 @@ impl Sidecar {
 
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let json = serde_json::to_string_pretty(self)?;
-        // Write a temp file next to the target and rename it over, so the watcher, server and
-        // macOS app never read a half-written sidecar.
+        // Write a temp file next to the target and rename it over, so the
+        // macOS app never reads a half-written sidecar.
         let mut tmp = path.as_os_str().to_owned();
         tmp.push(".tmp");
         let tmp = std::path::PathBuf::from(tmp);

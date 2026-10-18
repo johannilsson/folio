@@ -6,7 +6,6 @@ pub mod open;
 pub mod reject;
 pub mod render;
 pub mod review;
-pub mod serve;
 pub mod set;
 
 use std::path::{Path, PathBuf};
@@ -28,12 +27,6 @@ fn absolute(file: &Path) -> PathBuf {
 pub fn folio_path(file: &Path) -> PathBuf {
     let file = absolute(file);
     crate::set::folio_path_in(&crate::set::detect_root(&file), &file)
-}
-
-pub fn lock_path(file: &Path) -> PathBuf {
-    let mut path = folio_path(file).into_os_string();
-    path.push(".lock");
-    PathBuf::from(path)
 }
 
 #[cfg(test)]
@@ -75,12 +68,4 @@ mod tests {
         assert!(path == tmp.join("notes/.folio/a.md.folio") || path.to_string_lossy().contains("/.folio/"));
     }
 
-    #[test]
-    fn the_lock_sits_next_to_the_sidecar() {
-        let tmp = temp_dir("lock");
-        std::fs::create_dir_all(tmp.join(".git")).unwrap();
-        let file = tmp.join("a.md");
-        std::fs::write(&file, "# x\n").unwrap();
-        assert_eq!(lock_path(&file), tmp.join(".folio/a.md.folio.lock"));
-    }
 }

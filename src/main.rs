@@ -11,30 +11,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the editor server
-    Serve {
-        #[arg(required_unless_present = "set", conflicts_with = "set")]
-        file: Option<PathBuf>,
-        /// Serve a named set of files (see `folio set`)
-        #[arg(long)]
-        set: Option<String>,
-        #[arg(short, long)]
-        port: Option<u16>,
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long)]
-        no_open: bool,
-        #[arg(long)]
-        no_watch: bool,
-        #[arg(long)]
-        read_only: bool,
-        #[arg(long)]
-        token: Option<String>,
-        #[arg(long, default_value = "https://kroki.io")]
-        kroki_url: String,
-        #[arg(long, default_value = "https://www.plantuml.com/plantuml")]
-        plantuml_url: String,
-    },
     /// Open a file, or a set of files, in the Folio macOS app
     Open {
         #[arg(required_unless_present = "set", conflicts_with = "set")]
@@ -43,7 +19,7 @@ enum Commands {
         #[arg(long)]
         set: Option<String>,
     },
-    /// Manage named sets of files served together
+    /// Manage named sets of files reviewed together
     Set {
         #[command(subcommand)]
         command: SetCommands,
@@ -136,26 +112,10 @@ enum SetCommands {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Serve {
-            file,
-            set,
-            port,
-            host,
-            no_open,
-            no_watch,
-            read_only,
-            token,
-            kroki_url,
-            plantuml_url,
-        } => {
-            commands::serve::run(file, set, port, host, no_open, no_watch, read_only, token, kroki_url, plantuml_url)
-                .await
-        }
         Commands::Open { file, set } => commands::open::run(file.as_deref(), set.as_deref()),
         Commands::Set { command } => match command {
             SetCommands::Add { name, files, root } => commands::set::add(&name, &files, root.as_ref()),

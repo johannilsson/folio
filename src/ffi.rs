@@ -1,6 +1,6 @@
 //! C API for the native macOS shell. Strings in, JSON strings out: Swift does all
 //! file IO and calls these for the anchoring and accept logic, so there is one
-//! implementation shared with the CLI and the server.
+//! implementation shared with the CLI.
 
 use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
 use crate::set::{self, detect_root, folio_path_in};

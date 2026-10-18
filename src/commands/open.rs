@@ -10,7 +10,7 @@ const BUNDLE_ID: &str = "dev.folio.Folio";
 /// an app bundle to use instead of the registered one, e.g. a build that is not installed.
 pub fn run(file: Option<&Path>, set_name: Option<&str>) -> anyhow::Result<()> {
     if !cfg!(target_os = "macos") {
-        anyhow::bail!("`folio open` launches the macOS app; use `folio serve` here");
+        anyhow::bail!("`folio open` launches the macOS app, which is the only editor");
     }
     // What the app is asked to open: a file path, or folio://set/<name> for a set.
     let target: OsString = match (file, set_name) {
@@ -32,7 +32,7 @@ pub fn run(file: Option<&Path>, set_name: Option<&str>) -> anyhow::Result<()> {
     };
     let status = open.arg(&target).status()?;
     if !status.success() {
-        anyhow::bail!("could not launch Folio.app (is it installed?); `folio serve` opens it in a browser instead");
+        anyhow::bail!("could not launch Folio.app (is it installed?)");
     }
     Ok(())
 }
