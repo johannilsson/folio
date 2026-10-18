@@ -59,7 +59,7 @@ final class SelfTest {
             (await self.js("document.querySelector('#editor-tiptap .tiptap > *').getBoundingClientRect().top") as? Double ?? 999) < 40
         }
         await check("title comes from the bridge") {
-            await self.js("document.getElementById('filename-display').textContent") as? String == self.name
+            await self.js("document.title") as? String == self.name
         }
         await check("the window title is the file name, with its proxy icon") {
             self.controller.window?.title == self.name && self.controller.window?.representedURL == self.file
@@ -71,8 +71,8 @@ final class SelfTest {
         await check("bridge served info, getFile and getFolio") {
             ["info", "getFile", "getFolio"].allSatisfy { self.controller.bridge.count($0) > 0 }
         }
-        await check("the in-page title pill and buttons are hidden in the native window") {
-            await self.js("['title-pill', 'view-toggle-btn', 'toggle-gutter-btn'].every(id => document.getElementById(id).offsetParent === null)") as? Bool == true
+        await check("the page has no chrome of its own: the in-page title pill is hidden and it has no toggles") {
+            await self.js("document.getElementById('title-pill').offsetParent === null && !document.getElementById('view-toggle-btn') && !document.getElementById('toggle-gutter-btn')") as? Bool == true
         }
         await check("the native toolbar has the two toggles") {
             let ids = self.controller.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
@@ -82,60 +82,61 @@ final class SelfTest {
         // The View menu switches to the source editor, which the typing checks use.
         send("toggleSource:")
         await check("the source editor opens from the menu and the toolbar follows") {
-            let shown = await self.waitFor("!!document.querySelector('.cm-content') && document.getElementById('raw-pane').hidden === false")
-            let mirrored = await self.until { self.controller.sourceOn }
-            return shown && mirrored
+            let shown = await self.until { self.controller.sourceOn && !self.sourceView.isHidden && self.sourceView.window != nil && self.web.isHidden }
+            return shown && self.sourceText.contains("The last paragraph.")
         }
         await check("the source text starts close under the title bar") {
-            (await self.js("document.querySelector('#raw-pane .cm-line').getBoundingClientRect().top") as? Double ?? 999) < 40
+            guard let layout = self.sourceView.textView.layoutManager else { return false }
+            let top = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + self.sourceView.textView.textContainerOrigin.y
+            return top < 40
+        }
+        await check("the source is highlighted: a heading is heavier than the text") {
+            let storage = self.sourceView.textView.textStorage!
+            let heading = storage.attribute(.font, at: 4, effectiveRange: nil) as? NSFont
+            let plain = storage.attribute(.font, at: storage.length - 4, effectiveRange: nil) as? NSFont
+            return heading != nil && heading != plain
         }
 
         // Typing is saved to the file.
-        _ = await js("document.querySelector('.cm-content').focus()")
-        _ = await js("document.execCommand('insertText', false, 'ZZ')")
-        await check("typing reaches the editor") { await self.cmText().contains("ZZ") }
+        controller.window?.makeFirstResponder(sourceView.textView)
+        sourceView.textView.insertText("ZZ", replacementRange: NSRange(location: 0, length: 0))
+        await check("typing reaches the editor") { self.sourceText.hasPrefix("ZZ") }
         await check("typing is written to the file") { await self.until { self.disk().contains("ZZ") } }
 
         // Edit menu actions go through the responder chain, as the menu items do.
-        controller.window?.makeFirstResponder(web)
-        send("undo:")
-        await check("undo from the Edit menu") { await self.until { !(await self.cmText()).contains("ZZ") } }
+        send("undoEdit:")
+        await check("undo from the Edit menu") { await self.until { !self.sourceText.contains("ZZ") } }
         await check("undo is written to the file") { await self.until { !self.disk().contains("ZZ") } }
-        send("redo:")
-        await check("redo from the Edit menu") { await self.until { (await self.cmText()).contains("ZZ") } }
+        send("redoEdit:")
+        await check("redo from the Edit menu") { await self.until { self.sourceText.contains("ZZ") } }
 
         NSPasteboard.general.clearContents()
         send("selectAll:")
-        // CodeMirror adopts the DOM selection on the next selectionchange; copying
-        // before that copies only the cursor's line.
-        try? await Task.sleep(nanoseconds: 300_000_000)
         send("copy:")
         await check("copy puts the document on the pasteboard") {
             await self.until { NSPasteboard.general.string(forType: .string)?.contains("The last paragraph.") == true }
         }
-        _ = await js("document.execCommand('delete')")
-        await check("selection deleted") { !(await self.cmText()).contains("The last paragraph.") }
+        sourceView.textView.deleteBackward(nil)
+        await check("selection deleted") { !self.sourceText.contains("The last paragraph.") }
         send("paste:")
         await check("paste restores the document") {
-            await self.until { (await self.cmText()).contains("The last paragraph.") }
+            await self.until { self.sourceText.contains("The last paragraph.") }
         }
         await check("the restored document is on disk") { await self.until { self.disk().contains("The last paragraph.") } }
+
+        // ⌘B and ⌘I wrap the selection in the markdown marks, and unwrap it again.
+        await sourceFormattingChecks()
 
         // An agent annotates through the CLI; the app has to notice. The View menu opens the comments pane.
         send("toggleComments:")
         await check("the toolbar follows the comments toggle") { await self.until { self.controller.commentsOn } }
-        await check("the comments pane slides open") {
-            // It animates its width (like the sidebar) rather than appearing: a transition is set and it ends up open.
-            let animated = await self.js("getComputedStyle(document.getElementById('raw-annotation-gutter')).transitionProperty.includes('width')") as? Bool == true
-            let open = await self.waitFor("document.getElementById('raw-annotation-gutter').getBoundingClientRect().width > 270")
-            return animated && open
-        }
+        await check("the comments pane slides open") { await self.until { self.controller.scrollHost.paneWidth > 300 } }
         // Closing and opening again, sampling the width on the way: it passes through in-between values.
         await check("the comments pane animates when it closes and opens, rather than jumping") {
-            func sampleWidths() async -> [Double] {
+            @MainActor func sampleWidths() async -> [Double] {
                 var widths: [Double] = []
                 for _ in 0..<12 {
-                    widths.append(await self.js("document.getElementById('raw-annotation-gutter').getBoundingClientRect().width") as? Double ?? -1)
+                    widths.append(Double(self.controller.scrollHost.paneWidth))
                     try? await Task.sleep(nanoseconds: 30_000_000)
                 }
                 return widths
@@ -144,8 +145,8 @@ final class SelfTest {
             let closing = await sampleWidths()
             self.send("toggleComments:")
             let opening = await sampleWidths()
-            let between = { (w: [Double]) in w.contains { $0 > 15 && $0 < 265 } }
-            return between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 270
+            let between = { (w: [Double]) in w.contains { $0 > 15 && $0 < 290 } }
+            return between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 300
         }
         await check("the toolbar follows the pane after the animation test") { await self.until { self.controller.commentsOn } }
         let replaceCLI = cli([
@@ -155,16 +156,20 @@ final class SelfTest {
         ])
         await check("folio annotate succeeds") { replaceCLI.status == 0 }
         await check("the CLI's annotation appears in the app without a reload") {
-            await self.waitFor("document.querySelectorAll('#raw-annotation-gutter .ann-card').length === 1")
+            await self.until { self.pane.cards.count == 1 }
         }
-        // In the DOM is not the same as on screen: the card has to have a size and sit inside the window.
+        // In the window is not the same as in the model: the card has to have a size and sit inside it.
         await check("the card is visible in the comments pane of the source view") {
-            await self.waitFor("""
-                (() => {
-                  const r = document.querySelector('#raw-annotation-gutter .ann-card').getBoundingClientRect()
-                  return r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
-                })()
-                """)
+            await self.until { self.visibleCards().count == 1 }
+        }
+        await check("the source marks the annotated text: struck through and tinted") {
+            await self.until {
+                let text = self.sourceText as NSString
+                let range = text.range(of: "minimal intervention")
+                guard range.location != NSNotFound, let layout = self.sourceView.textView.layoutManager else { return false }
+                let strike = layout.temporaryAttribute(.strikethroughStyle, atCharacterIndex: range.location, effectiveRange: nil)
+                return strike != nil
+            }
         }
         await check("the comments icon counts the pending annotations") {
             await self.until { self.controller.pendingCount == 1 }
@@ -188,13 +193,16 @@ final class SelfTest {
             _ = try? FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmp)
         }
         await check("an agent's reply to an existing annotation appears without a reload") {
-            await self.waitFor("document.querySelector('#raw-annotation-gutter').innerText.includes('Reply from the agent')", seconds: 8)
+            await self.until(seconds: 8) { self.pane.cards.values.first?.annotation.replies?.first?.body == "Reply from the agent" }
         }
 
-        // Accept in source mode: CodeMirror patches the text and saves both files.
-        _ = await js("document.querySelector('#raw-annotation-gutter .ann-card button[title=Accept]').dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}))")
+        // Accept in source mode: Rust patches the file, and the source follows it.
+        press("accept", inCardOf: pane.cards.keys.first)
         await check("accepting in source mode patches the file") {
             await self.until { self.disk().contains("made with no additives in both") }
+        }
+        await check("the source shows the accepted text") {
+            await self.until { self.sourceText.contains("made with no additives in both") }
         }
         await check("the CLI sees the annotation as resolved") {
             await self.until { self.pendingFromCLI() == 0 }
@@ -205,6 +213,9 @@ final class SelfTest {
         await check("the toolbar follows the source toggle") { await self.until { !self.controller.sourceOn } }
         await check("preview editor renders") {
             await self.waitFor("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")
+        }
+        await check("the preview picked up what was typed and accepted in the source") {
+            await self.waitFor("document.querySelector('#editor-tiptap').innerText.includes('made with no additives in both')")
         }
         await check("mermaid renders (dynamic chunks load through folio://)") {
             await self.waitFor("!!document.querySelector('#editor-tiptap .diagram-block svg')", seconds: 15)
@@ -247,16 +258,11 @@ final class SelfTest {
         }
         send("toggleSource:")
         await check("the card is visible in the comments pane after switching to the source view") {
-            await self.waitFor("""
-                (() => {
-                  const r = document.querySelector('#raw-annotation-gutter .ann-card')?.getBoundingClientRect()
-                  return !!r && r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
-                })()
-                """, seconds: 8)
+            await self.until(seconds: 8) { self.controller.sourceOn && self.visibleCards().count == 1 && self.pane.anchorsKnown }
         }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-source-after-preview.png") }
         send("toggleSource:")
-        _ = await waitFor("!document.getElementById('editor-wrapper').hidden", seconds: 8)
+        _ = await until(seconds: 8) { !self.controller.sourceOn && self.pane.anchorsKnown }
 
         // Another program replaces the file the way agents do: write a temp file, rename over it.
         let replacement = dir.appendingPathComponent("incoming.tmp")
@@ -289,7 +295,7 @@ final class SelfTest {
         }
         await check("the second window's page shows its own file name") {
             await self.until {
-                (try? await second.webView.callAsyncJavaScript("return document.getElementById('filename-display').textContent", contentWorld: .page)) as? String == secondName
+                (try? await second.webView.callAsyncJavaScript("return document.title", contentWorld: .page)) as? String == secondName
             }
         }
         await check("the first window kept its document") { self.controller.files.file == copy }
@@ -670,15 +676,6 @@ final class SelfTest {
         replaceSidecar([commentJSON("wt1", before: "Final ", target: "line after")])
 
         // The page is no wider than the window, and the pane's card is on screen.
-        func onScreen(_ gutter: String) -> String {
-            """
-            (() => {
-              const r = document.querySelector('\(gutter) .ann-card')?.getBoundingClientRect()
-              return document.documentElement.scrollWidth <= window.innerWidth + 1
-                && !!r && r.width > 200 && r.left >= 0 && r.right <= window.innerWidth
-            })()
-            """
-        }
         await check("a wide table in the preview does not push the comments pane off screen") {
             let narrow = await self.waitFor("document.documentElement.scrollWidth <= window.innerWidth + 1", seconds: 8)
             let shown = await self.until(seconds: 8) { self.visibleCards().count == 1 }
@@ -695,13 +692,15 @@ final class SelfTest {
         }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-wide-table.png") }
         send("toggleSource:")
-        await check("a wide table in the source view does not push the comments pane off screen") {
-            let shown = await self.waitFor("document.getElementById('raw-pane').hidden === false", seconds: 8)
-            let visible = await self.waitFor(onScreen("#raw-annotation-gutter"), seconds: 8)
-            return shown && visible
+        await check("a wide table in the source view wraps and does not push the comments pane off screen") {
+            let shown = await self.until(seconds: 8) { self.controller.sourceOn && self.visibleCards().count == 1 }
+            let host = self.controller.scrollHost
+            let fits = (host.documentView?.frame.width ?? 9999) <= host.contentSize.width + 1
+                && self.sourceView.frame.maxX <= host.contentSize.width - host.paneWidth + 1
+            return shown && fits
         }
         send("toggleSource:")
-        _ = await waitFor("!document.getElementById('editor-wrapper').hidden", seconds: 8)
+        _ = await until(seconds: 8) { !self.controller.sourceOn }
         replaceSidecar([])
         replaceFile(original)
         _ = await waitFor("!document.querySelector('#editor-tiptap').innerText.includes('Final line after the table.')", seconds: 8)
@@ -797,6 +796,8 @@ final class SelfTest {
     /// editor, scrolled to the top.
     private func scrollingChecks(_ win: SetWindowController, page: (String) async -> Any?) async {
         let host = win.scrollHost
+        let preview = !win.sourceOn
+        let label = preview ? "preview" : "source"
         func toTop() {
             host.contentView.scroll(to: .zero)
             host.reflectScrolledClipView(host.contentView)
@@ -805,26 +806,41 @@ final class SelfTest {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                windowNumber: win.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
         }
+        let textView = host.source.textView
 
-        // The web view gets the wheel; it has nothing to scroll, so the scroll view must.
+        // The text gets the wheel; it has nothing to scroll by itself, so the scroll view must.
         if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -400, wheel2: 0, wheel3: 0),
            let wheel = NSEvent(cgEvent: cg) {
-            win.webView.scrollWheel(with: wheel)
+            if preview { win.webView.scrollWheel(with: wheel) } else { textView.scrollWheel(with: wheel) }
         }
-        await check("a wheel event over the page scrolls the window's scroll view") {
+        await check("a wheel event over the \(label) scrolls the window's scroll view") {
             await self.until { host.scrollOffset > 100 }
         }
         toTop()
 
         // Typing at the end of a long document keeps the caret in view.
-        _ = await page("(() => { const c = document.querySelector('.cm-content'); c.focus(); const s = getSelection(); s.selectAllChildren(c); s.collapseToEnd(); return 1 })()")
-        _ = await page("document.execCommand('insertText', false, 'X')")
-        await check("typing at the end of the document scrolls the caret into view") {
+        if preview {
+            _ = await page("(() => { const c = document.querySelector('#editor-tiptap .ProseMirror'); c.focus(); const s = getSelection(); s.selectAllChildren(c); s.collapseToEnd(); return 1 })()")
+            _ = await page("document.execCommand('insertText', false, 'X')")
+        } else {
+            win.window?.makeFirstResponder(textView)
+            let end = NSRange(location: (textView.string as NSString).length, length: 0)
+            textView.setSelectedRange(end)
+            textView.insertText("X", replacementRange: end)
+        }
+        await check("typing at the end of the \(label) scrolls the caret into view") {
             await self.until {
-                // The line around the caret: a collapsed range has no box of its own in some positions.
-                guard let rect = await page("(() => { const n = getSelection().focusNode; const r = (n instanceof Element ? n : n.parentElement).getBoundingClientRect(); return [r.top, r.bottom] })()") as? [Double],
-                      rect.count == 2, rect[0] > 1000 else { return false }
-                return rect[0] >= host.scrollOffset && rect[1] <= host.scrollOffset + host.contentSize.height
+                if preview {
+                    // The line around the caret: a collapsed range has no box of its own in some positions.
+                    guard let rect = await page("(() => { const n = getSelection().focusNode; const r = (n instanceof Element ? n : n.parentElement).getBoundingClientRect(); return [r.top, r.bottom] })()") as? [Double],
+                          rect.count == 2, rect[0] > 1000 else { return false }
+                    return rect[0] >= host.scrollOffset && rect[1] <= host.scrollOffset + host.contentSize.height
+                }
+                guard let layout = textView.layoutManager else { return false }
+                let glyph = layout.glyphIndexForCharacter(at: max(0, (textView.string as NSString).length - 1))
+                let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+                let top = textView.frame.minY + line.minY + textView.textContainerOrigin.y
+                return top > 1000 && top >= host.scrollOffset && top + line.height <= host.scrollOffset + host.contentSize.height
             }
         }
         toTop()
@@ -832,21 +848,43 @@ final class SelfTest {
         // Find selects a match far down, and the window goes to it.
         win.findItem.searchField.stringValue = "Paragraph 100 of"
         win.findNext(nil)
-        await check("Find scrolls the window to the match") { await self.until { host.scrollOffset > 1000 } }
+        await check("Find scrolls the window to the match in the \(label)") { await self.until { host.scrollOffset > 1000 } }
         toTop()
 
-        // A selection dragged below the window's bottom edge scrolls the document.
-        if let area = Optional(host.convert(host.bounds, to: nil)) {
-            let start = NSPoint(x: area.minX + 160, y: area.maxY - 90)
-            let outside = NSPoint(x: area.minX + 300, y: area.minY - 40)
-            if let down = mouse(.leftMouseDown, at: start) { win.webView.mouseDown(with: down) }
-            for _ in 0..<8 {
-                if let drag = mouse(.leftMouseDragged, at: outside) { win.webView.mouseDragged(with: drag) }
-                try? await Task.sleep(nanoseconds: 60_000_000)
+        // A selection dragged below the window's bottom edge scrolls the document. The text view
+        // follows the mouse until the button is released, so the drag and the release are queued first.
+        let area = host.convert(host.bounds, to: nil)
+        let start = NSPoint(x: area.minX + 160, y: area.maxY - 90)
+        let outside = NSPoint(x: area.minX + 300, y: area.minY - 40)
+        if let down = mouse(.leftMouseDown, at: start) {
+            if preview {
+                win.webView.mouseDown(with: down)
+                for _ in 0..<8 {
+                    if let drag = mouse(.leftMouseDragged, at: outside) { win.webView.mouseDragged(with: drag) }
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                }
+                if let up = mouse(.leftMouseUp, at: outside) { win.webView.mouseUp(with: up) }
+            } else {
+                // mouseDown tracks until the button comes up, with a timer driving the autoscroll
+                // while it is held outside: the events arrive over time, as a held mouse's would.
+                // The main thread is inside that loop, so another thread posts them.
+                let drags = (0..<10).compactMap { _ in mouse(.leftMouseDragged, at: outside) }
+                let up = mouse(.leftMouseUp, at: outside)
+                DispatchQueue.global().async {
+                    for drag in drags {
+                        Thread.sleep(forTimeInterval: 0.06)
+                        NSApp.postEvent(drag, atStart: false)
+                    }
+                    Thread.sleep(forTimeInterval: 0.3)
+                    if let up { NSApp.postEvent(up, atStart: false) }
+                }
+                textView.mouseDown(with: down)
             }
-            if let up = mouse(.leftMouseUp, at: outside) { win.webView.mouseUp(with: up) }
         }
-        await check("dragging a selection past the edge scrolls the window") { host.scrollOffset > 40 }
+        await check("dragging a selection past the edge of the \(label) scrolls the window") {
+            if host.scrollOffset <= 40 { print("    offset \(host.scrollOffset) selection \(textView.selectedRange()) area \(area)") }
+            return host.scrollOffset > 40
+        }
         toTop()
     }
 
@@ -882,7 +920,8 @@ final class SelfTest {
         let alphaID = win.sidebar.fileIDs[0], betaID = win.sidebar.fileIDs[1]
         let betaDir = beta.deletingLastPathComponent()
         func page(_ source: String) async -> Any? { await js(source, in: win.webView) }
-        func filename() async -> String? { await page("document.getElementById('filename-display')?.textContent") as? String }
+        func filename() async -> String? { await page("document.title") as? String }
+        let sv = win.scrollHost.source
 
         await check("the set opens in a window titled by the set, with its files in a sidebar") {
             win.window?.title == "demo" && win.sidebar.fileIDs.count == 2 && win.sidebar.selectedID == alphaID
@@ -901,11 +940,10 @@ final class SelfTest {
             await self.until { win.sidebar.selectedRowIsSoft }
         }
         await check("the page opens on the first file") { await self.until { await filename() == "alpha.md" } }
-        // The set's page also opens in the preview; the typing checks below use the source editor.
-        _ = await self.waitFor("document.getElementById('raw-pane').hidden === true", in: win.webView)
-        _ = await page("document.getElementById('view-toggle-btn').click()")
-        await check("the source editor shows for the set") {
-            await self.waitFor("!!document.querySelector('.cm-content') && document.getElementById('raw-pane').hidden === false", in: win.webView)
+        // The set's window also opens in the preview; the typing checks below use the source editor.
+        win.toggleSource(nil)
+        await check("the source editor shows for the set, on the first file") {
+            await self.until { win.sourceOn && !sv.isHidden && sv.textView.string.contains("The last paragraph.") }
         }
         await check("the bridge answers for the set's files") {
             await self.until { win.bridge.count("info") > 0 && win.bridge.count("getFile") > 0 }
@@ -917,26 +955,25 @@ final class SelfTest {
             await self.until { await filename() == "beta.md" }
         }
         await check("it is the other file's content") {
-            await self.until { (await page("document.querySelector('.cm-content').innerText") as? String)?.contains("BETA MARKER") == true }
+            await self.until { sv.textView.string.contains("BETA MARKER") }
         }
         await check("the window subtitle follows") { win.window?.subtitle == "beta.md" && win.currentID == betaID }
 
         // Edits go to the file on screen, not the first one.
-        _ = await page("document.querySelector('.cm-content').focus()")
-        _ = await page("document.execCommand('insertText', false, 'QQ')")
+        win.window?.makeFirstResponder(sv.textView)
+        sv.textView.insertText("QQ", replacementRange: NSRange(location: 0, length: 0))
         await check("typing is saved to the file shown") {
             await self.until { (try? String(contentsOf: beta, encoding: .utf8))?.contains("QQ") == true }
         }
         await check("and not to the other file") { !((try? String(contentsOf: alpha, encoding: .utf8))?.contains("QQ") ?? true) }
 
         // Scroll position comes back when a file is shown again, and a new file starts at the top.
-        // The window's scroll view scrolls the page, which is as tall as its text.
+        // The window's scroll view scrolls the text, which is as tall as it is.
         let host = win.scrollHost
         var scrolled = 0.0
-        await check("the page is as tall as its text, and the long file scrolled") {
+        await check("the source is as tall as its text, and the long file scrolled") {
             await self.until(seconds: 15) {
-                let height = await page("Math.ceil(document.body.getBoundingClientRect().height)") as? Double ?? 0
-                guard height > 1600, abs(host.contentHeight - height) < 2, abs(win.webView.frame.height - height) < 2 else { return false }
+                guard host.contentHeight > 1600, abs(sv.frame.height - host.contentHeight) < 2 else { return false }
                 host.contentView.scroll(to: NSPoint(x: 0, y: 1500))
                 host.reflectScrolledClipView(host.contentView)
                 scrolled = host.scrollOffset
@@ -959,20 +996,19 @@ final class SelfTest {
         await scrollingChecks(win, page: page)
 
         // An edit made just before switching is saved, and undo in the next file stays in that file.
-        _ = await page("document.querySelector('.cm-content').focus()")
-        _ = await page("document.execCommand('insertText', false, 'UNSAVED-MARKER')")
+        win.window?.makeFirstResponder(sv.textView)
+        sv.textView.insertText("UNSAVED-MARKER", replacementRange: NSRange(location: 0, length: 0))
         win.sidebar.choose(alphaID)
         await check("an edit made just before switching is saved") {
             await self.until { (try? String(contentsOf: beta, encoding: .utf8))?.contains("UNSAVED-MARKER") == true }
         }
-        _ = await until { await filename() == "alpha.md" }
+        _ = await until { await filename() == "alpha.md" && !sv.textView.string.contains("BETA MARKER") }
         let alphaBefore = (try? String(contentsOf: alpha, encoding: .utf8)) ?? ""
-        _ = await page("document.querySelector('.cm-content').focus()")
-        _ = await page("document.execCommand('undo')")
+        win.window?.makeFirstResponder(sv.textView)
+        sv.undo()
         try? await Task.sleep(nanoseconds: 700_000_000)
         await check("undo in the new file never reaches back into the previous one") {
-            let shown = await page("document.querySelector('.cm-content').innerText") as? String ?? ""
-            return !shown.contains("UNSAVED-MARKER")
+            !sv.textView.string.contains("UNSAVED-MARKER")
                 && (try? String(contentsOf: beta, encoding: .utf8))?.contains("UNSAVED-MARKER") == true
                 && (try? String(contentsOf: alpha, encoding: .utf8)) == alphaBefore
         }
@@ -988,35 +1024,37 @@ final class SelfTest {
         await check("the sidebar badge counts it") { await self.until { win.sidebar.badge(for: betaID) == 1 } }
         await check("the other file has no badge") { win.sidebar.badge(for: alphaID) == 0 }
         // Annotations stay with their file: the cards of the previous file do not linger after a swap.
-        let cards = "document.querySelectorAll('#raw-annotation-gutter .ann-card').length"
-        await check("the annotation's card shows on its own file") { await self.waitFor("\(cards) === 1", in: win.webView) }
+        await check("the annotation's card shows on its own file") { await self.until { win.annotations.cards.count == 1 } }
         win.sidebar.choose(alphaID)
-        await check("the other file shows no cards") { await self.waitFor("document.getElementById('filename-display').textContent === 'alpha.md' && \(cards) === 0", in: win.webView) }
+        await check("the other file shows no cards") {
+            let swapped = await self.until { await filename() == "alpha.md" }
+            let cleared = await self.until { win.annotations.cards.isEmpty }
+            return swapped && cleared
+        }
         win.sidebar.choose(betaID)
-        await check("the cards come back with the file") { await self.waitFor("document.getElementById('filename-display').textContent === 'beta.md' && \(cards) === 1", in: win.webView) }
-        // The comments pane of a set window, in the source view: the card is on screen, not just in the page.
+        await check("the cards come back with the file") {
+            let swapped = await self.until { await filename() == "beta.md" }
+            let back = await self.until { win.annotations.cards.count == 1 }
+            return swapped && back
+        }
+        // The comments pane of a set window, in the source view: the card is on screen, not just in the model.
         win.toggleComments(nil)
         await check("the card is visible in the comments pane of a set window") {
-            await self.waitFor("""
-                (() => {
-                  const r = document.querySelector('#raw-annotation-gutter .ann-card')?.getBoundingClientRect()
-                  return !!r && r.width > 200 && r.height > 20 && r.left >= 0 && r.right <= window.innerWidth && r.top >= 0
-                })()
-                """, in: win.webView)
+            await self.until { self.visibleCards(in: win).count == 1 }
         }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             try? await Task.sleep(nanoseconds: 800_000_000)
             await snapshot("\(base)-source-pane.png", of: win)
         }
-        // The same in the preview, where the pane is the app's own: each file brings its own cards.
+        // The same in the preview: each file brings its own cards.
         win.toggleSource(nil)
-        _ = await waitFor("document.getElementById('raw-pane').hidden === true", in: win.webView)
-        await check("a set window's preview shows the open file's annotations in the app's pane") {
+        _ = await until { !win.sourceOn }
+        await check("a set window's preview shows the open file's annotations in the pane") {
             await self.until(seconds: 8) { self.visibleCards(in: win).count == 1 }
         }
         win.sidebar.choose(alphaID)
         await check("the other file's preview has no cards, and the first file's do not linger") {
-            let swapped = await self.waitFor("document.getElementById('filename-display').textContent === 'alpha.md'", in: win.webView)
+            let swapped = await self.until { await filename() == "alpha.md" }
             let cleared = await self.until { win.annotations.cards.isEmpty }
             return swapped && cleared
         }
@@ -1024,8 +1062,11 @@ final class SelfTest {
         await check("the cards come back with the file in the preview") {
             await self.until(seconds: 8) { self.visibleCards(in: win).count == 1 }
         }
+        // The preview scrolls with the wheel, Find, typing and dragging as the source does.
+        _ = await until { await page("document.title") as? String == "beta.md" }
+        await scrollingChecks(win, page: page)
         win.toggleSource(nil)
-        _ = await waitFor("document.getElementById('raw-pane').hidden === false", in: win.webView)
+        _ = await until { win.sourceOn }
         win.toggleComments(nil)
         // Refreshing the badges must not move the page or the selection off the open file.
         try? await Task.sleep(nanoseconds: 700_000_000)
@@ -1172,6 +1213,38 @@ final class SelfTest {
 
     private var pane: AnnotationController { controller.annotations }
 
+    /// The native source editor of the first window, and what is in it.
+    private var sourceView: SourceEditorView { controller.scrollHost.source }
+    private var sourceText: String { sourceView.textView.string }
+
+    /// ⌘B and ⌘I in the source: wrap the selection in the marks, unwrap it when it is wrapped, and with
+    /// nothing selected put a pair down with the caret between. Leaves the text as it found it.
+    private func sourceFormattingChecks() async {
+        let textView = sourceView.textView
+        controller.window?.makeFirstResponder(textView)
+        let original = textView.string
+        let word = (original as NSString).range(of: "Self-test")
+        textView.setSelectedRange(word)
+        let bold = keyEvent("b", .command, code: 11)
+        await check("⌘B wraps the selection in bold marks, keeping it selected") {
+            let handled = textView.performKeyEquivalent(with: bold)
+            return handled && textView.string.contains("**Self-test**")
+                && textView.selectedRange() == NSRange(location: word.location + 2, length: word.length)
+        }
+        await check("⌘B again unwraps it") {
+            let handled = textView.performKeyEquivalent(with: bold)
+            return handled && textView.string == original && textView.selectedRange() == word
+        }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let italic = keyEvent("i", .command, code: 34)
+        await check("⌘I with nothing selected puts a pair of marks down with the caret between") {
+            let handled = textView.performKeyEquivalent(with: italic)
+            return handled && textView.string.hasPrefix("**") && textView.selectedRange() == NSRange(location: 1, length: 0)
+        }
+        textView.insertText("", replacementRange: NSRange(location: 0, length: 2))
+        await check("the text is as it was after the formatting checks") { textView.string == original }
+    }
+
     /// The cards that are in the window: in the comments pane, with a size, inside it from side to side.
     /// Where they are down the page is where their text is, and may be below the fold.
     private func visibleCards(in win: EditorWindowController? = nil) -> [AnnotationCardView] {
@@ -1255,10 +1328,6 @@ final class SelfTest {
 
     private func js(_ source: String, in view: WKWebView) async -> Any? {
         try? await view.callAsyncJavaScript("return \(source)", contentWorld: .page)
-    }
-
-    private func cmText() async -> String {
-        await js("document.querySelector('.cm-content').innerText") as? String ?? ""
     }
 
     private func waitFor(_ condition: String, seconds: Double = 10, in view: WKWebView? = nil) async -> Bool {

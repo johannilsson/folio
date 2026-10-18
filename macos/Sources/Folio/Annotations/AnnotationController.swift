@@ -15,6 +15,9 @@ final class AnnotationController {
     /// The surface that is showing: the preview or the source.
     private(set) var surface: AnnotationSurface
     let preview: PreviewSurface
+    let source: SourceEditorView
+    /// The pending annotations may have changed (the toolbar shows how many).
+    var onPendingChange: (() -> Void)?
 
     // What the surface reported.
     private(set) var anchors: [String: AnchorRect] = [:]
@@ -29,24 +32,26 @@ final class AnnotationController {
     private(set) var form: NewCommentView?
     private var formSelection: SelectionInfo?
 
-    private(set) var sourceOn = false
+    private(set) var mode: EditorMode = .preview
     private(set) var commentsOn = false
+    var sourceOn: Bool { mode == .source }
     private(set) var lastTypingAt = Date.distantPast
 
     private var cardWidth: CGFloat { AnnotationStyle.cardWidth }
-    /// The pane is the app's only in the preview; source mode draws its own.
-    var paneShown: Bool { commentsOn && !sourceOn }
+    var paneShown: Bool { commentsOn }
 
-    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, preview: PreviewSurface) {
+    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, preview: PreviewSurface, source: SourceEditorView) {
         self.owner = owner
         self.host = host
         self.store = store
         self.preview = preview
+        self.source = source
         surface = preview
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
         listen(to: preview)
+        listen(to: source)
         preview.onTyping = { [weak self] in self?.lastTypingAt = Date() }
         attach(store)
         refresh()
@@ -71,13 +76,26 @@ final class AnnotationController {
 
     // MARK: following the window
 
-    /// The comments toggle and the source/preview toggle, as the page reports them.
-    func setModes(source: Bool, comments: Bool) {
-        guard source != sourceOn || comments != commentsOn else { return }
-        sourceOn = source
+    /// The window showed the preview or the source, or opened or closed the pane.
+    func setMode(_ newMode: EditorMode, comments: Bool) {
+        let modeChanged = newMode != mode
+        guard modeChanged || comments != commentsOn else { return }
+        if modeChanged {
+            // What the other surface reported is not about what is on screen now.
+            cancelForm()
+            mode = newMode
+            surface = newMode == .source ? source : preview
+            anchors = [:]
+            anchorsKnown = false
+            selection = nil
+            focusedID = nil
+        }
         commentsOn = comments
-        if sourceOn { cancelForm() }
         host.setPane(open: paneShown)
+        if modeChanged {
+            attach(store)
+            // The preview re-reads the file and anchors on its own; the source anchors what it was given.
+        }
         refresh()
     }
 
@@ -99,6 +117,11 @@ final class AnnotationController {
     private func attach(_ store: AnnotationStore) {
         self.store = store
         store.onChange = { [weak self] in self?.storeChanged() }
+        // In the source an action is one step of the text view's history, with the typing.
+        store.undoManagerSource = { [weak self] in
+            guard let self, mode == .source else { return nil }
+            return source.textView.undoManager
+        }
         surface.annotationsChanged(store.pending)
     }
 
@@ -140,6 +163,7 @@ final class AnnotationController {
     private func storeChanged() {
         surface.annotationsChanged(store.pending)
         refresh()
+        onPendingChange?()
     }
 
     /// Something about the layout or the anchors changed: update the cards, then place everything.
@@ -309,7 +333,7 @@ final class AnnotationController {
         do {
             let entry = try store.resolve(id)
             showToast(annotation.isComment ? "Comment dismissed" : "Rejected \(annotation.kind)") { [weak self] in
-                self?.store.undo(entry)
+                self?.store.revert(entry)
             }
         } catch {
             fail(error)
@@ -343,9 +367,10 @@ final class AnnotationController {
     // MARK: keyboard
 
     /// ⌃J and ⌃K move between annotations, ⌃↩ accepts the one in focus, ⌃⌫ rejects it, Esc closes
-    /// what is open over the text. Only in the preview: source mode has its own.
+    /// what is open over the text, and in the preview ⌘Z goes to the annotation actions while one
+    /// of them is the latest thing the reader did.
     func handleKey(_ event: NSEvent) -> Bool {
-        guard !sourceOn, event.type == .keyDown else { return false }
+        guard event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection([.control, .command, .option, .shift])
         if flags == [.control] {
             switch event.charactersIgnoringModifiers?.lowercased() {
@@ -400,7 +425,8 @@ final class AnnotationController {
     // So Undo and Redo go to the annotation actions while one of them is the latest thing the
     // reader did, and to the page otherwise.
 
-    private var annotationActionIsLatest: Bool { store.lastActionAt > lastTypingAt }
+    // In the source it is one history: the text view's, with the annotation actions in it in order.
+    private var annotationActionIsLatest: Bool { !sourceOn && store.lastActionAt > lastTypingAt }
 
     /// Undoes the last annotation action if it is the latest thing the reader did.
     /// Returns false when Undo belongs to the page.
@@ -410,5 +436,18 @@ final class AnnotationController {
 
     func redoIfLatest() -> Bool {
         annotationActionIsLatest && store.canRedo && store.redo()
+    }
+
+    /// Undo and Redo in the source: the text view's history, which has the annotation actions in it.
+    func undoInSource() -> Bool {
+        guard sourceOn, source.canUndo else { return false }
+        source.undo()
+        return true
+    }
+
+    func redoInSource() -> Bool {
+        guard sourceOn, source.canRedo else { return false }
+        source.redo()
+        return true
     }
 }

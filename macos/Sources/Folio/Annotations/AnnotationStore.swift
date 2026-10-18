@@ -21,9 +21,13 @@ final class AnnotationStore {
     /// The annotations changed: by an action here, or by someone else writing the sidecar.
     var onChange: (() -> Void)?
 
-    /// Undo and redo of the actions below. The editor's own undo is the page's; the web view
-    /// offers this one while an action here is the latest thing the reader did.
-    let undoManager = UndoManager()
+    /// Undo and redo of the actions below. In the preview the editor's own undo is the page's, so
+    /// these have a history of their own, and Undo goes to it while an action here is the latest
+    /// thing the reader did. In the source it is the text view's history, so Undo goes back
+    /// through typing and these actions in order.
+    var undoManagerSource: () -> UndoManager? = { nil }
+    private let ownManager = UndoManager()
+    var undoManager: UndoManager { undoManagerSource() ?? ownManager }
     private(set) var lastEntry: Entry?
     /// When the last action, undo or redo happened, so Undo can tell it from a text edit.
     private(set) var lastActionAt = Date.distantPast
@@ -33,7 +37,7 @@ final class AnnotationStore {
 
     init(document: Document) {
         self.document = document
-        undoManager.groupsByEvent = false
+        ownManager.groupsByEvent = false
         annotations = Self.read(document)
     }
 
@@ -50,7 +54,8 @@ final class AnnotationStore {
         let latest = Self.read(document)
         guard latest != annotations else { return false }
         annotations = latest
-        undoManager.removeAllActions()
+        // Only the actions of this store: the manager may be the text view's, with typing in it.
+        undoManager.removeAllActions(withTarget: self)
         lastEntry = nil
         onChange?()
         return true
@@ -101,8 +106,24 @@ final class AnnotationStore {
 
     // MARK: undo
 
+    /// Takes back `entry` directly, whatever came after it (a toast's Undo button). The history of
+    /// these actions is dropped with it: what it holds would no longer match.
+    func revert(_ entry: Entry) {
+        do {
+            if let before = entry.before {
+                try perform(["op": "restore", "annotation": try before.sidecarObject()])
+            } else {
+                try perform(["op": "remove", "id": entry.id])
+            }
+        } catch {
+            return
+        }
+        undoManager.removeAllActions(withTarget: self)
+        lastEntry = nil
+    }
+
     /// Undoes the last action. `entry` guards against undoing something newer than the action
-    /// the caller means (a toast's Undo button).
+    /// the caller means.
     @discardableResult
     func undo(_ entry: Entry? = nil) -> Bool {
         if let entry, entry != lastEntry { return false }
@@ -135,10 +156,13 @@ final class AnnotationStore {
 
     private func record(id: String, before: Annotation?) -> Entry {
         let entry = Entry(id: id, before: before, after: annotation(id))
-        // One group per action: they are not grouped by run-loop turn, so two quick actions stay two steps.
-        undoManager.beginUndoGrouping()
+        // Our own manager does not group by run-loop turn, so each action is its own group there;
+        // the text view's does, as typing needs it.
+        let manager = undoManager
+        let grouped = !manager.groupsByEvent
+        if grouped { manager.beginUndoGrouping() }
         register(entry, undoing: true)
-        undoManager.endUndoGrouping()
+        if grouped { manager.endUndoGrouping() }
         lastEntry = entry
         lastActionAt = Date()
         return entry

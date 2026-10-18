@@ -1,22 +1,21 @@
 import { on } from './websocket'
 import { runPendingFlash } from './feedback'
-import { call } from './bridge'
 import { initLayoutReporting } from './layout'
 import { getFile, getFolio, getInfo, setActiveFile } from './api'
 import { initEditor, destroyEditor, setContent, isLocked, getEditor, flushSave } from './editor'
-import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleAnchorReport, getSidecar, onSidecarUpdate } from './annotations'
+import { createAnnotationsExtension, updateSidecar, resetAnnotationState, triggerSidecarUpdate, triggerContentReplaced, scheduleAnchorReport } from './annotations'
 import { createTableUIExtension } from './table-ui'
 import { setPlantumlUrl, setMermaidTheme } from './diagrams'
-import { initRawEditor, resetRawEditor, setRawContent, getRawContent, flushRawSave, flushPendingRawSave, refreshRawAnnotations } from './raw-editor'
 
+// This page is the rendered preview. The app around it owns everything else: the source editor,
+// the toolbar, the comments pane and the toggles (see macos/BRIDGE.md).
 async function boot(): Promise<void> {
   const [initialContent, sidecar, info] = await Promise.all([getFile(), getFolio(), getInfo()])
 
-  // The document of the served set this page currently shows.
+  // The document of the set this page currently shows.
   let currentId = info.id
 
   function showFilename(filename: string) {
-    document.getElementById('filename-display')!.textContent = filename
     document.title = filename
   }
   showFilename(info.filename)
@@ -34,6 +33,21 @@ async function boot(): Promise<void> {
   }
   mountPreview(initialContent)
 
+  // Read the file again into the preview, and anchor the annotations in the new text.
+  async function reloadContent(): Promise<void> {
+    const content = await getFile()
+    setContent(content)
+    // Reloading into the existing editor can fail to map back to the source where a
+    // fresh editor succeeds (it left the preview read-only after a git pull); rebuild.
+    if (isLocked()) {
+      destroyEditor()
+      mountPreview(content)
+    }
+    const ed = getEditor()
+    if (ed) triggerContentReplaced(ed)
+    scheduleAnchorReport()
+  }
+
   // Handle events one at a time: an accept broadcasts md:changed then folio:changed,
   // and re-anchoring must run against the already-reloaded document.
   let eventChain: Promise<void> = Promise.resolve()
@@ -44,22 +58,8 @@ async function boot(): Promise<void> {
   }
 
   on('md:changed', sequential(async () => {
-    const content = await getFile()
-    setContent(content)
-    // Reloading into the existing editor can fail to map back to the source where a
-    // fresh editor succeeds (it left the preview read-only after a git pull); rebuild.
-    if (isLocked()) {
-      destroyEditor()
-      mountPreview(content)
-      scheduleAnchorReport()
-    }
-    const ed = getEditor()
-    if (ed) triggerContentReplaced(ed)
+    await reloadContent()
     runPendingFlash()
-    if (!rawPane.hidden) {
-      setRawContent(content)
-      refreshRawAnnotations()
-    }
   }))
 
   on('folio:changed', sequential(async () => {
@@ -68,14 +68,13 @@ async function boot(): Promise<void> {
     const ed = getEditor()
     if (ed) {
       if (isEcho) {
-        // Our own PUT echoed back — positions already tracked via tr.mapping; just rebuild gutter.
+        // Nothing changed in the sidecar; positions are already tracked via tr.mapping.
         ed.view.dispatch(ed.state.tr)
       } else {
-        // Genuine external update (new agent annotations) — re-anchor from scratch.
+        // Genuine update (an agent's, or the app's own action): re-anchor from scratch.
         triggerSidecarUpdate(ed)
       }
     }
-    if (!rawPane.hidden && !isEcho) refreshRawAnnotations()
   }))
 
   // Follow OS color scheme for mermaid diagrams
@@ -83,91 +82,8 @@ async function boot(): Promise<void> {
   setMermaidTheme(colorScheme.matches ? 'default' : 'dark')
   colorScheme.addEventListener('change', e => setMermaidTheme(e.matches ? 'default' : 'dark'))
 
-  // Single button toggles between WYSIWYG preview and raw markdown source
-  const viewBtn = document.getElementById('view-toggle-btn') as HTMLButtonElement
-  const editorWrapper = document.getElementById('editor-wrapper')!
-  const rawPane = document.getElementById('raw-pane')!
-
-  // The native app's toolbar mirrors the source and comments toggles.
-  function reportUiState() {
-    const comments = document.getElementById('app')!.classList.contains('gutter-open')
-    const pending = getSidecar().annotations.filter(a => !a.resolved).length
-    void call('uiState', { source: !rawPane.hidden, comments, pending }).catch(console.error)
-  }
-  onSidecarUpdate(reportUiState)
-
-  // Highlighted while the markdown source is showing.
-  function updateViewBtn() {
-    const inSource = !rawPane.hidden
-    viewBtn.classList.toggle('active', inSource)
-    viewBtn.setAttribute('aria-pressed', String(inSource))
-    reportUiState()
-  }
-
-  // Default to source/raw mode — CM6 edits the file directly with no
-  // reformat-on-save round trip, so it's the primary editing surface now.
-  initRawEditor(rawPane, initialContent)
-  refreshRawAnnotations()
-  updateViewBtn()
-
-  function showPreview() {
-    if (!rawPane.hidden) {
-      flushRawSave()
-      const ed = getEditor()!
-      // Switching to preview is a pure render step, never a save trigger.
-      setContent(getRawContent())
-      editorWrapper.hidden = false
-      rawPane.hidden = true
-      triggerContentReplaced(ed)
-      scheduleAnchorReport()
-    }
-    updateViewBtn()
-  }
-
-  function showSource() {
-    if (rawPane.hidden) {
-      flushSave().then(getFile).then(content => {
-        initRawEditor(rawPane, content)
-        setRawContent(content)
-        editorWrapper.hidden = true
-        rawPane.hidden = false
-        refreshRawAnnotations()
-        // Only now is the source showing; updating earlier left the toggle showing preview.
-        updateViewBtn()
-      })
-      return
-    }
-    updateViewBtn()
-  }
-
-  viewBtn.addEventListener('click', () => (rawPane.hidden ? showSource() : showPreview()))
-
-  // The app opens in the WYSIWYG preview.
-  showPreview()
-
-  // Comments pane: closed by default, toggled with the bubble button
-  const appEl = document.getElementById('app')!
-  const gutterToggleBtn = document.getElementById('toggle-gutter-btn') as HTMLButtonElement
-  function setGutterOpen(open: boolean) {
-    appEl.classList.toggle('gutter-open', open)
-    gutterToggleBtn.classList.toggle('active', open)
-    gutterToggleBtn.setAttribute('aria-pressed', String(open))
-    reportUiState()
-    window.dispatchEvent(new Event('folio:gutter-toggled'))
-    if (open) {
-      // Cards were laid out while display:none (zero heights) — rebuild now.
-      scheduleAnchorReport()
-      refreshRawAnnotations()
-    }
-  }
-  gutterToggleBtn.addEventListener('click', () => setGutterOpen(!appEl.classList.contains('gutter-open')))
-  window.addEventListener('folio:open-gutter', () => {
-    if (!appEl.classList.contains('gutter-open')) setGutterOpen(true)
-  })
-
-  // Swap the document in place. Both editors are reset rather than reused: a
-  // fresh preview editor and a fresh CM6 state each start with empty undo
-  // history, so undo can never reach into the previous file.
+  // Swap the document in place. The preview editor is built again rather than reused, so its
+  // undo history can never reach into the previous file.
   let switching = false
   async function switchFile(id: string): Promise<void> {
     if (id === currentId || switching) return
@@ -175,7 +91,7 @@ async function boot(): Promise<void> {
     const previous = currentId
     try {
       // Save the file we are leaving; pending edits would otherwise be lost.
-      await (rawPane.hidden ? flushSave() : flushPendingRawSave())
+      await flushSave()
       setActiveFile(id)
       let loaded
       try {
@@ -191,17 +107,21 @@ async function boot(): Promise<void> {
       resetAnnotationState()
       updateSidecar(nextSidecar)
       mountPreview(content)
-      resetRawEditor(content)
       showFilename(nextInfo.filename)
-      if (!rawPane.hidden) refreshRawAnnotations()
       scheduleAnchorReport()
     } finally {
       switching = false
     }
   }
 
-  // The window's sidebar picks the file; there is no in-page menu to do it.
-  ;(window as unknown as { __folioSwitchFile: (id: string) => Promise<void> }).__folioSwitchFile = switchFile
+  // The app calls these: the window's sidebar picks the file, and coming back from the source
+  // the page reads the file the source may have changed.
+  const app = window as unknown as {
+    __folioSwitchFile: (id: string) => Promise<void>
+    __folioReload: () => Promise<void>
+  }
+  app.__folioSwitchFile = switchFile
+  app.__folioReload = reloadContent
 
   initLayoutReporting()
 }

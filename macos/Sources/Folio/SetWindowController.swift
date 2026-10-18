@@ -104,6 +104,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         window?.subtitle = entry.name
         sidebar.select(id)
         annotations.fileChanged(store: currentStore)
+        // The source shows the file it was opened on until it is told otherwise (the page swaps by itself).
+        if mode == .source { scrollHost.source.load(entry.document) }
         webView.callAsyncJavaScript(
             """
             if (typeof window.__folioSwitchFile !== 'function') return false

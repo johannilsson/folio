@@ -8,8 +8,6 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     let workspace: Workspace
     /// Every op the page has sent, so the self-test can see what went through here.
     private(set) var ops: [String] = []
-    /// The page's source/comments toggles, for the native toolbar.
-    var onUIState: ((_ source: Bool, _ comments: Bool, _ pending: Int) -> Void)?
     /// The page's full height, and a rectangle of it (top and bottom, in page coordinates)
     /// that has to come into view.
     var onLayout: ((_ height: Double) -> Void)?
@@ -65,9 +63,6 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 "set": workspace.setName ?? NSNull(),
                 "plantumlUrl": "https://www.plantuml.com/plantuml",
             ] as [String: Any]
-        case "uiState":
-            onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false, body["pending"] as? Int ?? 0)
-            return NSNull()
         case "layout":
             onLayout?((body["height"] as? NSNumber)?.doubleValue ?? 0)
             return NSNull()
@@ -117,27 +112,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "getFolio":
             return try JSONSerialization.jsonObject(with: Data(target(body).readSidecar().utf8))
-        case "putFolio":
-            guard let text = body["body"] as? String else { throw RustError(description: "putFolio: no body") }
-            let document = try target(body)
-            try document.writeSidecar(text)
-            // Tell the page its own write landed (it recognises the echo).
-            document.onEvent?("folio:changed")
-            return NSNull()
-
-        case "anchor", "anchorRaw":
-            let document = try target(body)
+        case "anchor":
+            // The preview anchors against its own rendered text.
             let items = try JSONSerialization.data(withJSONObject: body["items"] ?? [])
-            // The preview anchors against its own rendered text; source mode against the file.
-            let doc = op == "anchorRaw" ? try document.readFile() : body["text"] as? String ?? ""
             return try JSONSerialization.jsonObject(with: Data(
-                Rust.anchor(doc: doc, itemsJSON: String(decoding: items, as: UTF8.self), raw: op == "anchorRaw").utf8
+                Rust.anchor(doc: body["text"] as? String ?? "", itemsJSON: String(decoding: items, as: UTF8.self), raw: false).utf8
             ))
-
-        case "accept":
-            guard let id = body["id"] as? String else { throw RustError(description: "accept: no id") }
-            try target(body).accept(id: id)
-            return NSNull()
 
         default:
             throw RustError(description: "unsupported op \(op)")

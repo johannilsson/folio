@@ -39,15 +39,34 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// Scrolls the web view, which is exactly as tall as its page (see the `layout` op), and the
-/// comments pane beside it: the page's text and the cards share one coordinate space and scroll together.
+/// What the window shows of the document: the rendered preview, or the markdown source.
+enum EditorMode {
+    case preview, source
+}
+
+/// Scrolls the text and the comments pane beside it: they share one coordinate space and scroll
+/// together. The text is the web view, which is exactly as tall as its page (see the `layout` op),
+/// or the source editor, which is as tall as its text.
 final class EditorScrollView: NSScrollView {
     private let canvas = FlippedView()
     private let web: WKWebView
+    let source: SourceEditorView
     /// The cards of the comments pane (see `AnnotationController`).
     let gutter = AnnotationGutterView()
 
-    private(set) var contentHeight: CGFloat = 0
+    /// What is showing; the other one is hidden.
+    var mode: EditorMode = .preview {
+        didSet {
+            guard mode != oldValue else { return }
+            web.isHidden = mode == .source
+            source.isHidden = mode == .preview
+            fit()
+        }
+    }
+
+    /// How tall the text is: the page's reported height, or the source's.
+    var contentHeight: CGFloat { mode == .source ? source.frame.height : pageHeight }
+    private var pageHeight: CGFloat = 0
     private var viewportHeight: CGFloat = 0
     /// A scroll position to hold while the page settles after a switch (it keeps growing
     /// as diagrams render, so each new height re-applies it until the deadline).
@@ -66,17 +85,21 @@ final class EditorScrollView: NSScrollView {
     /// The pane moved or the window resized: cards beside the text may have to move.
     var onPaneLayout: (() -> Void)?
 
-    init(webView: WKWebView) {
+    init(webView: WKWebView, source: SourceEditorView) {
         web = webView
+        self.source = source
         super.init(frame: .zero)
         hasVerticalScroller = true
         drawsBackground = false
         borderType = .noBorder
         documentView = canvas
         canvas.addSubview(webView)
+        canvas.addSubview(source)
         canvas.addSubview(gutter)
         gutter.isHidden = true
+        source.isHidden = true
         webView.autoresizingMask = []
+        source.onHeightChange = { [weak self] _ in self?.fit() }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -92,7 +115,7 @@ final class EditorScrollView: NSScrollView {
 
     /// The page reported its height; the web view is exactly that tall.
     func setContentHeight(_ height: CGFloat) {
-        contentHeight = height
+        pageHeight = height
         fit()
         if let restore, Date() < restore.deadline { scroll(toFraction: restore.fraction) }
     }
@@ -114,10 +137,15 @@ final class EditorScrollView: NSScrollView {
     }
 
     private func fit() {
-        let webHeight = max(contentHeight, contentSize.height)
-        let size = NSSize(width: contentSize.width, height: max(webHeight, gutterExtent))
+        let textHeight: CGFloat
+        if mode == .source {
+            textHeight = source.layoutContent(width: textWidth, minHeight: contentSize.height)
+        } else {
+            textHeight = max(pageHeight, contentSize.height)
+            web.frame = NSRect(x: 0, y: 0, width: textWidth, height: textHeight)
+        }
+        let size = NSSize(width: contentSize.width, height: max(textHeight, gutterExtent))
         if canvas.frame.size != size { canvas.frame = NSRect(origin: .zero, size: size) }
-        web.frame = NSRect(x: 0, y: 0, width: textWidth, height: webHeight)
         gutter.frame = NSRect(x: contentSize.width - paneWidth, y: 0, width: AnnotationStyle.gutterWidth, height: size.height)
         gutter.isHidden = paneWidth <= 0
     }

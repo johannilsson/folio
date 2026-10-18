@@ -22,12 +22,6 @@ export const putFile = (content: string): Promise<unknown> => fileCall('putFile'
 
 export const getFolio = (): Promise<Sidecar> => fileCall('getFolio')
 
-export const putFolio = (sidecar: Sidecar): Promise<unknown> =>
-  // Serialized here so the bytes on disk are identical whichever side writes them.
-  fileCall('putFolio', { body: JSON.stringify(sidecar, null, 2) })
-
-export const postAccept = (id: string): Promise<void> => fileCall('accept', { id })
-
 export const getKrokiUrl = (): Promise<string> => call('krokiUrl')
 
 export interface AnchorRequestItem {
@@ -45,9 +39,6 @@ export interface AnchorResultItem {
 // `text` is the preview's rendered text; the offsets come back as indices into it.
 export const postAnchor = (text: string, items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
   fileCall('anchor', { text, items })
-
-export const postAnchorRaw = (items: AnchorRequestItem[]): Promise<AnchorResultItem[]> =>
-  fileCall('anchorRaw', { items })
 
 export interface ThreadReply {
   id: string

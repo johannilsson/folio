@@ -175,17 +175,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: undo
 
-    /// Undo takes back the last annotation action (a rejected suggestion, a reply) while that is
-    /// the latest thing the reader did in the page, and otherwise the page's own typing as before.
-    /// A text field of the annotation UI keeps its own undo.
+    /// In the source, Undo goes back through the text view's history, which has the annotation
+    /// actions in it. In the preview it takes back the last annotation action (a rejected
+    /// suggestion, a reply) while that is the latest thing the reader did in the page, and otherwise
+    /// the page's own typing. A text field of the annotation UI keeps its own undo.
     @MainActor @objc private func undoEdit(_ sender: Any?) {
+        if let controller = editorInFront, controller.annotations.undoInSource() { return }
         if let controller = annotationsInPage, controller.undoIfLatest() { return }
         frontWindow?.firstResponder?.tryToPerform(Selector(("undo:")), with: sender)
     }
 
     @MainActor @objc private func redoEdit(_ sender: Any?) {
+        if let controller = editorInFront, controller.annotations.redoInSource() { return }
         if let controller = annotationsInPage, controller.redoIfLatest() { return }
         frontWindow?.firstResponder?.tryToPerform(Selector(("redo:")), with: sender)
+    }
+
+    @MainActor private var editorInFront: EditorWindowController? {
+        guard let window = frontWindow, let controller = window.windowController as? EditorWindowController,
+              let responder = window.firstResponder as? NSView, responder === controller.scrollHost.source.textView else { return nil }
+        return controller
     }
 
     /// The window Undo is for: the key window, or the front editor window if the app is not active.
