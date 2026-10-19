@@ -207,6 +207,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
                 guard scrollHost.source.flushSave() else { return }
                 _ = try? await webView.callAsyncJavaScript("await window.__folioReload?.()", in: nil, contentWorld: .page)
             }
+            // Annotation actions are kept in the preview's history or the text view's; Undo in
+            // one mode must not reach past what was done in the other.
+            for store in stores.values { store.forgetHistory() }
             mode = new
             scrollHost.mode = new
             scrollHost.restoreScroll(fraction, for: 1.5)

@@ -54,11 +54,18 @@ final class AnnotationStore {
         let latest = Self.read(document)
         guard latest != annotations else { return false }
         annotations = latest
-        // Only the actions of this store: the manager may be the text view's, with typing in it.
-        undoManager.removeAllActions(withTarget: self)
-        lastEntry = nil
+        forgetHistory()
         onChange?()
         return true
+    }
+
+    /// Drops the actions of this store from both histories, its own and the text view's, which
+    /// keeps the typing. Done when the sidecar changed underneath, and on a switch between the
+    /// preview and the source: an action kept in the other history would undo past newer ones.
+    func forgetHistory() {
+        ownManager.removeAllActions(withTarget: self)
+        undoManagerSource()?.removeAllActions(withTarget: self)
+        lastEntry = nil
     }
 
     private static func read(_ document: Document) -> [Annotation] {
@@ -118,8 +125,7 @@ final class AnnotationStore {
         } catch {
             return
         }
-        undoManager.removeAllActions(withTarget: self)
-        lastEntry = nil
+        forgetHistory()
     }
 
     /// Undoes the last action. `entry` guards against undoing something newer than the action

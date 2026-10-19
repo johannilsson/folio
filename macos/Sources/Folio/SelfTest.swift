@@ -277,6 +277,7 @@ final class SelfTest {
         await storeChecks()
         await nativeAnnotationChecks()
         await sourceAnnotationChecks()
+        await undoAcrossModesChecks()
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
@@ -718,6 +719,27 @@ final class SelfTest {
         replaceSidecar([])
         send("toggleSource:")
         _ = await until { !self.controller.sourceOn }
+    }
+
+    /// Annotation actions in the preview and the source are in different histories: Undo after a
+    /// switch must not reach back past what was done in the other mode. Starts and ends in the preview.
+    private func undoAcrossModesChecks() async {
+        replaceSidecar([commentJSON("modes", before: "Natural wine is made with ", target: "no additives")])
+        let store = controller.currentStore
+        _ = await until(seconds: 8) { store.annotation("modes") != nil }
+        _ = try? store.reply(to: "modes", body: "Replied in the preview")
+        send("toggleSource:")
+        _ = await until { self.controller.sourceOn && !self.sourceView.isHidden }
+        _ = try? store.reply(to: "modes", body: "Replied in the source")
+        send("toggleSource:")
+        _ = await until { !self.controller.sourceOn }
+        await check("⌘Z in the preview after a switch leaves what was done in the source") {
+            _ = self.pane.handleKey(self.keyEvent("z", .command, code: 6))
+            let bodies = store.annotation("modes")?.replies?.map { $0.body }
+            return bodies == ["Replied in the preview", "Replied in the source"]
+        }
+        replaceSidecar([])
+        _ = await until { store.annotations.isEmpty }
     }
 
     /// The Comment button over a selection, and the form it opens, with the pane open and closed.
