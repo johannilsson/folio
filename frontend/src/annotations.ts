@@ -40,7 +40,7 @@ export function resetAnnotationState(): void {
 }
 
 // Dispatch a full re-anchor. Call after an external sidecar change (new agent
-// annotations); do NOT call for echoes of our own PUTs.
+// annotations); do NOT call for echoes of our own writes.
 export function triggerSidecarUpdate(ed: Editor): void {
   ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
@@ -66,9 +66,10 @@ const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
 
 // ─── Anchoring ───────────────────────────────────────────────────────────────
 
-// Build the document's rendered plain text, which the server anchors against,
-// and a map from each of its indices to the ProseMirror position. Used to
-// convert server-returned indices to PM positions for decorations.
+// Build the document's rendered plain text, which the app's anchoring (`anchor`
+// bridge op) matches against, and a map from each of its indices to the
+// ProseMirror position. Used to convert the indices it returns to PM positions
+// for decorations.
 export function buildCharPos(doc: PMNode): { text: string; charPos: number[] } {
   const charPos: number[] = []
   let text = ''
@@ -305,7 +306,7 @@ export function createAnnotationsExtension(): Extension {
 
               if (meta?.type === 'sidecar-updated') {
                 // External sidecar change: signal the view to fetch fresh anchors.
-                // Keep existing anchors visible until the server response arrives.
+                // Keep existing anchors visible until the anchoring answer arrives.
                 return { ...value, needsReanchor: true, anchorVersion: value.anchorVersion + 1 }
               }
 
