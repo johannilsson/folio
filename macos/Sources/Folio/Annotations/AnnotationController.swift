@@ -373,6 +373,8 @@ final class AnnotationController {
         guard event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection([.control, .command, .option, .shift])
         if flags == [.control] {
+            // In a reply or comment field ⌃↩ posts the text; it is not the accept shortcut.
+            if event.keyCode == 36, owner.window?.firstResponder is GrowingTextView { return false }
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "j": return navigate(1)
             case "k": return navigate(-1)

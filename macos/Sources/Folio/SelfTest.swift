@@ -422,6 +422,18 @@ final class SelfTest {
             let author = self.controller.currentStore.annotation(commentID)?.replies?.first?.author
             return bodies == ["It is, in the notes"] && author == "me" && byPosition[0].replyBox.textView.string.isEmpty
         }
+        let replyField = byPosition[0].replyBox.textView
+        replyField.string = "Posted with the keyboard"
+        replyField.didChangeText()
+        controller.window?.makeFirstResponder(replyField)
+        let controlReturn = keyEvent("\r", .control, code: 36)
+        await check("⌃↩ in a reply field posts the reply instead of accepting the annotation") {
+            let leftAlone = !self.pane.handleKey(controlReturn)
+            let posted = replyField.performKeyEquivalent(with: controlReturn)
+            let bodies = self.controller.currentStore.annotation(commentID)?.replies?.map { $0.body }
+            return leftAlone && posted && bodies?.last == "Posted with the keyboard"
+                && self.controller.currentStore.annotation(commentID)?.resolved == false
+        }
         await check("the card with a reply is taller, and still does not overlap the next") {
             byPosition[0].frame.maxY <= byPosition[1].frame.minY
         }

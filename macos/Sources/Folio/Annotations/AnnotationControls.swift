@@ -56,11 +56,22 @@ final class GrowingTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36, event.modifierFlags.contains(.command) {
+        if isSubmit(event) {
             onSubmit?()
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// ⌘↩ and ⌃↩ post what is typed; ⌃↩ would otherwise reach the window's accept shortcut first.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self, isSubmit(event) else { return super.performKeyEquivalent(with: event) }
+        onSubmit?()
+        return true
+    }
+
+    private func isSubmit(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 && !event.modifierFlags.intersection([.command, .control]).isEmpty
     }
 
     override func cancelOperation(_ sender: Any?) {
