@@ -89,6 +89,25 @@ export function buildCharPos(doc: PMNode): { text: string; charPos: number[] } {
   return { text, charPos }
 }
 
+// The rendered text between two ProseMirror positions: the characters buildCharPos
+// has for them, so a target and its context match what the anchoring searches in
+// (`doc.textBetween` would add code blocks and soft line breaks).
+export function renderedBetween(doc: PMNode, from: number, to: number): string {
+  const { text, charPos } = buildCharPos(doc)
+  let out = ''
+  for (let i = 0; i < charPos.length; i++) {
+    if (charPos[i] >= from && charPos[i] < to) out += text[i]
+  }
+  return out
+}
+
+// The `n` characters of rendered text before `pos`, without half of a surrogate pair at the front.
+export function renderedBefore(doc: PMNode, pos: number, n = 30): string {
+  const tail = renderedBetween(doc, 0, pos).slice(-n)
+  const first = tail.charCodeAt(0)
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail
+}
+
 // Convert char indices (from, to) in the rendered plain text to ProseMirror
 // positions using the charPos map produced by buildCharPos.
 //
@@ -455,8 +474,8 @@ export function createAnnotationsExtension(): Extension {
                     endBottom: end.bottom,
                     left: start.left,
                     right: end.right,
-                    target: doc.textBetween(selection.from, selection.to, ''),
-                    contextBefore: doc.textBetween(0, selection.from, '').slice(-30),
+                    target: renderedBetween(doc, selection.from, selection.to),
+                    contextBefore: renderedBefore(doc, selection.from),
                   }
                 } catch {
                   selected = null

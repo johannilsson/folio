@@ -125,6 +125,20 @@ extension SelfTest {
         replaceFile(original)
         _ = await waitFor("!document.querySelector('#editor-tiptap').innerText.includes('let a = 1')", seconds: 8)
 
+        // A selection right after a code block: its context is the rendered text, without the code.
+        replaceFile("# Code\n\nIntro text.\n\n```js\nlet a = 1\n```\n\nAfter the code block here.\n")
+        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('After the code block')", seconds: 8)
+        await selectInPreview("After the code block", from: 10, length: 10)
+        await check("the context of a selection after a code block leaves the code out, and anchors") {
+            guard await self.until(seconds: 5, { self.pane.selection?.target == "code block" }),
+                  let context = self.pane.selection?.contextBefore, context == "CodeIntro text.After the " else { return false }
+            self.replaceSidecar([self.commentJSON("cb1", before: context, target: "code block")])
+            return await self.previewHighlights("code block")
+        }
+        replaceSidecar([])
+        replaceFile(original)
+        _ = await waitFor("!document.querySelector('#editor-tiptap').innerText.includes('After the code block')", seconds: 8)
+
         // A failing bridge op rejects rather than hanging the page.
         await check("a bridge failure rejects instead of hanging") {
             let message = await self.js("window.webkit.messageHandlers.folio.postMessage({op: 'nope'}).catch(e => e.message)") as? String
