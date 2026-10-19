@@ -4,7 +4,7 @@
 
 use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
 use crate::set::{self, detect_root, folio_path_in};
-use crate::sidecar::{anchor_raw_chars, anchor_text, Sidecar};
+use crate::sidecar::{anchor_raw_utf16, anchor_text, rendered_selection, Sidecar};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::ffi::{c_char, CStr, CString};
@@ -35,7 +35,7 @@ fn anchor_json(doc: &str, items_json: &str, raw: bool) -> Result<String, String>
         .iter()
         .map(|item| {
             let found = if raw {
-                anchor_raw_chars(doc, &item.context_before, item.target.as_deref())
+                anchor_raw_utf16(doc, &item.context_before, item.target.as_deref())
             } else {
                 anchor_text(doc, &item.context_before, item.target.as_deref())
             };
@@ -159,6 +159,24 @@ pub unsafe extern "C" fn folio_anchor(doc: *const c_char, items_json: *const c_c
     finish((|| anchor_json(arg(doc)?, arg(items_json)?, raw))())
 }
 
+/// Returns `{"target": ..., "context_before": ...}` for the selection `from..to` (UTF-16
+/// offsets) of the markdown `doc`, as rendered text, or `{}` when none of it is rendered
+/// text. Free with `folio_free`.
+///
+/// # Safety
+/// `doc` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_rendered_selection(doc: *const c_char, from: usize, to: usize) -> *mut c_char {
+    finish((|| {
+        let found = rendered_selection(arg(doc)?, from, to);
+        Ok(match found {
+            Some((target, context_before)) => json!({ "target": target, "context_before": context_before }),
+            None => json!({}),
+        }
+        .to_string())
+    })())
+}
+
 /// Returns `{"doc": <string|null>, "sidecar": <string>}` or `{"error": ...}`.
 /// Free with `folio_free`.
 ///
@@ -262,7 +280,7 @@ mod tests {
         for raw in [false, true] {
             let out: Vec<Value> = serde_json::from_str(&anchor_json(DOC, items, raw).unwrap()).unwrap();
             let direct = if raw {
-                anchor_raw_chars(DOC, "The quick ", Some("brown"))
+                anchor_raw_utf16(DOC, "The quick ", Some("brown"))
             } else {
                 anchor_text(DOC, "The quick ", Some("brown"))
             }

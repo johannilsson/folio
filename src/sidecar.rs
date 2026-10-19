@@ -254,6 +254,43 @@ pub fn anchor_raw_chars(doc: &str, context_before: &str, target: Option<&str>) -
     Some((char_from, char_to))
 }
 
+/// `anchor_raw_chars` with UTF-16 offsets, which is how the macOS source editor (an
+/// `NSString`) counts: a character outside the BMP is two units there and one char here.
+pub fn anchor_raw_utf16(doc: &str, context_before: &str, target: Option<&str>) -> Option<(usize, usize)> {
+    let (from, to) = anchor_raw_chars(doc, context_before, target)?;
+    let utf16 = |ci: usize| doc.chars().take(ci).map(char::len_utf16).sum();
+    Some((utf16(from), utf16(to)))
+}
+
+/// The words a selection of the raw markdown `doc` is anchored by, as rendered text (what
+/// the preview and `folio render` show, which is what agents copy their contexts from):
+/// `(target, context_before)`, the selected text and up to 30 characters before it, without
+/// markdown syntax. `from` and `to` are UTF-16 offsets into `doc`. `None` when none of the
+/// selection is rendered text (only markup, or code in a fenced block).
+pub fn rendered_selection(doc: &str, from: usize, to: usize) -> Option<(String, String)> {
+    let byte_at = |utf16: usize| {
+        let mut units = 0;
+        for (byte, c) in doc.char_indices() {
+            if units >= utf16 {
+                return byte;
+            }
+            units += c.len_utf16();
+        }
+        doc.len()
+    };
+    let (from_byte, to_byte) = (byte_at(from), byte_at(to));
+    let (stripped, pos_map, _) = strip_markdown(doc);
+    let chars: Vec<char> = stripped.chars().collect();
+    let first = pos_map.partition_point(|&p| p < from_byte);
+    let last = pos_map.partition_point(|&p| p < to_byte);
+    if first >= last {
+        return None;
+    }
+    let target = chars[first..last].iter().collect();
+    let context = chars[first.saturating_sub(30)..first].iter().collect();
+    Some((target, context))
+}
+
 /// Strip inline and block-level markdown markers from `doc`, returning:
 /// - the plain-text content as a `String`
 /// - a `pos_map` where `pos_map[i]` is the raw byte offset of the i-th char
@@ -1696,5 +1733,69 @@ mod tests {
         assert_eq!(anchor_text("Party 🎉 time is here", "time is ", Some("here")), Some((17, 21)));
         assert_eq!(anchor_text("Party 🎉 time is here", "time is ", None), Some((17, 17)));
         assert_eq!(anchor_text("Summary:The example", "Summary:  The ", Some("example")), Some((12, 19)));
+    }
+
+    #[test]
+    fn anchor_raw_utf16_counts_a_character_outside_the_bmp_as_two_units() {
+        let doc = "Party 🎉 **time** is here";
+        // "Party 🎉 **" is 10 chars but 11 UTF-16 units.
+        assert_eq!(anchor_raw_chars(doc, "Party 🎉 **", Some("time")), Some((10, 14)));
+        assert_eq!(anchor_raw_utf16(doc, "Party 🎉 **", Some("time")), Some((11, 15)));
+    }
+
+    /// `rendered_selection` for the UTF-16 range of the first `selected` in `doc`.
+    fn select(doc: &str, selected: &str) -> Option<(String, String)> {
+        let byte = doc.find(selected).unwrap();
+        let from = doc[..byte].encode_utf16().count();
+        rendered_selection(doc, from, from + selected.encode_utf16().count())
+    }
+
+    fn pair(target: &str, context: &str) -> Option<(String, String)> {
+        Some((target.to_string(), context.to_string()))
+    }
+
+    #[test]
+    fn rendered_selection_leaves_the_markdown_syntax_out() {
+        let doc = "## Heading\n\nThe **target** sentence here.";
+        // With or without the stars in the selection, and the heading marker is not in the context.
+        assert_eq!(select(doc, "**target**"), pair("target", "HeadingThe "));
+        assert_eq!(select(doc, "target"), pair("target", "HeadingThe "));
+    }
+
+    #[test]
+    fn rendered_selection_context_is_at_most_30_characters() {
+        let doc = format!("{} end", "x".repeat(50));
+        assert_eq!(select(&doc, "end"), pair("end", &format!("{} ", "x".repeat(29))));
+    }
+
+    #[test]
+    fn rendered_selection_counts_utf16_offsets() {
+        // The emoji is two UTF-16 units but one char and four bytes.
+        let doc = "Party 🎉 **time** is here";
+        assert_eq!(select(doc, "time"), pair("time", "Party 🎉 "));
+    }
+
+    #[test]
+    fn rendered_selection_skips_code_blocks_in_the_context() {
+        let doc = "Before.\n\n```\ncode\n```\n\nAfter text.";
+        assert_eq!(select(doc, "text"), pair("text", "Before.After "));
+        // Only code selected: no rendered text.
+        assert_eq!(select(doc, "code\n"), None);
+    }
+
+    #[test]
+    fn rendered_selection_of_only_markup_is_none() {
+        assert_eq!(select("A **b** c", "**"), None);
+        assert_eq!(select("# Title", "# "), None);
+    }
+
+    #[test]
+    fn rendered_selection_anchors_back_to_the_selected_text() {
+        // What the source stores for a comment must find the same text again.
+        let doc = "## Heading\n\nThe **target** sentence here.";
+        let (target, context) = select(doc, "**target**").unwrap();
+        let (from, to) = anchor_raw_chars(doc, &context, Some(&target)).unwrap();
+        let found: String = doc.chars().skip(from).take(to - from).collect();
+        assert_eq!(found, "target");
     }
 }

@@ -2,13 +2,18 @@
 #define FOLIO_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /* All functions return a heap string owned by the caller: free it with folio_free.
    Failures are reported as a JSON object {"error": "..."}. */
 
 /* Same items/response JSON as POST /api/anchor (raw=false) and /api/anchor-raw (raw=true).
-   doc is the markdown when raw, else the preview's rendered text. */
+   doc is the markdown when raw, else the preview's rendered text. char_from/char_to are UTF-16 offsets into doc. */
 char *folio_anchor(const char *doc, const char *items_json, bool raw);
+
+/* The words a selection of the markdown (from..to, UTF-16 offsets) is anchored by, as rendered text:
+   {"target", "context_before"}, or {} when none of the selection is rendered text. */
+char *folio_rendered_selection(const char *doc, size_t from, size_t to);
 
 /* {"doc": <patched markdown or null>, "sidecar": <sidecar JSON as the CLI writes it>} */
 char *folio_accept(const char *doc, const char *sidecar_json, const char *id);

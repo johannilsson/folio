@@ -16,6 +16,15 @@ enum Rust {
         try take(folio_anchor(doc, itemsJSON, raw))
     }
 
+    /// The selection `range` (UTF-16, as the text view has it) of the markdown `doc` as rendered text,
+    /// which is what agents and the preview anchor by: the selected words and up to 30 characters
+    /// before them, without markdown syntax. Nil when none of it is rendered text.
+    static func renderedSelection(doc: String, range: NSRange) throws -> (target: String, contextBefore: String)? {
+        let out = try object(folio_rendered_selection(doc, range.location, range.upperBound))
+        guard let target = out["target"] as? String, let context = out["context_before"] as? String else { return nil }
+        return (target, context)
+    }
+
     /// The patched markdown (nil when accepting changes nothing in it) and the new
     /// sidecar text.
     static func accept(doc: String, sidecarJSON: String, id: String) throws -> (doc: String?, sidecar: String) {

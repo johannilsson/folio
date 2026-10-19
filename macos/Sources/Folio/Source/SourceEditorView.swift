@@ -337,12 +337,22 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         let box = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
         let origin = textView.textContainerOrigin
-        // Words an annotation is anchored by: the raw text, with 30 characters before it.
-        let before = NSRange(location: max(0, range.location - 30), length: range.location - max(0, range.location - 30))
+        // Words an annotation is anchored by: the rendered text (what agents and the preview anchor
+        // by, without markdown syntax). Only a selection of markup or code has none: then the raw text.
+        var target = text.substring(with: range)
+        var contextBefore: String
+        if let rendered = try? Rust.renderedSelection(doc: textView.string, range: range) {
+            (target, contextBefore) = rendered
+        } else {
+            // 30 UTF-16 units back, moved on to the start of a character so a pair is not cut in half.
+            let start = text.rangeOfComposedCharacterSequence(at: max(0, range.location - 30)).location
+            let from = start < range.location - 30 ? text.rangeOfComposedCharacterSequence(at: start).upperBound : start
+            contextBefore = text.substring(with: NSRange(location: min(from, range.location), length: range.location - min(from, range.location)))
+        }
         onSelection?(SelectionInfo(
             from: range.location, to: range.upperBound, top: first.top, bottom: first.bottom, endBottom: last.bottom,
             left: Double(textView.frame.minX + box.minX + origin.x), right: Double(textView.frame.minX + box.maxX + origin.x),
-            target: text.substring(with: range), contextBefore: text.substring(with: before)
+            target: target, contextBefore: contextBefore
         ))
     }
 

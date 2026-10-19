@@ -148,6 +148,30 @@ extension SelfTest {
             return self.sourceView.lineStartsForTest.count == newlines + 1
         }
 
+        // A comment made on marked-up text is anchored by the rendered words, as agents and the preview do.
+        _ = await until(seconds: 5) { !self.sourceView.hasUnsavedEdits }
+        let plain = disk()
+        replaceFile("# Heading\n\nThe 🎉 **target** sentence here.\n")
+        _ = await until(seconds: 8) { self.sourceText.contains("**target**") }
+        let marked = (sourceText as NSString).range(of: "**target**")
+        textView.setSelectedRange(marked)
+        await check("a selection of marked-up text is reported as rendered words, without the syntax") {
+            await self.until(seconds: 5) { self.pane.selection?.target == "target" }
+                && self.pane.selection?.contextBefore == "HeadingThe 🎉 "
+        }
+        await check("an annotation written with those words is found in the source, on the same text") {
+            guard let selection = self.pane.selection else { return false }
+            self.replaceSidecar([self.commentJSON("md1", before: selection.contextBefore, target: selection.target)])
+            return await self.until(seconds: 8) {
+                guard let range = self.sourceView.ranges["md1"] else { return false }
+                return (self.sourceText as NSString).substring(with: range) == "target"
+            }
+        }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        replaceSidecar([])
+        replaceFile(plain)
+        _ = await until(seconds: 8) { self.sourceText == plain }
+
         // A save that fails is shown, and the typing stays: not replaced, not left behind by the preview.
         _ = await until(seconds: 5) { !self.sourceView.hasUnsavedEdits }
         let saved = disk()
