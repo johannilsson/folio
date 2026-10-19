@@ -537,6 +537,23 @@ final class SelfTest {
             return await self.until { self.controller.currentStore.annotation("edit")?.comment == "Reworded comment" }
         }
 
+        // Agents write the ids: one with quotes and a backslash reaches the page as it is.
+        let quotedID = #"it's \"quoted\" \ ')"#
+        replaceSidecar([commentJSON(quotedID, before: "Natural wine is made with ", target: "no additives")])
+        _ = await until(seconds: 8) { self.pane.anchors[quotedID] != nil }
+        _ = await js("(() => { const c = document.querySelector('#editor-tiptap .ProseMirror'); c.focus(); const s = getSelection(); s.selectAllChildren(c); s.collapseToEnd(); return 1 })()")
+        await check("⌃J puts the page's caret on an annotation whose id has quotes and a backslash") {
+            guard self.pane.handleKey(self.keyEvent("j", .control, code: 38)), self.pane.focusedID == quotedID else { return false }
+            return await self.waitFor("""
+                (() => {
+                  const s = getSelection(), p = s.focusNode && (s.focusNode.nodeType === 1 ? s.focusNode : s.focusNode.parentElement).closest('p')
+                  if (!p) return false
+                  const before = document.createRange(); before.setStart(p, 0); before.setEnd(s.focusNode, s.focusOffset)
+                  return before.toString().length === p.textContent.indexOf('no additives')
+                })()
+                """, seconds: 5)
+        }
+
         await commentFormChecks()
 
         replaceSidecar([])

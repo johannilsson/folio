@@ -95,7 +95,7 @@ final class PreviewSurface: AnnotationSurface {
     }
 
     func select(annotation id: String) {
-        webView.evaluateJavaScript("window.__folioSelectAnnotation?.('\(id)')")
+        webView.callAsyncJavaScript("window.__folioSelectAnnotation?.(id)", arguments: ["id": id], in: nil, in: .page) { _ in }
     }
 
     func flush() async {

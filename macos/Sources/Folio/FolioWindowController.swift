@@ -171,8 +171,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         if type == "folio:changed", let document = workspace.document(id: id) { store(for: document).reload() }
         // The source follows the file it is showing, unless typing is waiting to be saved.
         if type == "md:changed", mode == .source, workspace.document(id: id) === currentDocument { scrollHost.source.reloadFromDisk() }
-        let quoted = id.replacingOccurrences(of: "'", with: "\\'")
-        webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(quoted)')")
+        webView.callAsyncJavaScript("window.__folioEmit?.(type, id)", arguments: ["type": type, "id": id], in: nil, in: .page) { _ in }
     }
 
     func stopWatching() {
