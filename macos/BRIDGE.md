@@ -2,7 +2,7 @@
 
 Inside the macOS app the page finds `window.webkit.messageHandlers.folio` (a
 `WKScriptMessageHandlerWithReply`) and `frontend/src/api.ts` sends every backend call
-through it. The app's self-test (`macos/Sources/Folio/SelfTest.swift`) drives the page
+through it. The app's self-test (`macos/Sources/Folio/SelfTest/`) drives the page
 through this contract.
 
 A message is `{ op, file?, ...payload }`. `file` is the active document id (absent for
