@@ -117,3 +117,82 @@ pub fn mark_accepted(sidecar: &mut Sidecar, indices: &[usize]) {
         ann.resolved_at = Some(now.clone());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sidecar::AnnotationSource;
+
+    fn ann(id: &str, kind: AnnotationKind, ctx: &str, target: Option<&str>, repl: Option<&str>) -> crate::sidecar::Annotation {
+        crate::sidecar::Annotation {
+            id: id.into(),
+            kind,
+            source: AnnotationSource::Agent,
+            author: "tester".into(),
+            context_before: ctx.into(),
+            target: target.map(String::from),
+            replacement: repl.map(String::from),
+            comment: None,
+            created: "2026-01-01T00:00:00Z".into(),
+            resolved: false,
+            resolved_as: None,
+            resolved_at: None,
+            replies: vec![],
+        }
+    }
+
+    fn sidecar(annotations: Vec<crate::sidecar::Annotation>) -> Sidecar {
+        Sidecar { version: 1, annotations }
+    }
+
+    #[test]
+    fn replace_delete_and_insert_become_edits_and_comments_do_not() {
+        let doc = "The quick brown fox jumps.";
+        let s = sidecar(vec![
+            ann("r", AnnotationKind::Replace, "The ", Some("quick"), Some("slow")),
+            ann("d", AnnotationKind::Delete, "quick brown ", Some("fox "), None),
+            ann("i", AnnotationKind::Insert, "fox jumps", None, Some(" high")),
+            ann("c", AnnotationKind::Comment, "The ", Some("quick"), None),
+        ]);
+        let ops = compute_ops(doc, &s, &[0, 1, 2, 3]).unwrap();
+        assert_eq!(
+            ops,
+            vec![
+                (4, 9, "slow".to_string()),
+                (16, 20, String::new()),
+                (25, 25, " high".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn anchoring_failure_names_the_annotation() {
+        let s = sidecar(vec![ann("gone", AnnotationKind::Delete, "nowhere ", Some("missing"), None)]);
+        let err = compute_ops("some text", &s, &[0]).unwrap_err();
+        assert!(err.contains("gone"), "{err}");
+    }
+
+    #[test]
+    fn ops_apply_in_reverse_so_earlier_offsets_stay_valid() {
+        let doc = "The quick brown fox jumps.";
+        let ops = vec![
+            (4, 9, "slow".to_string()),
+            (16, 20, String::new()),
+            (25, 25, " high".to_string()),
+        ];
+        assert_eq!(apply_ops(doc, ops), "The slow brown jumps high.");
+    }
+
+    #[test]
+    fn mark_accepted_resolves_only_the_given_indices() {
+        let mut s = sidecar(vec![
+            ann("a", AnnotationKind::Comment, "x", None, None),
+            ann("b", AnnotationKind::Comment, "y", None, None),
+        ]);
+        mark_accepted(&mut s, &[1]);
+        assert!(!s.annotations[0].resolved);
+        assert!(s.annotations[1].resolved);
+        assert_eq!(s.annotations[1].resolved_as.as_deref(), Some("accepted"));
+        assert!(s.annotations[1].resolved_at.is_some());
+    }
+}
