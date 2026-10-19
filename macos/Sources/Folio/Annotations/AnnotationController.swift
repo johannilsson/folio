@@ -317,11 +317,11 @@ final class AnnotationController {
 
     private func accept(_ id: String) {
         guard let annotation = store.annotation(id) else { return }
-        if annotation.kind == "replace" || annotation.kind == "insert", let text = annotation.replacement {
+        if annotation.kind == .replace || annotation.kind == .insert, let text = annotation.replacement {
             // The text changes only once the reloaded document arrives; the surface waits for it to flash.
             surface.flashAfterReload(text)
         }
-        showToast("Accepted \(annotation.kind)")
+        showToast("Accepted \(annotation.kind.name)")
         Task { @MainActor in
             // Pending edits are saved first, so accepting patches the text as it is on screen.
             await surface.flush()
@@ -333,7 +333,7 @@ final class AnnotationController {
         guard let annotation = store.annotation(id) else { return }
         do {
             let entry = try store.resolve(id)
-            showToast(annotation.isComment ? "Comment dismissed" : "Rejected \(annotation.kind)") { [weak self] in
+            showToast(annotation.isComment ? "Comment dismissed" : "Rejected \(annotation.kind.name)") { [weak self] in
                 self?.store.revert(entry)
             }
         } catch {

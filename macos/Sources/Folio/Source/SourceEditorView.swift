@@ -279,19 +279,19 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         for annotation in pending {
             guard let range = ranges[annotation.id] else { continue }
             switch annotation.kind {
-            case "comment", "highlight":
+            case .comment, .highlight:
                 if let range = clamped(range) { layoutManager.addTemporaryAttribute(.backgroundColor, value: Self.purple.withAlphaComponent(0.22), forCharacterRange: range) }
-            case "replace", "delete":
+            case .replace, .delete:
                 guard let range = clamped(range) else { continue }
                 layoutManager.addTemporaryAttributes([
                     .backgroundColor: Self.red.withAlphaComponent(0.12),
                     .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                     .strikethroughColor: Self.red,
                 ], forCharacterRange: range)
-                if annotation.kind == "delete" {
+                if annotation.kind == .delete {
                     layoutManager.addTemporaryAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: Self.red], forCharacterRange: range)
                 }
-            case "insert":
+            case .insert:
                 inserts.append(range.location)
             default: break
             }

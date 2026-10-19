@@ -598,7 +598,7 @@ final class SelfTest {
             textView.layoutManager?.temporaryAttribute(key, atCharacterIndex: index, effectiveRange: nil)
         }
         func range(of kind: String) -> NSRange? {
-            guard let annotation = self.controller.currentStore.pending.first(where: { $0.kind == kind }) else { return nil }
+            guard let annotation = self.controller.currentStore.pending.first(where: { $0.kind == AnnotationKind(name: kind) }) else { return nil }
             return self.sourceView.ranges[annotation.id]
         }
         await check("comments and highlights are tinted, replaced and deleted text struck through, a deletion underlined too") {
@@ -630,7 +630,7 @@ final class SelfTest {
         textView.insertText("", replacementRange: NSRange(location: 0, length: 2))
 
         // Click on annotated text focuses its annotation; with the pane closed its card opens beside it.
-        let commentID = controller.currentStore.pending.first { $0.kind == "comment" }?.id ?? ""
+        let commentID = controller.currentStore.pending.first { $0.kind == .comment }?.id ?? ""
         if let comment = range(of: "comment") { textView.onClick?(comment.location + 2) }
         await check("a click on annotated text focuses its card") { self.pane.focusedID == commentID }
         textView.onClick?(0)
@@ -655,7 +655,7 @@ final class SelfTest {
 
         // Undo goes back through typing and annotation actions in the order they happened.
         // (A comment's check button dismisses it, which is an action that can be undone.)
-        let toDismiss = controller.currentStore.pending.first { $0.kind == "comment" && $0.author == "agent" }?.id ?? ""
+        let toDismiss = controller.currentStore.pending.first { $0.kind == .comment && $0.author == "agent" }?.id ?? ""
         controller.window?.makeFirstResponder(textView)
         press("accept", inCardOf: toDismiss)
         _ = await until { self.controller.currentStore.annotation(toDismiss)?.resolved == true }
@@ -764,6 +764,15 @@ final class SelfTest {
             _ = self.pane.handleKey(self.keyEvent("z", .command, code: 6))
             let bodies = store.annotation("modes")?.replies?.map { $0.body }
             return bodies == ["Replied in the preview", "Replied in the source"]
+        }
+
+        await check("an annotation of a kind this app does not know still loads, and is written back as it was") {
+            var item = self.commentJSON("odd", before: "a", target: "b")
+            item["kind"] = "mystery"
+            guard let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "annotations": [item]]),
+                  let parsed = try? Sidecar.parse(String(decoding: data, as: UTF8.self)), let odd = parsed.annotations.first,
+                  let written = try? odd.sidecarObject() else { return false }
+            return odd.kind == .unknown("mystery") && written["kind"] as? String == "mystery"
         }
 
         // An Undo that cannot write the sidecar tells the reader.
