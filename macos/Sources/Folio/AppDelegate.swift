@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSApp.mainMenu = buildMenu()
         NSApp.activate(ignoringOtherApps: true)
+        watchWindowsForWelcome()
 
         switch AppConfig.appearance {
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -44,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func open(_ url: URL, completion: ((FolioDocument?) -> Void)? = nil) {
+    func open(_ url: URL, completion: ((FolioDocument?) -> Void)? = nil) {
         NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { document, _, error in
             if let error { NSApp.presentError(error) }
             completion?(document as? FolioDocument)
@@ -135,18 +136,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: launching without a file
 
+    private(set) lazy var welcome = WelcomeWindowController(app: self)
+
+    private func watchWindowsForWelcome() {
+        let center = NotificationCenter.default
+        // A document or set window coming forward puts the welcome window away.
+        center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
+            guard (note.object as? NSWindow)?.windowController is EditorWindowController,
+                  self?.welcome.window?.isVisible == true else { return }
+            self?.welcome.close()
+        }
+        // Closing the last one brings it back, in the same turn so the app is never without a
+        // window: it quits only when the welcome window itself is closed.
+        center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
+            guard let closing = note.object as? NSWindow, closing.windowController is EditorWindowController else { return }
+            let others = NSApp.windows.contains {
+                $0 !== closing && $0.windowController is EditorWindowController && ($0.isVisible || $0.isMiniaturized)
+            }
+            if !others { self?.showWelcome(nil) }
+        }
+    }
+
+    /// Window ▸ Welcome to Folio, and what launching with nothing to open shows.
+    @objc func showWelcome(_ sender: Any?) { welcome.show() }
+
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         initialFiles.isEmpty && !AppConfig.selfTest && AppConfig.openSet == nil
     }
 
-    /// Nothing to show yet: ask for a file, at launch and when the Dock icon is clicked.
+    /// Nothing to show yet: the welcome window, at launch and when the Dock icon is clicked.
     func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        NSDocumentController.shared.openDocument(nil)
+        showWelcome(nil)
         return true
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { NSDocumentController.shared.openDocument(nil) }
+        if !flag { showWelcome(nil) }
         return false
     }
 
@@ -333,6 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let window = add("Window") { m in
             m.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
             m.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+            m.addItem(.separator())
+            let welcome = m.addItem(withTitle: "Welcome to Folio", action: #selector(showWelcome(_:)), keyEquivalent: "1")
+            welcome.keyEquivalentModifierMask = [.command, .shift]
+            welcome.target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         }
