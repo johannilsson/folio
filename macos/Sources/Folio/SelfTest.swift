@@ -349,6 +349,16 @@ final class SelfTest {
                          charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
     }
 
+    /// Presses the button titled `title` on the sheet over the window.
+    private func pressSheetButton(_ title: String) {
+        func find(_ view: NSView) -> NSButton? {
+            if let button = view as? NSButton, button.title == title { return button }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        guard let sheet = controller.window?.attachedSheet, let content = sheet.contentView else { return }
+        find(content)?.performClick(nil)
+    }
+
     /// A click on a native view, delivered to it.
     private func click(_ view: NSView) {
         let point = view.convert(NSPoint(x: 20, y: 20), to: nil)
@@ -680,11 +690,24 @@ final class SelfTest {
                 return pending > 0 && self.sourceView.ranges.count == pending
             }
         }
+        // A change to the file while typing waits to be saved: the reader is asked which to keep.
         textView.insertText("LOCAL", replacementRange: NSRange(location: 0, length: 0))
         replaceFile("# Replaced while typing\n")
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        await check("typing waiting to be saved is not overwritten by a change to the file") {
-            await self.until { self.disk().hasPrefix("LOCAL") && self.sourceText.hasPrefix("LOCAL") }
+        await check("a change to the file while typing waits to be saved asks which to keep, and overwrites neither") {
+            await self.until(seconds: 3) { self.controller.window?.attachedSheet != nil }
+                && self.disk() == "# Replaced while typing\n" && self.sourceText.hasPrefix("LOCAL")
+        }
+        await check("Keep Mine writes the typing over the change") {
+            self.pressSheetButton("Keep Mine")
+            return await self.until { self.disk().hasPrefix("LOCAL") && self.sourceText.hasPrefix("LOCAL") }
+        }
+        textView.insertText("MINE", replacementRange: NSRange(location: 0, length: 0))
+        replaceFile("# Replaced again\n")
+        _ = await until(seconds: 3) { self.controller.window?.attachedSheet != nil }
+        await check("Use the File drops the typing and shows the file") {
+            self.pressSheetButton("Use the File")
+            return await self.until { self.sourceText == "# Replaced again\n" && self.disk() == "# Replaced again\n" }
+                && !self.sourceView.hasUnsavedEdits
         }
         replaceFile(sourceText)
 
@@ -713,7 +736,11 @@ final class SelfTest {
         replaceFile("# Changed while the save failed\n")
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         await check("a change to the file does not replace typing whose save failed") { self.sourceText.hasPrefix("UNWRITTEN") }
-        await check("the next save writes it") { self.sourceView.flushSave() && self.disk().hasPrefix("UNWRITTEN") }
+        await check("the next save asks about the change, and Keep Mine writes the typing") {
+            guard !self.sourceView.flushSave(), self.controller.window?.attachedSheet != nil else { return false }
+            self.pressSheetButton("Keep Mine")
+            return await self.until { self.disk().hasPrefix("UNWRITTEN") }
+        }
         replaceFile(saved)
 
         replaceSidecar([])

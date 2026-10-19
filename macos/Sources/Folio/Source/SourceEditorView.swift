@@ -24,6 +24,9 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     private var saveTimer: Timer?
     /// Typed since the file was last written.
     private(set) var hasUnsavedEdits = false
+    /// The file as it was last read or written here: a save finds out from it whether someone
+    /// else changed the file meanwhile.
+    private var base = ""
     private var replacingText = false
 
     private var pending: [Annotation] = []
@@ -65,7 +68,7 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     }
 
     /// The file changed under us (an agent, `folio accept`): take the new text, unless typing is
-    /// still waiting to be saved, which is about to overwrite it. Returns whether the text changed.
+    /// still waiting to be saved; the save then asks which to keep. Returns whether the text changed.
     @discardableResult
     func reloadFromDisk() -> Bool {
         guard !hasUnsavedEdits, let document, let text = try? document.readFile(), text != textView.string else { return false }
@@ -87,18 +90,25 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         textView.setSelectedRange(keepingSelection ? NSRange(location: min(selection.location, length), length: 0) : NSRange(location: 0, length: 0))
         replacingText = false
         hasUnsavedEdits = false
+        base = text
         relayout()
     }
 
-    /// Writes typed text to the file now. Returns whether it is saved: when the write fails the
-    /// reader is told and the text stays unsaved, so an outside change does not replace it.
+    /// Writes typed text to the file now. Returns whether it is saved: when the write fails, or
+    /// someone else changed the file since it was read, the reader is told and the text stays
+    /// unsaved, so an outside change does not replace it.
     @discardableResult
     func flushSave() -> Bool {
         saveTimer?.invalidate()
         saveTimer = nil
         guard hasUnsavedEdits, let document else { return true }
+        if let onDisk = try? document.readFile(), onDisk != base, onDisk != textView.string {
+            askAboutOutsideChange(onDisk)
+            return false
+        }
         do {
             try document.writeFile(textView.string)
+            base = textView.string
             hasUnsavedEdits = false
             return true
         } catch {
@@ -109,6 +119,27 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
             }
             return false
         }
+    }
+
+    /// The file changed while typing waited to be saved: the reader keeps one of the two.
+    private func askAboutOutsideChange(_ onDisk: String) {
+        guard let document, window?.attachedSheet == nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "The file was changed by another program"
+        alert.informativeText = "“\(document.file.lastPathComponent)” changed on disk while you were typing. Keep your version, or use the file as it is now?"
+        alert.addButton(withTitle: "Keep Mine")
+        alert.addButton(withTitle: "Use the File")
+        let answer: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, self.document === document else { return }
+            if response == .alertFirstButtonReturn {
+                base = onDisk
+                flushSave()
+            } else {
+                hasUnsavedEdits = false
+                if !reloadFromDisk() { base = textView.string }
+            }
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: answer) } else { answer(alert.runModal()) }
     }
 
     private func scheduleSave() {
