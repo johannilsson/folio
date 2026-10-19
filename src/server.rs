@@ -183,7 +183,15 @@ async fn put_folio(
             return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
         }
     }
-    match tokio::fs::write(&doc.folio_path, &body).await {
+    // Temp file + rename, so a concurrent GET never reads the truncated sidecar (same as Sidecar::save).
+    let mut tmp = doc.folio_path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp);
+    let written = match tokio::fs::write(&tmp, &body).await {
+        Ok(_) => tokio::fs::rename(&tmp, &doc.folio_path).await,
+        Err(e) => Err(e),
+    };
+    match written {
         Ok(_) => {
             let _ = state.tx.send(event("folio:changed", &doc));
             StatusCode::OK.into_response()
