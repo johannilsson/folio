@@ -766,13 +766,12 @@ final class SelfTest {
             return bodies == ["Replied in the preview", "Replied in the source"]
         }
 
-        await check("an annotation of a kind this app does not know still loads, and is written back as it was") {
+        await check("an annotation of a kind this app does not know still loads") {
             var item = self.commentJSON("odd", before: "a", target: "b")
             item["kind"] = "mystery"
             guard let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "annotations": [item]]),
-                  let parsed = try? Sidecar.parse(String(decoding: data, as: UTF8.self)), let odd = parsed.annotations.first,
-                  let written = try? odd.sidecarObject() else { return false }
-            return odd.kind == .unknown("mystery") && written["kind"] as? String == "mystery"
+                  let parsed = try? Sidecar.parse(String(decoding: data, as: UTF8.self)) else { return false }
+            return parsed.annotations.first?.kind == .unknown("mystery")
         }
 
         // An Undo that cannot write the sidecar tells the reader.

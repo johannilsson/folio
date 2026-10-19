@@ -92,13 +92,3 @@ struct Sidecar: Codable, Equatable {
         return try decoder.decode(Sidecar.self, from: Data(text.utf8))
     }
 }
-
-extension Annotation {
-    /// The annotation as the sidecar spells it, for `Rust.edit`.
-    func sidecarObject() throws -> [String: Any] {
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        let data = try encoder.encode(self)
-        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-    }
-}

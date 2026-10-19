@@ -6,11 +6,16 @@ import Foundation
 @MainActor
 final class AnnotationStore {
     /// An action that can be undone: the annotation as it was and as it became (nil: it did not
-    /// exist before, or does not now).
+    /// exist before, or does not now), as the sidecar JSON that libfolio wrote, so undoing
+    /// puts back exactly that and not what this app's model made of it.
     struct Entry: Equatable {
         let id: String
-        let before: Annotation?
-        let after: Annotation?
+        let before: [String: Any]?
+        let after: [String: Any]?
+
+        static func == (a: Entry, b: Entry) -> Bool {
+            a.id == b.id && (a.before as NSDictionary?) == (b.before as NSDictionary?) && (a.after as NSDictionary?) == (b.after as NSDictionary?)
+        }
     }
 
     let document: Document
@@ -79,7 +84,7 @@ final class AnnotationStore {
     /// Rejects a suggestion or dismisses a comment: it stays in the file, resolved.
     @discardableResult
     func resolve(_ id: String) throws -> Entry {
-        let before = annotation(id)
+        let before = rawAnnotation(id)
         try perform(["op": "resolve", "id": id])
         return record(id: id, before: before)
     }
@@ -96,14 +101,14 @@ final class AnnotationStore {
 
     @discardableResult
     func reply(to id: String, body: String) throws -> Entry {
-        let before = annotation(id)
+        let before = rawAnnotation(id)
         try perform(["op": "reply", "id": id, "body": body, "author": "me", "source": "local"])
         return record(id: id, before: before)
     }
 
     @discardableResult
     func editComment(_ id: String, to comment: String) throws -> Entry {
-        let before = annotation(id)
+        let before = rawAnnotation(id)
         try perform(["op": "edit_comment", "id": id, "comment": comment])
         return record(id: id, before: before)
     }
@@ -121,7 +126,7 @@ final class AnnotationStore {
     func revert(_ entry: Entry) {
         do {
             if let before = entry.before {
-                try perform(["op": "restore", "annotation": try before.sidecarObject()])
+                try perform(["op": "restore", "annotation": before])
             } else {
                 try perform(["op": "remove", "id": entry.id])
             }
@@ -153,10 +158,24 @@ final class AnnotationStore {
 
     // MARK: private
 
+    /// The sidecar text libfolio wrote last, which `record` takes the new annotation from.
+    private var lastSidecar = ""
+
+    /// The annotation `id` as the sidecar on disk has it.
+    private func rawAnnotation(_ id: String) -> [String: Any]? {
+        Self.rawAnnotation(id, in: (try? document.readSidecar()) ?? "")
+    }
+
+    private static func rawAnnotation(_ id: String, in sidecar: String) -> [String: Any]? {
+        let object = try? JSONSerialization.jsonObject(with: Data(sidecar.utf8)) as? [String: Any]
+        return (object?["annotations"] as? [[String: Any]])?.first { $0["id"] as? String == id }
+    }
+
     @discardableResult
     private func perform(_ edit: [String: Any]) throws -> String? {
         let result = try Rust.edit(sidecarJSON: document.readSidecar(), edit: edit)
         try document.writeSidecar(result.sidecar)
+        lastSidecar = result.sidecar
         annotations = try Sidecar.parse(result.sidecar).annotations
         // The page reads the sidecar for its highlights; our own write is not reported back by the poller.
         document.onEvent?("folio:changed")
@@ -164,8 +183,8 @@ final class AnnotationStore {
         return result.id
     }
 
-    private func record(id: String, before: Annotation?) -> Entry {
-        let entry = Entry(id: id, before: before, after: annotation(id))
+    private func record(id: String, before: [String: Any]?) -> Entry {
+        let entry = Entry(id: id, before: before, after: Self.rawAnnotation(id, in: lastSidecar))
         // Our own manager does not group by run-loop turn, so each action is its own group there;
         // the text view's does, as typing needs it.
         let manager = undoManager
@@ -190,7 +209,7 @@ final class AnnotationStore {
         let target = undoing ? entry.before : entry.after
         do {
             if let target {
-                try perform(["op": "restore", "annotation": try target.sidecarObject()])
+                try perform(["op": "restore", "annotation": target])
             } else {
                 try perform(["op": "remove", "id": entry.id])
             }
