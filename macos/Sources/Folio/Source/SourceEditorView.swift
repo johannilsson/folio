@@ -90,19 +90,31 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         relayout()
     }
 
-    /// Writes typed text to the file now.
-    func flushSave() {
+    /// Writes typed text to the file now. Returns whether it is saved: when the write fails the
+    /// reader is told and the text stays unsaved, so an outside change does not replace it.
+    @discardableResult
+    func flushSave() -> Bool {
         saveTimer?.invalidate()
         saveTimer = nil
-        guard hasUnsavedEdits, let document else { return }
-        hasUnsavedEdits = false
-        try? document.writeFile(textView.string)
+        guard hasUnsavedEdits, let document else { return true }
+        do {
+            try document.writeFile(textView.string)
+            hasUnsavedEdits = false
+            return true
+        } catch {
+            if let window, window.attachedSheet == nil {
+                NSAlert(error: error).beginSheetModal(for: window)
+            } else if window == nil {
+                NSApp.presentError(error)
+            }
+            return false
+        }
     }
 
     private func scheduleSave() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: Self.saveDelay, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flushSave() }
+            MainActor.assumeIsolated { _ = self?.flushSave() }
         }
     }
 

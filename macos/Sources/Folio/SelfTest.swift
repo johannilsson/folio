@@ -692,6 +692,29 @@ final class SelfTest {
             return self.sourceView.lineStartsForTest.count == newlines + 1
         }
 
+        // A save that fails is shown, and the typing stays: not replaced, not left behind by the preview.
+        _ = await until(seconds: 5) { !self.sourceView.hasUnsavedEdits }
+        let saved = disk()
+        try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+        textView.insertText("UNWRITTEN", replacementRange: NSRange(location: 0, length: 0))
+        await check("a save that fails is shown, and the typing stays unsaved") {
+            await self.until(seconds: 3) { self.controller.window?.attachedSheet != nil }
+                && self.sourceView.hasUnsavedEdits && self.disk() == saved
+        }
+        if let sheet = controller.window?.attachedSheet { controller.window?.endSheet(sheet) }
+        send("toggleSource:")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        await check("the preview does not open while the typing is not saved") {
+            self.controller.sourceOn && self.controller.window?.attachedSheet != nil
+        }
+        if let sheet = controller.window?.attachedSheet { controller.window?.endSheet(sheet) }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        replaceFile("# Changed while the save failed\n")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        await check("a change to the file does not replace typing whose save failed") { self.sourceText.hasPrefix("UNWRITTEN") }
+        await check("the next save writes it") { self.sourceView.flushSave() && self.disk().hasPrefix("UNWRITTEN") }
+        replaceFile(saved)
+
         replaceSidecar([])
         send("toggleSource:")
         _ = await until { !self.controller.sourceOn }

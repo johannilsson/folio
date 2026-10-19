@@ -203,7 +203,8 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
                 await annotations.preview.flush()
                 scrollHost.source.load(currentDocument)
             case .preview:
-                scrollHost.source.flushSave()
+                // The preview shows the file: unsaved typing would be lost on the way back.
+                guard scrollHost.source.flushSave() else { return }
                 _ = try? await webView.callAsyncJavaScript("await window.__folioReload?.()", in: nil, contentWorld: .page)
             }
             mode = new
