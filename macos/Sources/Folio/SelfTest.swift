@@ -276,6 +276,7 @@ final class SelfTest {
         await wideTableChecks()
         await storeChecks()
         await nativeAnnotationChecks()
+        await sourceAnnotationChecks()
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
@@ -530,17 +531,172 @@ final class SelfTest {
         _ = await until { self.controller.currentStore.annotations.isEmpty }
     }
 
+    /// The annotation UI in the source: the marks on the text, ranges that follow the text as it is
+    /// edited, clicks, ⌃J/⌃K, the Comment button and form, Undo in order, and the file changing underneath.
+    private func sourceAnnotationChecks() async {
+        replaceSidecar([])
+        _ = await until { self.controller.currentStore.annotations.isEmpty }
+        if !controller.commentsOn { send("toggleComments:") }
+        _ = await until { self.controller.commentsOn && self.controller.scrollHost.paneWidth > 300 }
+        send("toggleSource:")
+        _ = await until { self.controller.sourceOn && !self.sourceView.isHidden }
+        let textView = sourceView.textView
+        controller.window?.makeFirstResponder(textView)
+
+        for args in [
+            ["--kind", "comment", "--context-before", "Natural wine is made with ", "--target", "no additives", "--comment", "Sourced?"],
+            ["--kind", "replace", "--context-before", "in both the ", "--target", "orchard", "--replacement", "vineyard"],
+            ["--kind", "delete", "--context-before", "orchard and the ", "--target", "cave"],
+            ["--kind", "highlight", "--context-before", "The last ", "--target", "paragraph"],
+            ["--kind", "insert", "--context-before", "The last paragraph", "--replacement", " (end)"],
+        ] { _ = cli(["annotate", name] + args + ["--author", "agent", "--source", "agent"]) }
+        await check("every kind of annotation is anchored in the source, with a card in the pane") {
+            await self.until(seconds: 10) { self.visibleCards().count == 5 && self.sourceView.ranges.count == 5 && self.pane.anchors.count == 5 }
+        }
+
+        func attribute(_ key: NSAttributedString.Key, at index: Int) -> Any? {
+            textView.layoutManager?.temporaryAttribute(key, atCharacterIndex: index, effectiveRange: nil)
+        }
+        func range(of kind: String) -> NSRange? {
+            guard let annotation = self.controller.currentStore.pending.first(where: { $0.kind == kind }) else { return nil }
+            return self.sourceView.ranges[annotation.id]
+        }
+        await check("comments and highlights are tinted, replaced and deleted text struck through, a deletion underlined too") {
+            guard let comment = range(of: "comment"), let highlight = range(of: "highlight"),
+                  let replace = range(of: "replace"), let delete = range(of: "delete") else { return false }
+            return attribute(.backgroundColor, at: comment.location) != nil && attribute(.strikethroughStyle, at: comment.location) == nil
+                && attribute(.backgroundColor, at: highlight.location) != nil
+                && attribute(.strikethroughStyle, at: replace.location) != nil && attribute(.underlineStyle, at: replace.location) == nil
+                && attribute(.strikethroughStyle, at: delete.location) != nil && attribute(.underlineStyle, at: delete.location) != nil
+        }
+        await check("an insertion is marked at its place") {
+            guard let insert = range(of: "insert") else { return false }
+            return textView.insertPoints == [insert.location]
+        }
+        await check("each range is the text the annotation is about") {
+            let text = self.sourceText as NSString
+            guard let comment = range(of: "comment"), let delete = range(of: "delete"), let highlight = range(of: "highlight") else { return false }
+            return text.substring(with: comment) == "no additives" && text.substring(with: delete) == "cave" && text.substring(with: highlight) == "paragraph"
+        }
+
+        // Typing earlier in the text moves the annotations with the words they are about.
+        let before = range(of: "comment")
+        textView.insertText("XX", replacementRange: NSRange(location: 0, length: 0))
+        await check("typing before an annotation moves its range along, and the card follows its line") {
+            guard let before, let after = range(of: "comment") else { return false }
+            let text = self.sourceText as NSString
+            return after.location == before.location + 2 && text.substring(with: after) == "no additives"
+        }
+        textView.insertText("", replacementRange: NSRange(location: 0, length: 2))
+
+        // Click on annotated text focuses its annotation; with the pane closed its card opens beside it.
+        let commentID = controller.currentStore.pending.first { $0.kind == "comment" }?.id ?? ""
+        if let comment = range(of: "comment") { textView.onClick?(comment.location + 2) }
+        await check("a click on annotated text focuses its card") { self.pane.focusedID == commentID }
+        textView.onClick?(0)
+        await check("a click on plain text clears the focus") { self.pane.focusedID == nil }
+
+        // ⌃J walks to the next annotation, putting the caret at its start.
+        await check("⌃J focuses the first annotation and puts the caret at its start, ⌃K goes back round to the last") {
+            let first = self.pane.handleKey(self.keyEvent("j", .control, code: 38))
+            let firstRange = self.sourceView.ranges[self.pane.focusedID ?? ""]
+            let caret = textView.selectedRange().location
+            let wrapped = self.pane.handleKey(self.keyEvent("k", .control, code: 40))
+            return first && firstRange != nil && caret == firstRange?.location && wrapped && self.pane.focusedID != nil
+        }
+        textView.onClick?(0)
+
+        // The Comment button and form work on the source as they do in the preview.
+        await commentFormChecks(inSource: true)
+        if !controller.commentsOn {
+            send("toggleComments:")
+            _ = await until { self.controller.commentsOn && self.controller.scrollHost.paneWidth > 300 }
+        }
+
+        // Undo goes back through typing and annotation actions in the order they happened.
+        // (A comment's check button dismisses it, which is an action that can be undone.)
+        let toDismiss = controller.currentStore.pending.first { $0.kind == "comment" && $0.author == "agent" }?.id ?? ""
+        controller.window?.makeFirstResponder(textView)
+        press("accept", inCardOf: toDismiss)
+        _ = await until { self.controller.currentStore.annotation(toDismiss)?.resolved == true }
+        // The history groups by run-loop turn and the test never leaves its turn, so it ends each
+        // action's group itself, as the reader's events would.
+        let history = textView.history
+        history.groupsByEvent = false
+        while history.groupingLevel > 0 { history.endUndoGrouping() }
+        history.beginUndoGrouping()
+        textView.insertText("QZ", replacementRange: NSRange(location: 0, length: 0))
+        history.endUndoGrouping()
+        history.groupsByEvent = true
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        send("undoEdit:")
+        await check("Undo takes the typing back first") {
+            !self.sourceText.hasPrefix("QZ") && self.controller.currentStore.annotation(toDismiss)?.resolved == true
+        }
+        send("undoEdit:")
+        await check("and then the annotation action, in the same history") {
+            await self.until { self.controller.currentStore.annotation(toDismiss)?.resolved == false }
+        }
+
+        // The file changing underneath: followed when nothing is waiting to be saved, not otherwise.
+        _ = await until(seconds: 5) { !self.sourceView.hasUnsavedEdits }
+        replaceFile(disk() + "\nAdded under the source.\n")
+        await check("the source follows a change to the file") {
+            await self.until(seconds: 8) { self.sourceText.contains("Added under the source.") }
+        }
+        await check("its annotations are anchored again in the new text") {
+            await self.until {
+                let pending = self.controller.currentStore.pending.count
+                return pending > 0 && self.sourceView.ranges.count == pending
+            }
+        }
+        textView.insertText("LOCAL", replacementRange: NSRange(location: 0, length: 0))
+        replaceFile("# Replaced while typing\n")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        await check("typing waiting to be saved is not overwritten by a change to the file") {
+            await self.until { self.disk().hasPrefix("LOCAL") && self.sourceText.hasPrefix("LOCAL") }
+        }
+        replaceFile(sourceText)
+
+        await check("the line numbers count the lines of the file") {
+            let newlines = self.sourceText.filter { $0 == "\n" }.count
+            return self.sourceView.lineStartsForTest.count == newlines + 1
+        }
+
+        replaceSidecar([])
+        send("toggleSource:")
+        _ = await until { !self.controller.sourceOn }
+    }
+
     /// The Comment button over a selection, and the form it opens, with the pane open and closed.
-    private func commentFormChecks() async {
-        controller.window?.makeFirstResponder(controller.webView)
+    private func commentFormChecks(inSource: Bool = false) async {
+        let textResponder: NSResponder = inSource ? sourceView.textView : controller.webView
+        // Selects `length` characters of "Natural wine" from `offset`, as the reader would.
+        func select(from offset: Int, length: Int) async {
+            if inSource {
+                let start = (sourceText as NSString).range(of: "Natural wine").location
+                sourceView.textView.setSelectedRange(NSRange(location: start + offset, length: length))
+            } else {
+                await selectInPreview("Natural wine", from: offset, length: length)
+            }
+        }
+        // Whether the text being commented on is highlighted (the pending range).
+        func highlighted() async -> Bool {
+            if inSource {
+                let start = (sourceText as NSString).range(of: "Natural wine").location
+                return sourceView.textView.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: start, effectiveRange: nil) != nil
+            }
+            return await waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')", seconds: 2)
+        }
+        controller.window?.makeFirstResponder(textResponder)
         for paneOpen in [true, false] {
             if pane.commentsOn != paneOpen {
                 send("toggleComments:")
                 _ = await until { self.pane.commentsOn == paneOpen && (paneOpen ? self.controller.scrollHost.paneWidth > 300 : self.controller.scrollHost.paneWidth == 0) }
             }
-            let label = paneOpen ? "pane open" : "pane closed"
-            controller.window?.makeFirstResponder(controller.webView)
-            await selectInPreview("Natural wine", length: 7)
+            let label = (paneOpen ? "pane open" : "pane closed") + (inSource ? ", source" : "")
+            controller.window?.makeFirstResponder(textResponder)
+            await select(from: 0, length: 7)
             await check("selecting text shows the Comment button (\(label))") {
                 let shown = await self.until { self.pane.selection?.target == "Natural" && !self.pane.adderIsHidden }
                 if !shown {
@@ -565,19 +721,19 @@ final class SelfTest {
                 return paneOpen ? form.superview === self.controller.scrollHost.gutter : (form.superview === self.controller.scrollHost.floatingHost && form.isFloating)
             }
             await check("the selected text stays highlighted while the form is open (\(label))") {
-                await self.waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')")
+                await highlighted()
             }
             // Esc cancels.
             _ = self.pane.handleKey(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                     windowNumber: controller.window?.windowNumber ?? 0, context: nil, characters: "\u{1b}",
                                                     charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!)
             await check("Escape cancels the form (\(label))") {
-                let stillHighlighted = await self.waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')", seconds: 1)
+                let stillHighlighted = inSource ? await highlighted() : await self.waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')", seconds: 1)
                 return self.pane.form == nil && !stillHighlighted
             }
             // Send.
-            controller.window?.makeFirstResponder(controller.webView)
-            await selectInPreview("Natural wine", from: 8, length: 4)
+            controller.window?.makeFirstResponder(textResponder)
+            await select(from: 8, length: 4)
             _ = await until { self.pane.selection?.target == "wine" && !self.pane.adderIsHidden }
             pane.pressCommentButton()
             pane.form?.field.textView.string = "From the form (\(label))"
@@ -1036,6 +1192,15 @@ final class SelfTest {
             let swapped = await self.until { await filename() == "beta.md" }
             let back = await self.until { win.annotations.cards.count == 1 }
             return swapped && back
+        }
+        await check("back on its file, the card is anchored beside its text and the text is marked in the source") {
+            await self.until {
+                guard let card = win.annotations.cards.values.first, win.annotations.anchors[card.annotation.id] != nil else { return false }
+                let range = (sv.textView.string as NSString).range(of: "minimal intervention")
+                guard range.location != NSNotFound else { return false }
+                let mark = sv.textView.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: range.location, effectiveRange: nil)
+                return !card.isUnanchored && mark != nil
+            }
         }
         // The comments pane of a set window, in the source view: the card is on screen, not just in the model.
         win.toggleComments(nil)

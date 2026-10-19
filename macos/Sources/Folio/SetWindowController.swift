@@ -103,9 +103,10 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         currentID = id
         window?.subtitle = entry.name
         sidebar.select(id)
-        annotations.fileChanged(store: currentStore)
-        // The source shows the file it was opened on until it is told otherwise (the page swaps by itself).
+        // The source shows the file it was opened on until it is told otherwise (the page swaps by
+        // itself). It comes first: the annotation UI then hands the new file's annotations to it.
         if mode == .source { scrollHost.source.load(entry.document) }
+        annotations.fileChanged(store: currentStore)
         webView.callAsyncJavaScript(
             """
             if (typeof window.__folioSwitchFile !== 'function') return false

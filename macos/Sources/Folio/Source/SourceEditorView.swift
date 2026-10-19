@@ -356,6 +356,9 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         }
     }
 
+    /// Where each line starts, for the self-test.
+    var lineStartsForTest: [Int] { lineNumbers.lineStarts }
+
     // MARK: undo
 
     var canUndo: Bool { textView.history.canUndo }
