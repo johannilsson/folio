@@ -173,6 +173,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: menus
 
+    // MARK: undo
+
+    /// In the source, Undo goes back through the text view's history, which has the annotation
+    /// actions in it. In the preview it takes back the last annotation action (a rejected
+    /// suggestion, a reply) while that is the latest thing the reader did in the page, and otherwise
+    /// the page's own typing. A text field of the annotation UI keeps its own undo.
+    @MainActor @objc private func undoEdit(_ sender: Any?) {
+        let responder = frontWindow?.firstResponder
+        if frontEditor?.annotations.undo(from: responder) == true { return }
+        responder?.tryToPerform(Selector(("undo:")), with: sender)
+    }
+
+    @MainActor @objc private func redoEdit(_ sender: Any?) {
+        let responder = frontWindow?.firstResponder
+        if frontEditor?.annotations.redo(from: responder) == true { return }
+        responder?.tryToPerform(Selector(("redo:")), with: sender)
+    }
+
+    /// Undo and Redo are greyed out when there is nothing to undo: in the source and in text fields
+    /// that is known; the page's own undo cannot be asked, so they stay available there.
+    @MainActor func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let responder = frontWindow?.firstResponder
+        switch item.action {
+        case #selector(undoEdit(_:)):
+            return frontEditor?.annotations.canUndo(from: responder) ?? responder?.undoManager?.canUndo ?? false
+        case #selector(redoEdit(_:)):
+            return frontEditor?.annotations.canRedo(from: responder) ?? responder?.undoManager?.canRedo ?? false
+        default: return true
+        }
+    }
+
+    @MainActor private var frontEditor: EditorWindowController? {
+        frontWindow?.windowController as? EditorWindowController
+    }
+
+    /// The window Undo is for: the key window, or the front editor window if the app is not active.
+    @MainActor private var frontWindow: NSWindow? {
+        NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController is EditorWindowController }
+    }
+
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         open(url)
@@ -257,11 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         }
 
-        // WKWebView only gets cut/copy/paste/undo from the responder chain; these items
-        // have no target, so they reach it as first responder.
+        // WKWebView only gets cut/copy/paste from the responder chain; these items have no target,
+        // so they reach it as first responder. Undo and Redo first ask the window's annotation actions.
         _ = add("Edit") { m in
-            m.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-            let redo = m.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+            m.addItem(withTitle: "Undo", action: #selector(undoEdit(_:)), keyEquivalent: "z").target = self
+            let redo = m.addItem(withTitle: "Redo", action: #selector(redoEdit(_:)), keyEquivalent: "z")
+            redo.target = self
             redo.keyEquivalentModifierMask = [.command, .shift]
             m.addItem(.separator())
             m.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")

@@ -8,8 +8,18 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     let workspace: Workspace
     /// Every op the page has sent, so the self-test can see what went through here.
     private(set) var ops: [String] = []
-    /// The page's source/comments toggles, for the native toolbar.
-    var onUIState: ((_ source: Bool, _ comments: Bool, _ pending: Int) -> Void)?
+    /// The page's full height, and a rectangle of it (top and bottom, in page coordinates)
+    /// that has to come into view.
+    var onLayout: ((_ height: Double) -> Void)?
+    var onReveal: ((_ top: Double, _ bottom: Double) -> Void)?
+    /// What the preview reports for the native annotation UI.
+    var onAnchors: (([AnchorRect]) -> Void)?
+    var onSelection: ((SelectionInfo?) -> Void)?
+    /// The annotation clicked in the text (nil: none); a click anywhere before it.
+    var onFocus: ((String?) -> Void)?
+    var onPointer: (() -> Void)?
+    /// The reader typed in the page.
+    var onTyping: (() -> Void)?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -53,17 +63,42 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 "set": workspace.setName ?? NSNull(),
                 "plantumlUrl": "https://www.plantuml.com/plantuml",
             ] as [String: Any]
-        case "files":
-            return workspace.entries.map { entry in
-                [
-                    "id": entry.document.id,
-                    "name": entry.name,
-                    "group": entry.group,
-                    "pending": entry.document.pendingCount(),
-                ] as [String: Any]
+        case "layout":
+            onLayout?((body["height"] as? NSNumber)?.doubleValue ?? 0)
+            return NSNull()
+        case "reveal":
+            onReveal?((body["top"] as? NSNumber)?.doubleValue ?? 0, (body["bottom"] as? NSNumber)?.doubleValue ?? 0)
+            return NSNull()
+        case "anchors":
+            let list = body["anchors"] as? [[String: Any]] ?? []
+            onAnchors?(list.compactMap { item in
+                guard let id = item["id"] as? String, let from = (item["from"] as? NSNumber)?.intValue,
+                      let top = (item["top"] as? NSNumber)?.doubleValue, let bottom = (item["bottom"] as? NSNumber)?.doubleValue,
+                      let left = (item["left"] as? NSNumber)?.doubleValue else { return nil }
+                return AnchorRect(id: id, from: from, top: top, bottom: bottom, left: left)
+            })
+            return NSNull()
+        case "selection":
+            func number(_ item: [String: Any], _ key: String) -> Double? { (item[key] as? NSNumber)?.doubleValue }
+            if let item = body["selection"] as? [String: Any],
+               let from = number(item, "from"), let to = number(item, "to"), let top = number(item, "top"),
+               let bottom = number(item, "bottom"), let endBottom = number(item, "endBottom"),
+               let left = number(item, "left"), let right = number(item, "right"),
+               let target = item["target"] as? String, let before = item["contextBefore"] as? String {
+                onSelection?(SelectionInfo(from: Int(from), to: Int(to), top: top, bottom: bottom, endBottom: endBottom,
+                                           left: left, right: right, target: target, contextBefore: before))
+            } else {
+                onSelection?(nil)
             }
-        case "uiState":
-            onUIState?(body["source"] as? Bool ?? false, body["comments"] as? Bool ?? false, body["pending"] as? Int ?? 0)
+            return NSNull()
+        case "focus":
+            onFocus?(body["id"] as? String)
+            return NSNull()
+        case "pointer":
+            onPointer?()
+            return NSNull()
+        case "typing":
+            onTyping?()
             return NSNull()
         case "krokiUrl":
             return "https://kroki.io"
@@ -77,34 +112,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "getFolio":
             return try JSONSerialization.jsonObject(with: Data(target(body).readSidecar().utf8))
-        case "putFolio":
-            guard let text = body["body"] as? String else { throw RustError(description: "putFolio: no body") }
-            let document = try target(body)
-            try document.writeSidecar(text)
-            // Like the server: tell the page its own write landed (it recognises the echo).
-            document.onEvent?("folio:changed")
-            return NSNull()
-
-        case "anchor", "anchorRaw":
-            let document = try target(body)
+        case "anchor":
+            // The preview anchors against its own rendered text.
             let items = try JSONSerialization.data(withJSONObject: body["items"] ?? [])
-            // The preview anchors against its own rendered text; source mode against the file.
-            let doc = op == "anchorRaw" ? try document.readFile() : body["text"] as? String ?? ""
             return try JSONSerialization.jsonObject(with: Data(
-                Rust.anchor(doc: doc, itemsJSON: String(decoding: items, as: UTF8.self), raw: op == "anchorRaw").utf8
+                Rust.anchor(doc: body["text"] as? String ?? "", itemsJSON: String(decoding: items, as: UTF8.self), raw: false).utf8
             ))
-
-        case "accept":
-            guard let id = body["id"] as? String else { throw RustError(description: "accept: no id") }
-            let document = try target(body)
-            let result = try Rust.accept(doc: document.readFile(), sidecarJSON: document.readSidecar(), id: id)
-            if let patched = result.doc {
-                try document.writeFile(patched)
-                document.onEvent?("md:changed")
-            }
-            try document.writeSidecar(result.sidecar)
-            document.onEvent?("folio:changed")
-            return NSNull()
 
         default:
             throw RustError(description: "unsupported op \(op)")

@@ -85,11 +85,6 @@ pub fn set_path(name: &str) -> anyhow::Result<PathBuf> {
     Ok(sets_dir()?.join(format!("{}.json", name)))
 }
 
-pub fn lock_path(name: &str) -> anyhow::Result<PathBuf> {
-    validate_name(name)?;
-    Ok(sets_dir()?.join(format!("{}.lock", name)))
-}
-
 pub fn load(name: &str) -> anyhow::Result<Set> {
     let path = set_path(name)?;
     let content = std::fs::read_to_string(&path)

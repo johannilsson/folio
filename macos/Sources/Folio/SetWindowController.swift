@@ -20,6 +20,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
 
     var setName: String { workspace.setName ?? "" }
 
+    override var currentDocument: Document { workspace.document(id: currentID) ?? files }
+
     private var split: NSSplitViewController?
 
     // The sidebar runs to the top of the window, as in Finder, Notes and Preview: the
@@ -47,13 +49,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         // Its top edge is the bottom of the toolbar, which now floats over the content side.
         let content = NSViewController()
         let contentRoot = NSView()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        contentRoot.addSubview(webView)
+        scrollHost.translatesAutoresizingMaskIntoConstraints = false
+        contentRoot.addSubview(scrollHost)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
+            scrollHost.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
+            scrollHost.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
+            scrollHost.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
+            scrollHost.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
         ])
         content.view = contentRoot
         let split = NSSplitViewController()
@@ -97,9 +99,14 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
             completion?()
             return
         }
+        rememberScroll(of: currentID)
         currentID = id
         window?.subtitle = entry.name
         sidebar.select(id)
+        // The source shows the file it was opened on until it is told otherwise (the page swaps by
+        // itself). It comes first: the annotation UI then hands the new file's annotations to it.
+        if mode == .source { scrollHost.source.load(entry.document) }
+        annotations.fileChanged(store: currentStore)
         webView.callAsyncJavaScript(
             """
             if (typeof window.__folioSwitchFile !== 'function') return false
@@ -112,6 +119,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
             if case .success(let swapped) = result, swapped as? Bool == true {} else {
                 self?.webView.load(URLRequest(url: SchemeHandler.entryURL(file: id)))
             }
+            self?.restoreScroll(of: id)
             completion?()
         }
     }

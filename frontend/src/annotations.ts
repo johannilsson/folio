@@ -1,90 +1,46 @@
 import { Extension } from '@tiptap/core'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
-import { undoDepth } from '@tiptap/pm/history'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
-import type { Annotation, Sidecar, ThreadReply } from './api'
-import { putFolio, postAnchor, postAccept } from './api'
+import type { Annotation, Sidecar } from './api'
+import { postAnchor } from './api'
+import { call } from './bridge'
 import { flushSave } from './editor'
-import { showToast, flashAfterReload } from './feedback'
+import { flashAfterReload } from './feedback'
 
 // ─── Sidecar state ───────────────────────────────────────────────────────────
 
 let currentSidecar: Sidecar = { version: 1, annotations: [] }
-let sidecarUpdateCb: (() => void) | null = null
 
-// ─── Annotation undo stack ───────────────────────────────────────────────────
-// Simple stack for sidecar-only actions (reject/dismiss) that don't produce a
-// ProseMirror doc-history entry of their own to hang undo off of.
+// The preview's inline marks are drawn here; the cards, overlay, comment button and form are
+// the app's (macos/Sources/Folio/Annotations). This module tells the app where the annotations
+// are, what is selected and what was clicked (the `anchors`, `selection` and `focus` ops), and
+// takes its requests (`__folioSetPending`, `__folioSelectAnnotation`, ...; see macos/BRIDGE.md).
 
-let annotationKeyboardUndoStack: Array<{ snapshot: Annotation[]; pmDepth: number }> = []
-
-// ─── Reply draft state ───────────────────────────────────────────────────────
-
-const replyDrafts = new Map<string, string>()
-
-// ─── Focus state ─────────────────────────────────────────────────────────────
-
-let focusedAnnotationId: string | null = null
-let shouldFocusReply = false
-let currentGutterEl: HTMLElement | null = null
-let focusChangeCallback: (() => void) | null = null
-let rebuildFn: (() => void) | null = null
+// Text the reader is commenting on, kept highlighted while the app's comment form is open.
 let pendingCommentRange: { from: number; to: number } | null = null
+let currentView: EditorView | null = null
+// Set when the whole document is replaced: the app may have forgotten what this page reported
+// (it was showing the source), so the next report is sent even if nothing changed.
+let resendReports = false
 
-export function scheduleGutterRebuild(): void {
-  if (rebuildFn) requestAnimationFrame(rebuildFn)
-}
-
-export function setGutterHidden(hidden: boolean): void {
-  if (currentGutterEl) currentGutterEl.hidden = hidden
-}
-
-function updateFocusedCard(): void {
-  if (!currentGutterEl) return
-  currentGutterEl.querySelectorAll<HTMLElement>('.ann-card').forEach(card => {
-    card.classList.toggle('ann-card-focused', card.dataset.id === focusedAnnotationId)
-  })
-  repositionCards(currentGutterEl)
-  focusChangeCallback?.()
-}
-
-// Returns true when the incoming sidecar is an echo of what we last wrote
-// (i.e. a WebSocket round-trip of our own PUT). On echo, undo stacks are left
-// intact; on genuine external updates they are cleared.
+// Returns true when the incoming sidecar is the one we already have (an echo of a write).
 export function updateSidecar(sidecar: Sidecar): boolean {
   const isEcho = JSON.stringify(sidecar) === JSON.stringify(currentSidecar)
   currentSidecar = sidecar
-  sidecarUpdateCb?.()
-  if (isEcho) return true
-  annotationKeyboardUndoStack = []
-  replyDrafts.clear()
-  return false
+  return isEcho
 }
 
 // Forget everything tied to the previous document before another is mounted.
 export function resetAnnotationState(): void {
   currentSidecar = { version: 1, annotations: [] }
-  sidecarUpdateCb?.()
-  annotationKeyboardUndoStack = []
-  replyDrafts.clear()
-  focusedAnnotationId = null
-  shouldFocusReply = false
   pendingCommentRange = null
 }
 
-export function getSidecar(): Sidecar {
-  return currentSidecar
-}
-
-export function onSidecarUpdate(cb: () => void): void {
-  sidecarUpdateCb = cb
-}
-
 // Dispatch a full re-anchor. Call after an external sidecar change (new agent
-// annotations); do NOT call for echoes of our own PUTs.
+// annotations); do NOT call for echoes of our own writes.
 export function triggerSidecarUpdate(ed: Editor): void {
   ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
 }
@@ -93,6 +49,7 @@ export function triggerSidecarUpdate(ed: Editor): void {
 // positions (which would otherwise be mapped to position 0 by ProseMirror's
 // full-document replacement step) and triggers a fresh re-anchor.
 export function triggerContentReplaced(ed: Editor): void {
+  resendReports = true
   ed.view.dispatch(ed.state.tr.setMeta(annotationsKey, { type: 'content-replaced' }))
 }
 
@@ -109,9 +66,10 @@ const annotationsKey = new PluginKey<AnnotationsPluginState>('folioAnnotations')
 
 // ─── Anchoring ───────────────────────────────────────────────────────────────
 
-// Build the document's rendered plain text, which the server anchors against,
-// and a map from each of its indices to the ProseMirror position. Used to
-// convert server-returned indices to PM positions for decorations.
+// Build the document's rendered plain text, which the app's anchoring (`anchor`
+// bridge op) matches against, and a map from each of its indices to the
+// ProseMirror position. Used to convert the indices it returns to PM positions
+// for decorations.
 export function buildCharPos(doc: PMNode): { text: string; charPos: number[] } {
   const charPos: number[] = []
   let text = ''
@@ -129,6 +87,25 @@ export function buildCharPos(doc: PMNode): { text: string; charPos: number[] } {
     }
   })
   return { text, charPos }
+}
+
+// The rendered text between two ProseMirror positions: the characters buildCharPos
+// has for them, so a target and its context match what the anchoring searches in
+// (`doc.textBetween` would add code blocks and soft line breaks).
+export function renderedBetween(doc: PMNode, from: number, to: number): string {
+  const { text, charPos } = buildCharPos(doc)
+  let out = ''
+  for (let i = 0; i < charPos.length; i++) {
+    if (charPos[i] >= from && charPos[i] < to) out += text[i]
+  }
+  return out
+}
+
+// The `n` characters of rendered text before `pos`, without half of a surrogate pair at the front.
+export function renderedBefore(doc: PMNode, pos: number, n = 30): string {
+  const tail = renderedBetween(doc, 0, pos).slice(-n)
+  const first = tail.charCodeAt(0)
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail
 }
 
 // Convert char indices (from, to) in the rendered plain text to ProseMirror
@@ -159,122 +136,9 @@ export function charIndexToRange(
   return { from, to }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-export function resolveAnnotation(ann: Annotation, as: string, editor: Editor): Annotation {
-  const resolved: Annotation = { ...ann, resolved: true, resolved_as: as, resolved_at: new Date().toISOString() }
-  const updated: Sidecar = {
-    ...currentSidecar,
-    annotations: currentSidecar.annotations.map(a => (a.id === ann.id ? resolved : a)),
-  }
-  currentSidecar = updated
-  putFolio(updated)
-  sidecarUpdateCb?.()
-  // Remove this annotation from the plugin's anchors map; remaining positions
-  // were already updated via tr.mapping when the doc-change transaction ran.
-  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'resolve', id: ann.id }))
-  return resolved
-}
-
-export function addCommentAnnotation(contextBefore: string, target: string, comment: string, editor: Editor): Annotation {
-  const ann: Annotation = {
-    id: `ann-${Date.now()}`,
-    kind: 'comment',
-    source: 'local',
-    author: 'me',
-    context_before: contextBefore,
-    target,
-    comment,
-    created: new Date().toISOString(),
-    resolved: false,
-  }
-  const updated: Sidecar = {
-    ...currentSidecar,
-    annotations: [...currentSidecar.annotations, ann],
-  }
-  currentSidecar = updated
-  putFolio(updated)
-  sidecarUpdateCb?.()
-  // New annotation needs to be anchored from scratch.
-  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
-  return ann
-}
-
-// Accepting edits the markdown, so the server applies it to the file and
-// broadcasts md:changed + folio:changed; the editor reloads from those events.
-// Pending preview edits are saved first so the server patches the current text.
-function acceptAnnotation(id: string): void {
-  const ann = currentSidecar.annotations.find(a => a.id === id)
-  if (ann) {
-    if (ann.kind === 'replace' || ann.kind === 'insert') flashAfterReload(ann.replacement ?? '')
-    showToast(`Accepted ${ann.kind}`)
-  }
-  void flushSave()
-    .then(() => postAccept(id))
-    .catch(e => console.error(`Accept failed: ${e}`))
-}
-
-// Reject / dismiss: sidecar-only, so the snapshot taken beforehand restores it.
-export function removeAnnotation(ann: Annotation, editor: Editor): void {
-  const snapshot = [...currentSidecar.annotations]
-  annotationKeyboardUndoStack.push({ snapshot, pmDepth: undoDepth(editor.view.state) })
-  resolveAnnotation(ann, ann.kind === 'comment' ? 'dismissed' : 'rejected', editor)
-  showToast(ann.kind === 'comment' ? 'Comment dismissed' : `Rejected ${ann.kind}`, () => {
-    const i = annotationKeyboardUndoStack.findIndex(e => e.snapshot === snapshot)
-    if (i >= 0) annotationKeyboardUndoStack.splice(i, 1)
-    restoreSnapshot(snapshot, editor)
-  })
-}
-
-function restoreSnapshot(snapshot: Annotation[], editor: Editor): void {
-  currentSidecar = { ...currentSidecar, annotations: snapshot }
-  putFolio(currentSidecar)
-  sidecarUpdateCb?.()
-  editor.view.dispatch(editor.state.tr.setMeta(annotationsKey, { type: 'sidecar-updated' }))
-}
-
-// ─── Annotation keyboard navigation ─────────────────────────────────────────
-
-function navigateAnnotation(direction: 1 | -1, view: EditorView): boolean {
-  const pending = currentSidecar.annotations.filter(a => !a.resolved)
-  if (pending.length === 0) return false
-
-  const pluginAnchors = annotationsKey.getState(view.state)?.anchors
-  const sorted: Array<{ ann: Annotation; from: number }> = []
-  for (const ann of pending) {
-    const anchor = pluginAnchors?.get(ann.id)
-    if (anchor) sorted.push({ ann, from: anchor.from })
-  }
-  sorted.sort((a, b) => a.from - b.from)
-  if (sorted.length === 0) return false
-
-  const currentIdx = sorted.findIndex(e => e.ann.id === focusedAnnotationId)
-  const nextIdx =
-    currentIdx === -1
-      ? direction === 1 ? 0 : sorted.length - 1
-      : (currentIdx + direction + sorted.length) % sorted.length
-
-  const { ann, from } = sorted[nextIdx]
-  focusedAnnotationId = ann.id
-  updateFocusedCard()
-
-  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from)).scrollIntoView())
-  view.focus()
-
-  requestAnimationFrame(() => {
-    const overlay = document.getElementById('annotation-overlay')
-    const target = overlay && !overlay.hidden
-      ? overlay
-      : currentGutterEl?.querySelector<HTMLElement>(`[data-id="${ann.id}"]`)
-    target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  })
-
-  return true
-}
-
 // ─── Inline decorations ───────────────────────────────────────────────────────
 
-export function renderMarkdownContent(markdown: string, editor: Editor): Node {
+function renderMarkdownContent(markdown: string, editor: Editor): Node {
   try {
     const mgr = editor.storage.markdown as { manager: { parse: (s: string) => JSONContent } }
     const json = mgr.manager.parse(markdown)
@@ -289,7 +153,7 @@ export function renderMarkdownContent(markdown: string, editor: Editor): Node {
   }
 }
 
-export function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
+function buildPreviewEl(replacement: string, editor: Editor): HTMLElement {
   const tempDiv = document.createElement('div')
   tempDiv.appendChild(renderMarkdownContent(replacement, editor))
 
@@ -321,6 +185,16 @@ export function buildPreviewEl(replacement: string, editor: Editor): HTMLElement
   return el
 }
 
+// A click on an inline suggestion widget focuses its card, like a click on annotated text.
+function previewWidget(ann: Annotation, editor: Editor): HTMLElement {
+  const el = buildPreviewEl(ann.replacement!, editor)
+  el.addEventListener('mousedown', e => {
+    e.stopPropagation()
+    reportFocus(ann.id)
+  })
+  return el
+}
+
 function buildDecosFromAnchors(
   anchors: Map<string, { from: number; to: number }>,
   doc: PMNode,
@@ -343,38 +217,14 @@ function buildDecosFromAnchors(
         decos.push(Decoration.inline(from, to, { class: 'ann-delete' }))
         if (ann.replacement) {
           decos.push(
-            Decoration.widget(
-              to,
-              () => {
-                const el = buildPreviewEl(ann.replacement!, editor)
-                el.addEventListener('mousedown', e => {
-                  e.stopPropagation()
-                  focusedAnnotationId = ann.id
-                  updateFocusedCard()
-                })
-                return el
-              },
-              { side: 1, key: `${ann.id}-preview` },
-            ),
+            Decoration.widget(to, () => previewWidget(ann, editor), { side: 1, key: `${ann.id}-preview` }),
           )
         }
         break
       case 'insert':
         if (ann.replacement) {
           decos.push(
-            Decoration.widget(
-              from,
-              () => {
-                const el = buildPreviewEl(ann.replacement!, editor)
-                el.addEventListener('mousedown', e => {
-                  e.stopPropagation()
-                  focusedAnnotationId = ann.id
-                  updateFocusedCard()
-                })
-                return el
-              },
-              { side: -1, key: `${ann.id}-preview` },
-            ),
+            Decoration.widget(from, () => previewWidget(ann, editor), { side: -1, key: `${ann.id}-preview` }),
           )
         }
         break
@@ -396,462 +246,52 @@ function buildDecosFromAnchors(
   return DecorationSet.create(doc, decos)
 }
 
-// ─── Gutter cards ─────────────────────────────────────────────────────────────
+// ─── Reporting to the app ────────────────────────────────────────────────────
 
-/**
- * The Comment button sits above the selection. Near the top of the view there is no room
- * for it there, and it would be cut off, so it goes below the selection instead.
- * `viewportTop` is where the selection starts, relative to the scrolling container's top.
- */
-export function placeFloater(floater: HTMLElement, viewportTop: number, selectionHeight: number): void {
-  const FLOATER_SPACE = 44
-  floater.classList.toggle('below', viewportTop < FLOATER_SPACE)
-  floater.style.setProperty('--sel-height', `${selectionHeight}px`)
+const reportFocus = (id: string | null): void => {
+  void call('focus', { id }).catch(console.error)
 }
 
-export function formatBody(ann: Annotation): string {
-  const t = (s: string, max = 60) => {
-    const flat = s.replace(/\n/g, ' ')
-    return flat.length > max ? flat.slice(0, max) + '…' : flat
-  }
-  switch (ann.kind) {
-    case 'replace':
-      return `"${t(ann.target ?? '')}" → "${t(ann.replacement ?? '')}"`
-    case 'delete':
-      return `"${t(ann.target ?? '')}"`
-    case 'insert':
-      return `"${t(ann.replacement ?? '')}"`
-    case 'highlight':
-      return `"${t(ann.target ?? '')}"`
-    case 'comment':
-      return t(ann.comment ?? '', 32)
-  }
-}
+let reportQueued = false
 
-export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-export interface HeaderActions {
-  accept: () => void
-  remove: () => void
-  edit: (card: HTMLElement, gutterEl: HTMLElement | null) => void
-}
-
-function makeMenuItem(label: string, danger: boolean, onClick: () => void): HTMLButtonElement {
-  const item = document.createElement('button')
-  item.className = 'ann-card-menu-item' + (danger ? ' ann-card-menu-danger' : '')
-  item.textContent = label
-  item.addEventListener('mousedown', e => {
-    e.preventDefault()
-    e.stopPropagation()
-    onClick()
+/** Report where the annotations and the selection are, on the next frame. */
+export function scheduleAnchorReport(): void {
+  if (reportQueued) return
+  reportQueued = true
+  requestAnimationFrame(() => {
+    reportQueued = false
+    window.dispatchEvent(new Event('folio:report'))
   })
-  return item
 }
 
-export function makeHeader(ann: Annotation, actions?: HeaderActions, gutterEl: HTMLElement | null = null): HTMLElement {
-  const header = document.createElement('div')
-  header.className = 'ann-card-header'
-  const author = document.createElement('strong')
-  author.className = 'ann-card-author'
-  author.textContent = displayName(ann.author)
-  const time = document.createElement('span')
-  time.className = 'ann-card-time'
-  time.textContent = formatTime(ann.created)
-  header.appendChild(author)
-  header.appendChild(time)
-  if (!actions) return header
-
-  const group = document.createElement('div')
-  group.className = 'ann-card-header-actions'
-
-  const accept = document.createElement('button')
-  accept.className = 'ann-card-icon-btn'
-  accept.title = ann.kind === 'comment' ? 'Resolve' : 'Accept'
-  accept.textContent = '✓'
-  accept.addEventListener('mousedown', e => {
-    e.preventDefault()
-    e.stopPropagation()
-    actions.accept()
-  })
-
-  const more = document.createElement('button')
-  more.className = 'ann-card-icon-btn'
-  more.title = 'More'
-  more.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><circle cx="2.5" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="11.5" cy="7" r="1.2"/></svg>'
-
-  const menu = document.createElement('div')
-  menu.className = 'ann-card-menu'
-  menu.hidden = true
-
-  const closeMenu = () => {
-    menu.hidden = true
-    document.removeEventListener('mousedown', closeMenu)
-  }
-  menu.appendChild(makeMenuItem('Edit comment', false, () => {
-    closeMenu()
-    actions.edit(header.closest('.ann-card') as HTMLElement, gutterEl)
-  }))
-  menu.appendChild(makeMenuItem('Delete', true, () => {
-    closeMenu()
-    actions.remove()
-  }))
-  more.addEventListener('mousedown', e => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!menu.hidden) { closeMenu(); return }
-    menu.hidden = false
-    document.addEventListener('mousedown', closeMenu)
-  })
-
-  group.appendChild(accept)
-  group.appendChild(more)
-  group.appendChild(menu)
-  header.appendChild(group)
-  return header
+// The app asks the preview for things by name; see macos/BRIDGE.md.
+const w = window as unknown as {
+  __folioSetPending: (range: { from: number; to: number } | null) => void
+  __folioSelectAnnotation: (id: string) => void
+  __folioFlush: () => Promise<unknown>
+  __folioFlashAfterReload: (text: string) => void
 }
 
-// Swaps the card's comment text for an inline textarea. `onSave` persists the new text.
-export function startEditComment(
-  card: HTMLElement,
-  ann: Annotation,
-  gutterEl: HTMLElement | null,
-  onSave: (text: string) => void,
-): void {
-  if (card.querySelector('.ann-edit-textarea')) return
-  const existing = card.querySelector<HTMLElement>(ann.kind === 'comment' ? '.ann-card-body' : '.ann-card-comment')
-
-  const wrap = document.createElement('div')
-  wrap.className = 'ann-edit'
-  const textarea = document.createElement('textarea')
-  textarea.className = 'ann-reply-textarea ann-edit-textarea'
-  textarea.value = ann.comment ?? ''
-  const resize = () => {
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
-    if (gutterEl) repositionCards(gutterEl)
-  }
-  textarea.addEventListener('input', resize)
-
-  const row = document.createElement('div')
-  row.className = 'ann-card-action-row'
-  const cancel = document.createElement('button')
-  cancel.className = 'ann-card-btn ann-card-dismiss'
-  cancel.textContent = 'Cancel'
-  const save = document.createElement('button')
-  save.className = 'ann-card-btn ann-card-reply'
-  save.textContent = 'Save'
-  row.appendChild(cancel)
-  row.appendChild(save)
-  wrap.appendChild(textarea)
-  wrap.appendChild(row)
-
-  const close = () => {
-    wrap.remove()
-    if (existing) existing.hidden = false
-    if (gutterEl) repositionCards(gutterEl)
-  }
-  cancel.addEventListener('mousedown', e => { e.preventDefault(); close() })
-  save.addEventListener('mousedown', e => {
-    e.preventDefault()
-    onSave(textarea.value.trim())
-  })
-  textarea.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { e.preventDefault(); close() }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSave(textarea.value.trim()) }
-  })
-  wrap.addEventListener('mousedown', e => e.stopPropagation())
-
-  if (existing) {
-    existing.hidden = true
-    existing.after(wrap)
-  } else {
-    card.querySelector('.ann-card-body')!.after(wrap)
-  }
-  resize()
-  textarea.focus()
+// Keeps the text being commented on highlighted while the form is open.
+w.__folioSetPending = range => {
+  pendingCommentRange = range
+  currentView?.dispatch(currentView.state.tr.setMeta(annotationsKey, { type: 'refresh' }))
 }
 
-export function setAnnotationComment(id: string, comment: string): void {
-  currentSidecar = {
-    ...currentSidecar,
-    annotations: currentSidecar.annotations.map(a => (a.id === id ? { ...a, comment } : a)),
-  }
-  putFolio(currentSidecar)
-  sidecarUpdateCb?.()
+// Puts the caret at the start of an annotation (keyboard navigation).
+w.__folioSelectAnnotation = id => {
+  const view = currentView
+  const anchor = view && annotationsKey.getState(view.state)?.anchors.get(id)
+  if (!view || !anchor) return
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor.from)))
+  view.focus()
 }
 
-const AVATAR_COLORS = ['#6366f1', '#0891b2', '#db2777', '#7c3aed']
+// Saves pending edits, so accepting patches the text as it is on screen.
+w.__folioFlush = () => flushSave()
 
-export function displayName(author: string): string {
-  return author === 'me' ? 'You' : author
-}
-
-function makeAvatar(name: string): HTMLElement {
-  const el = document.createElement('div')
-  el.className = 'ann-avatar'
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  el.textContent = name === 'You' ? 'Y' : (words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2)).toUpperCase()
-  let hash = 0
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
-  el.style.background = name === 'You' ? AVATAR_COLORS[0] : AVATAR_COLORS[1 + (hash % (AVATAR_COLORS.length - 1))]
-  return el
-}
-
-function makeEntry(name: string, header: HTMLElement, bodies: HTMLElement[]): HTMLElement {
-  const entry = document.createElement('div')
-  entry.className = 'ann-entry'
-  const main = document.createElement('div')
-  main.className = 'ann-entry-main'
-  main.appendChild(header)
-  for (const b of bodies) main.appendChild(b)
-  entry.appendChild(makeAvatar(name))
-  entry.appendChild(main)
-  return entry
-}
-
-// Annotation body + comment + replies as avatar-led entries joined by a thread line.
-export function buildThread(ann: Annotation, header: HTMLElement, editor: Editor | null): HTMLElement {
-  const thread = document.createElement('div')
-  thread.className = 'ann-thread'
-
-  const bodies: HTMLElement[] = []
-  const body = document.createElement('div')
-  body.className = 'ann-card-body'
-  if (ann.kind === 'comment') {
-    if (editor) body.appendChild(renderMarkdownContent(ann.comment ?? '', editor))
-  } else {
-    body.textContent = formatBody(ann)
-  }
-  bodies.push(body)
-  if (ann.kind !== 'comment' && ann.comment && editor) {
-    const commentEl = document.createElement('div')
-    commentEl.className = 'ann-card-comment'
-    commentEl.appendChild(renderMarkdownContent(ann.comment, editor))
-    bodies.push(commentEl)
-  }
-  thread.appendChild(makeEntry(displayName(ann.author), header, bodies))
-
-  if (editor) {
-    for (const reply of ann.replies ?? []) {
-      const replyHeader = document.createElement('div')
-      replyHeader.className = 'ann-reply-header'
-      const replyAuthor = document.createElement('strong')
-      replyAuthor.className = 'ann-reply-author'
-      replyAuthor.textContent = displayName(reply.author)
-      const replyTime = document.createElement('span')
-      replyTime.className = 'ann-reply-time'
-      replyTime.textContent = formatTime(reply.created)
-      replyHeader.appendChild(replyAuthor)
-      replyHeader.appendChild(replyTime)
-      const replyBody = document.createElement('div')
-      replyBody.className = 'ann-reply-body'
-      replyBody.appendChild(renderMarkdownContent(reply.body, editor))
-      thread.appendChild(makeEntry(displayName(reply.author), replyHeader, [replyBody]))
-    }
-  }
-  return thread
-}
-
-// Always-visible reply field: rounded input with a circular send button.
-export function makeReplyBox(): { box: HTMLElement; textarea: HTMLTextAreaElement; send: HTMLButtonElement; refresh: () => void } {
-  const box = document.createElement('div')
-  box.className = 'ann-card-actions ann-reply-box'
-  const textarea = document.createElement('textarea')
-  textarea.className = 'ann-reply-textarea'
-  textarea.placeholder = 'Reply…'
-  textarea.rows = 1
-  const send = document.createElement('button')
-  send.className = 'ann-send-btn'
-  send.title = 'Reply'
-  send.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>'
-  const refresh = () => send.classList.toggle('ready', textarea.value.trim().length > 0)
-  textarea.addEventListener('input', refresh)
-  const field = document.createElement('div')
-  field.className = 'ann-reply-field'
-  field.appendChild(textarea)
-  field.appendChild(send)
-  box.appendChild(makeAvatar(displayName('me')))
-  box.appendChild(field)
-  return { box, textarea, send, refresh }
-}
-
-function makeGutterCard(ann: Annotation, editor: Editor, gutterEl: HTMLElement | null): HTMLElement {
-  const card = document.createElement('div')
-  card.className = 'ann-card'
-  card.dataset.source = ann.source
-  card.dataset.id = ann.id
-
-  const header = makeHeader(ann, {
-    accept: () => {
-      if (ann.kind === 'comment') {
-        removeAnnotation(ann, editor)
-      } else {
-        acceptAnnotation(ann.id)
-      }
-    },
-    remove: () => removeAnnotation(ann, editor),
-    edit: (c, g) => startEditComment(c, ann, g, text => {
-      setAnnotationComment(ann.id, text)
-      editor.view.dispatch(editor.state.tr)
-    }),
-  }, gutterEl)
-  card.appendChild(buildThread(ann, header, editor))
-
-  const { box: actions, textarea, send, refresh } = makeReplyBox()
-  textarea.value = replyDrafts.get(ann.id) ?? ''
-  refresh()
-  if (textarea.value) {
-    // restore height for non-empty drafts after rebuild
-    requestAnimationFrame(() => {
-      textarea.style.height = 'auto'
-      textarea.style.height = `${textarea.scrollHeight}px`
-      if (gutterEl) repositionCards(gutterEl)
-    })
-  }
-  textarea.addEventListener('input', () => {
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
-    replyDrafts.set(ann.id, textarea.value)
-    if (gutterEl) repositionCards(gutterEl)
-  })
-
-  const submitReply = () => {
-    const body = textarea.value.trim()
-    if (!body) return
-    const reply: ThreadReply = {
-      id: `reply-${Date.now()}`,
-      author: 'me',
-      source: 'local',
-      body,
-      created: new Date().toISOString(),
-    }
-    const updated: Sidecar = {
-      ...currentSidecar,
-      annotations: currentSidecar.annotations.map(a =>
-        a.id === ann.id ? { ...a, replies: [...(a.replies ?? []), reply] } : a,
-      ),
-    }
-    replyDrafts.delete(ann.id)
-    currentSidecar = updated
-    putFolio(updated)
-    sidecarUpdateCb?.()
-    editor.view.dispatch(editor.state.tr)
-  }
-
-  textarea.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      submitReply()
-    }
-  })
-
-  send.addEventListener('mousedown', e => {
-    e.preventDefault()
-    submitReply()
-  })
-
-  card.appendChild(actions)
-
-  card.addEventListener('mousedown', e => {
-    if ((e.target as HTMLElement).closest('.ann-card-actions')) return
-    e.preventDefault()
-    focusedAnnotationId = ann.id
-    shouldFocusReply = true
-    updateFocusedCard()
-    textarea.focus()
-  })
-
-  return card
-}
-
-export function repositionCards(gutterEl: HTMLElement, floorHeight = 0): void {
-  const items = Array.from(gutterEl.querySelectorAll<HTMLElement>('.ann-card, .cf-gutter-form'))
-  items.sort((a, b) => parseFloat(a.dataset.anchorFrom ?? '0') - parseFloat(b.dataset.anchorFrom ?? '0'))
-
-  const GAP = 6
-  const BOTTOM_PAD = 48
-  let minTop = 0
-  for (const item of items) {
-    if (item.hidden) continue
-    const anchor = parseFloat(item.dataset.anchorTop ?? '0')
-    const top = Math.max(anchor - 4, minTop)
-    item.style.top = `${top}px`
-    minTop = top + item.offsetHeight + GAP
-  }
-
-  const needed = Math.max(minTop > 0 ? minTop + BOTTOM_PAD : 0, floorHeight)
-  const current = parseFloat(gutterEl.style.minHeight) || 0
-  if (needed > current) gutterEl.style.minHeight = `${needed}px`
-}
-
-function buildGutterCards(pmView: EditorView, gutterEl: HTMLElement, editor: Editor): void {
-  for (const el of gutterEl.querySelectorAll('.ann-card')) el.remove()
-
-  const pending = currentSidecar.annotations.filter(a => !a.resolved)
-  if (pending.length === 0) {
-    gutterEl.style.minHeight = `${pmView.dom.scrollHeight}px`
-    return
-  }
-
-  const wrapper = gutterEl.parentElement
-  if (!wrapper) return
-
-  const wrapperRect = wrapper.getBoundingClientRect()
-  const pluginAnchors = annotationsKey.getState(pmView.state)?.anchors
-
-  const entries: Array<{ ann: Annotation; top: number; from: number }> = []
-  for (const ann of pending) {
-    const anchor = pluginAnchors?.get(ann.id)
-    if (!anchor) continue
-    let top = 0
-    try {
-      const coords = pmView.coordsAtPos(anchor.from)
-      top = coords.top - wrapperRect.top + wrapper.scrollTop
-    } catch {
-      // View not yet laid out — card appears at top and repositions on next update
-    }
-    entries.push({ ann, top, from: anchor.from })
-  }
-
-  entries.sort((a, b) => a.from - b.from)
-
-  for (const { ann, top, from } of entries) {
-    const card = makeGutterCard(ann, editor, gutterEl)
-    card.dataset.anchorTop = String(top)
-    card.dataset.anchorFrom = String(from)
-    card.style.top = `${top}px`
-    gutterEl.appendChild(card)
-  }
-
-  const anchoredIds = new Set(entries.map(e => e.ann.id))
-  for (const ann of pending) {
-    if (anchoredIds.has(ann.id)) continue
-    const card = makeGutterCard(ann, editor, gutterEl)
-    card.classList.add('ann-card-unanchored')
-    // Sort after every anchored card and park at the end of the document.
-    card.dataset.anchorTop = String(pmView.dom.scrollHeight)
-    card.dataset.anchorFrom = String(Number.MAX_SAFE_INTEGER)
-    card.style.top = `${pmView.dom.scrollHeight}px`
-    const badge = document.createElement('span')
-    badge.className = 'ann-card-lost-badge'
-    badge.textContent = 'Not found in document'
-    card.insertBefore(badge, card.firstChild)
-    gutterEl.appendChild(card)
-  }
-
-  repositionCards(gutterEl, pmView.dom.scrollHeight)
-  updateFocusedCard()
-
-  if (shouldFocusReply && focusedAnnotationId) {
-    shouldFocusReply = false
-    gutterEl
-      .querySelector<HTMLElement>(`[data-id="${focusedAnnotationId}"]`)
-      ?.querySelector<HTMLTextAreaElement>('.ann-reply-textarea')
-      ?.focus()
-  }
-}
+// The text changes only once the reloaded document arrives, so the flash waits for it.
+w.__folioFlashAfterReload = text => flashAfterReload(text)
 
 // ─── Extension ───────────────────────────────────────────────────────────────
 
@@ -885,13 +325,13 @@ export function createAnnotationsExtension(): Extension {
 
               if (meta?.type === 'sidecar-updated') {
                 // External sidecar change: signal the view to fetch fresh anchors.
-                // Keep existing anchors visible until the server response arrives.
+                // Keep existing anchors visible until the anchoring answer arrives.
                 return { ...value, needsReanchor: true, anchorVersion: value.anchorVersion + 1 }
               }
 
               if (meta?.type === 'content-replaced') {
-                // The entire document was replaced (e.g. switching back from source
-                // view). Any mapped positions are invalid — clear them immediately so
+                // The entire document was replaced (e.g. coming back from the source).
+                // Any mapped positions are invalid — clear them immediately so
                 // decorations don't render at position 0, then re-anchor from scratch.
                 return {
                   anchors: new Map(),
@@ -909,15 +349,6 @@ export function createAnnotationsExtension(): Extension {
                   needsReanchor: false,
                   anchorVersion: value.anchorVersion,
                 }
-              }
-
-              if (meta?.type === 'resolve' && meta.id) {
-                // One annotation was accepted/rejected: remove it from the map.
-                // Positions of remaining annotations were already updated by the
-                // doc-change transaction that ran just before this one.
-                const anchors = new Map(value.anchors)
-                anchors.delete(meta.id)
-                return { ...value, anchors, decoSet: buildDecosFromAnchors(anchors, tr.doc, editor) }
               }
 
               if (meta?.type === 'refresh') {
@@ -946,55 +377,24 @@ export function createAnnotationsExtension(): Extension {
             decorations(state) {
               return annotationsKey.getState(state)!.decoSet
             },
-            handleKeyDown(view, event) {
-              if (event.key === 'z' && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-                const top = annotationKeyboardUndoStack[annotationKeyboardUndoStack.length - 1]
-                if (top && top.pmDepth === undoDepth(view.state)) {
-                  annotationKeyboardUndoStack.pop()
-                  restoreSnapshot(top.snapshot, editor)
-                  return true
-                }
-              }
-              if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
-                if (event.key === 'j') return navigateAnnotation(1, view)
-                if (event.key === 'k') return navigateAnnotation(-1, view)
-                if (event.key === 'Enter' && focusedAnnotationId) {
-                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                  if (ann) {
-                    acceptAnnotation(ann.id)
-                    return true
-                  }
-                }
-                if (event.key === 'Backspace' && focusedAnnotationId) {
-                  const ann = currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                  if (ann) {
-                    removeAnnotation(ann, editor)
-                    return true
-                  }
-                }
-              }
-              return false
-            },
             handleClick(view, pos) {
-              const pending = currentSidecar.annotations.filter(a => !a.resolved)
               const pluginAnchors = annotationsKey.getState(view.state)?.anchors
               let found: string | null = null
-              for (const ann of pending) {
+              for (const ann of currentSidecar.annotations) {
+                if (ann.resolved) continue
                 const anchor = pluginAnchors?.get(ann.id)
                 if (anchor && pos >= anchor.from && pos <= anchor.to) {
                   found = ann.id
                   break
                 }
               }
-              if (focusedAnnotationId !== found) {
-                focusedAnnotationId = found
-                updateFocusedCard()
-              }
+              reportFocus(found)
               return false
             },
           },
 
           view(pmView) {
+            currentView = pmView
             let pendingRequest = false
             let pendingVersion = -1
 
@@ -1033,271 +433,83 @@ export function createAnnotationsExtension(): Extension {
                 .catch(() => { pendingRequest = false })
             }
 
-            const gutterEl = document.createElement('div')
-            gutterEl.id = 'annotation-gutter'
-            currentGutterEl = gutterEl
-
-            const scrollContainer = pmView.dom.parentElement?.parentElement
-            if (scrollContainer) scrollContainer.appendChild(gutterEl)
-
-            // ── Annotation overlay (clicked annotation, comment pane closed) ──
-            const appEl = document.getElementById('app')
-            const overlayEl = document.createElement('div')
-            overlayEl.id = 'annotation-overlay'
-            overlayEl.hidden = true
-            if (scrollContainer) scrollContainer.appendChild(overlayEl)
-            let overlaySig = ''
-
-            function hideOverlay(): void {
-              overlayEl.hidden = true
-              overlayEl.replaceChildren()
-              overlaySig = ''
-            }
-
-            focusChangeCallback = () => {
-              const ann = focusedAnnotationId
-                ? currentSidecar.annotations.find(a => a.id === focusedAnnotationId && !a.resolved)
-                : null
-              const anchor = ann ? annotationsKey.getState(pmView.state)?.anchors.get(ann.id) : null
-              if (!ann || !anchor || !scrollContainer || appEl?.classList.contains('gutter-open')) {
-                hideOverlay()
-                return
+            // Where each pending annotation starts, in page coordinates (the page does not
+            // scroll). Only once anchoring has answered; until then the app keeps what it has.
+            let lastAnchors = ''
+            function reportAnchors(view: EditorView) {
+              const state = annotationsKey.getState(view.state)
+              if (!state || state.needsReanchor) return
+              const anchors: Array<{ id: string; from: number; top: number; bottom: number; left: number }> = []
+              for (const ann of currentSidecar.annotations) {
+                const anchor = ann.resolved ? undefined : state.anchors.get(ann.id)
+                if (!anchor) continue
+                try {
+                  const c = view.coordsAtPos(anchor.from)
+                  anchors.push({ id: ann.id, from: anchor.from, top: c.top, bottom: c.bottom, left: c.left })
+                } catch {
+                  // Not laid out yet: the next report has it.
+                }
               }
-              // Rebuild only when the annotation changed, so a focused reply box survives.
-              const sig = JSON.stringify(ann)
-              if (sig !== overlaySig) {
-                const hadFocus = overlayEl.contains(document.activeElement)
-                const card = makeGutterCard(ann, editor, null)
-                card.classList.add('ann-overlay', 'ann-card-focused')
-                overlayEl.replaceChildren(card)
-                overlaySig = sig
-                if (hadFocus) card.querySelector<HTMLTextAreaElement>('.ann-reply-textarea')?.focus()
+              const json = JSON.stringify(anchors)
+              if (json === lastAnchors) return
+              lastAnchors = json
+              void call('anchors', { anchors }).catch(console.error)
+            }
+
+            // The selected text, for the app's Comment button: where it is, and the words an
+            // annotation is anchored by (concatenated without a separator, like the anchoring).
+            let lastSelection = ''
+            function reportSelection(view: EditorView) {
+              const { selection, doc } = view.state
+              let selected: Record<string, unknown> | null = null
+              if (!selection.empty) {
+                try {
+                  const start = view.coordsAtPos(selection.from)
+                  const end = view.coordsAtPos(selection.to)
+                  selected = {
+                    from: selection.from,
+                    to: selection.to,
+                    top: start.top,
+                    bottom: start.bottom,
+                    endBottom: end.bottom,
+                    left: start.left,
+                    right: end.right,
+                    target: renderedBetween(doc, selection.from, selection.to),
+                    contextBefore: renderedBefore(doc, selection.from),
+                  }
+                } catch {
+                  selected = null
+                }
               }
-              try {
-                const containerRect = scrollContainer.getBoundingClientRect()
-                const coords = pmView.coordsAtPos(anchor.from)
-                overlayEl.hidden = false
-                const height = overlayEl.offsetHeight
-                // Flip above the anchor when it won't fit below but will fit above.
-                const flip = containerRect.bottom - coords.bottom < height + 12 && coords.top - containerRect.top > height + 12
-                const top = flip
-                  ? coords.top - containerRect.top + scrollContainer.scrollTop - height - 6
-                  : coords.bottom - containerRect.top + scrollContainer.scrollTop + 6
-                const maxLeft = scrollContainer.clientWidth - overlayEl.offsetWidth - 8
-                const left = Math.max(8, Math.min(coords.left - containerRect.left, maxLeft))
-                overlayEl.style.top = `${top}px`
-                overlayEl.style.left = `${left}px`
-              } catch {
-                hideOverlay()
+              const json = JSON.stringify(selected)
+              if (json === lastSelection) return
+              lastSelection = json
+              void call('selection', { selection: selected }).catch(console.error)
+            }
+
+            const report = () => {
+              if (resendReports) {
+                lastAnchors = ''
+                lastSelection = ''
+                resendReports = false
               }
+              reportAnchors(pmView)
+              reportSelection(pmView)
             }
+            window.addEventListener('folio:report', report)
 
-            const dismissOverlay = () => {
-              focusedAnnotationId = null
-              updateFocusedCard()
-            }
-            const onOverlayKeydown = (e: KeyboardEvent) => {
-              if (e.key !== 'Escape' || overlayEl.hidden) return
-              dismissOverlay()
-              pmView.focus()
-            }
-            const onOverlayMousedown = (e: MouseEvent) => {
-              if (overlayEl.hidden) return
-              const target = e.target as Node
-              if (overlayEl.contains(target) || pmView.dom.contains(target)) return
-              dismissOverlay()
-            }
-            const onGutterToggled = () => focusChangeCallback?.()
-            document.addEventListener('keydown', onOverlayKeydown)
-            document.addEventListener('mousedown', onOverlayMousedown)
-            window.addEventListener('folio:gutter-toggled', onGutterToggled)
-            // ───────────────────────────────────────────────────────────────
-
-            // ── Floating comment adder ──────────────────────────────────────
-            const floater = document.createElement('div')
-            floater.id = 'comment-floater'
-            floater.hidden = true
-            if (scrollContainer) scrollContainer.appendChild(floater)
-
-            const cfBtn = document.createElement('button')
-            cfBtn.className = 'af-btn'
-            cfBtn.textContent = 'Comment'
-            floater.appendChild(cfBtn)
-
-            const cfGutterForm = document.createElement('div')
-            cfGutterForm.className = 'cf-gutter-form'
-            cfGutterForm.hidden = true
-            gutterEl.appendChild(cfGutterForm)
-
-            const cfTitle = document.createElement('div')
-            cfTitle.className = 'cf-title'
-            cfTitle.textContent = 'New comment'
-            cfGutterForm.appendChild(cfTitle)
-
-            const { box: cfReplyBox, textarea: cfTextarea, send: cfSubmit, refresh: cfRefresh } = makeReplyBox()
-            cfTextarea.placeholder = 'Add a comment…'
-            cfSubmit.title = 'Add comment'
-            cfTextarea.addEventListener('input', () => {
-              cfTextarea.style.height = 'auto'
-              cfTextarea.style.height = `${cfTextarea.scrollHeight}px`
-              repositionCards(gutterEl)
-            })
-            cfGutterForm.appendChild(cfReplyBox)
-
-            // Comment form shown next to the text when the comment pane is closed.
-            const formOverlay = document.createElement('div')
-            formOverlay.id = 'comment-form-overlay'
-            formOverlay.hidden = true
-            if (scrollContainer) scrollContainer.appendChild(formOverlay)
-
-            let savedSelection: { from: number; to: number } | null = null
-
-            function hideFloater(): void {
-              floater.hidden = true
-              cfGutterForm.hidden = true
-              formOverlay.hidden = true
-              cfGutterForm.classList.remove('ann-overlay')
-              if (cfGutterForm.parentElement !== gutterEl) gutterEl.appendChild(cfGutterForm)
-              cfTextarea.value = ''
-              cfTextarea.style.height = ''
-              cfRefresh()
-              savedSelection = null
-              pendingCommentRange = null
-              const { from } = pmView.state.selection
-              pmView.dispatch(
-                pmView.state.tr
-                  .setSelection(TextSelection.create(pmView.state.doc, from))
-                  .setMeta(annotationsKey, { type: 'refresh' }),
-              )
-              repositionCards(gutterEl)
-            }
-
-            function positionFormOverlay(): void {
-              if (!scrollContainer || !savedSelection || formOverlay.hidden) return
-              try {
-                const containerRect = scrollContainer.getBoundingClientRect()
-                const start = pmView.coordsAtPos(savedSelection.from)
-                const end = pmView.coordsAtPos(savedSelection.to)
-                const height = formOverlay.offsetHeight
-                // Flip above the selection when it won't fit below but will fit above.
-                const flip = containerRect.bottom - end.bottom < height + 12 && start.top - containerRect.top > height + 12
-                const top = flip
-                  ? start.top - containerRect.top + scrollContainer.scrollTop - height - 6
-                  : end.bottom - containerRect.top + scrollContainer.scrollTop + 6
-                const maxLeft = scrollContainer.clientWidth - formOverlay.offsetWidth - 8
-                const left = Math.max(8, Math.min(start.left - containerRect.left, maxLeft))
-                formOverlay.style.top = `${top}px`
-                formOverlay.style.left = `${left}px`
-              } catch {
-                hideFloater()
-              }
-            }
-            cfTextarea.addEventListener('input', positionFormOverlay)
-
-            const onFormOverlayKeydown = (e: KeyboardEvent) => {
-              if (e.key !== 'Escape' || cfGutterForm.hidden) return
-              hideFloater()
-              pmView.focus()
-            }
-            const onFormOverlayMousedown = (e: MouseEvent) => {
-              if (cfGutterForm.hidden) return
-              const target = e.target as Node
-              if (cfGutterForm.contains(target) || floater.contains(target)) return
-              hideFloater()
-            }
-            document.addEventListener('keydown', onFormOverlayKeydown)
-            document.addEventListener('mousedown', onFormOverlayMousedown)
-
-            cfBtn.addEventListener('mousedown', e => {
-              e.preventDefault()
-              const anchorTop = parseFloat(floater.style.top ?? '0')
-              cfGutterForm.dataset.anchorTop = String(anchorTop)
-              cfGutterForm.dataset.anchorFrom = String(savedSelection?.from ?? 0)
-              cfGutterForm.style.top = `${anchorTop}px`
-              cfGutterForm.hidden = false
-              floater.hidden = true
-              pendingCommentRange = savedSelection
-              if (scrollContainer && !appEl?.classList.contains('gutter-open')) {
-                cfGutterForm.classList.add('ann-overlay')
-                formOverlay.appendChild(cfGutterForm)
-                formOverlay.hidden = false
-                positionFormOverlay()
-              }
-              pmView.dispatch(pmView.state.tr.setMeta(annotationsKey, { type: 'refresh' }))
-              repositionCards(gutterEl)
-              cfTextarea.focus()
-            })
-
-            cfTextarea.addEventListener('keydown', e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                cfSubmit.dispatchEvent(new MouseEvent('mousedown'))
-              }
-            })
-
-            cfSubmit.addEventListener('mousedown', e => {
-              e.preventDefault()
-              const comment = cfTextarea.value.trim()
-              if (!comment || !savedSelection) { hideFloater(); return }
-              const { from, to } = savedSelection
-              const doc = pmView.state.doc
-              const target = doc.textBetween(from, to, '')
-              const contextBefore = doc.textBetween(0, from, '').slice(-30)
-              addCommentAnnotation(contextBefore, target, comment, editor)
-              hideFloater()
-            })
-            // ───────────────────────────────────────────────────────────────
-
-            const onScroll = () => buildGutterCards(pmView, gutterEl, editor)
-            scrollContainer?.addEventListener('scroll', onScroll)
-
-            rebuildFn = () => buildGutterCards(pmView, gutterEl, editor)
-            requestAnimationFrame(() => rebuildFn && requestAnimationFrame(rebuildFn))
-
-            // Trigger the initial fetch — update() is not called on first mount.
+            // Anchoring has to be asked for on mount: update() is not called on first mount.
             tryFetchAnchors(pmView)
+            scheduleAnchorReport()
 
             return {
               update(view) {
                 tryFetchAnchors(view)
-
-                buildGutterCards(view, gutterEl, editor)
-                focusChangeCallback?.()
-
-                const { selection } = view.state
-                if (!cfGutterForm.hidden) return // keep position stable while form is active
-                if (selection.empty) { floater.hidden = true; return }
-
-                try {
-                  const containerRect = scrollContainer!.getBoundingClientRect()
-                  const coordsFrom = view.coordsAtPos(selection.from)
-                  const coordsTo = view.coordsAtPos(selection.to)
-                  const midX = (coordsFrom.left + coordsTo.right) / 2
-                  const top = coordsFrom.top - containerRect.top + scrollContainer!.scrollTop
-                  const left = Math.max(80, Math.min(midX - containerRect.left, scrollContainer!.clientWidth - 80))
-                  floater.style.top = `${top}px`
-                  floater.style.left = `${left}px`
-                  placeFloater(floater, coordsFrom.top - containerRect.top, coordsFrom.bottom - coordsFrom.top)
-                  floater.hidden = false
-                  savedSelection = { from: selection.from, to: selection.to }
-                } catch {
-                  floater.hidden = true
-                }
+                scheduleAnchorReport()
               },
               destroy() {
-                scrollContainer?.removeEventListener('scroll', onScroll)
-                gutterEl.remove()
-                floater.remove()
-                overlayEl.remove()
-                formOverlay.remove()
-                document.removeEventListener('keydown', onFormOverlayKeydown)
-                document.removeEventListener('mousedown', onFormOverlayMousedown)
-                document.removeEventListener('keydown', onOverlayKeydown)
-                document.removeEventListener('mousedown', onOverlayMousedown)
-                window.removeEventListener('folio:gutter-toggled', onGutterToggled)
-                focusChangeCallback = null
-                currentGutterEl = null
-                rebuildFn = null
+                window.removeEventListener('folio:report', report)
+                if (currentView === pmView) currentView = null
                 pendingCommentRange = null
               },
             }

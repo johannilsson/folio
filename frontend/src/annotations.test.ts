@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildCharPos, charIndexToRange } from './annotations'
+import { buildCharPos, charIndexToRange, renderedBefore, renderedBetween } from './annotations'
 
 // Minimal ProseMirror-compatible document mock. buildCharPos only calls
 // doc.descendants and reads node.type.name / node.isText / node.text — no DOM needed.
@@ -57,6 +57,52 @@ describe('buildCharPos', () => {
     const { text, charPos } = buildCharPos(doc as any)
     expect(text).toBe('abcd')
     expect(charPos).toEqual([1, 2, 4, 5])
+  })
+})
+
+// A paragraph, a code block, a paragraph: like descendants, a callback that returns false
+// skips the node's children.
+function withCodeBlock(before: string, code: string, after: string) {
+  const codePos = before.length + 2            // the code block's own position
+  const afterPos = codePos + code.length + 2 + 1
+  return {
+    descendants(cb: (node: { type: { name: string }; isText: boolean; text?: string }, pos: number) => boolean | void) {
+      cb({ type: { name: 'text' }, isText: true, text: before }, 1)
+      if (cb({ type: { name: 'codeBlock' }, isText: false }, codePos) !== false) {
+        cb({ type: { name: 'text' }, isText: true, text: code }, codePos + 1)
+      }
+      cb({ type: { name: 'text' }, isText: true, text: after }, afterPos)
+    },
+  }
+}
+
+describe('renderedBetween / renderedBefore', () => {
+  it('leaves out a soft line break, so a target matches the rendered text', () => {
+    const doc = paragraphs('ab\ncd')
+    expect(renderedBetween(doc as any, 1, 6)).toBe('abcd')
+  })
+
+  it('leaves out code blocks, so the context after one still matches', () => {
+    const doc = withCodeBlock('Intro text', 'let a = 1', 'After the code')
+    const { text } = buildCharPos(doc as any)
+    expect(text).toBe('Intro textAfter the code')
+    // Before the "t" of "the" in "After the code": the context must not contain the code.
+    const afterStart = ('Intro text'.length + 2) + 'let a = 1'.length + 2 + 1
+    expect(renderedBefore(doc as any, afterStart + 'After '.length)).toBe('Intro textAfter ')
+  })
+
+  it('takes only the last 30 characters', () => {
+    const doc = paragraphs('x'.repeat(50) + 'target')
+    expect(renderedBefore(doc as any, 1 + 50)).toBe('x'.repeat(30))
+  })
+
+  it('does not start in the middle of a surrogate pair', () => {
+    // 29 letters, then an emoji (two UTF-16 units), then the cursor: the 30-unit tail would
+    // start with the emoji's low half.
+    const doc = paragraphs('a'.repeat(29) + '🎉' + 'end')
+    const tail = renderedBefore(doc as any, 1 + 29 + 2 + 1)
+    expect(tail.charCodeAt(0)).toBeLessThan(0xdc00)
+    expect(tail.endsWith('🎉e')).toBe(true)
   })
 })
 

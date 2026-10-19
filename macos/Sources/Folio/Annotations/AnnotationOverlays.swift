@@ -1,0 +1,159 @@
+import AppKit
+
+/// The comments pane: a column of cards beside the text, each at the height of what it is
+/// about. A card that would overlap the one above is pushed down.
+final class AnnotationGutterView: NSView {
+    override var isFlipped: Bool { true }
+
+    /// Something to stack: a card, or the form for a new comment.
+    struct Item {
+        var view: NSView
+        /// Where its text is, in page coordinates.
+        var anchorTop: CGFloat
+        /// Its place in the document, which orders the pane.
+        var order: Int
+    }
+
+    /// Puts `items` in the pane, in document order, and returns how far down they reach.
+    /// Each has been laid out at `AnnotationStyle.cardWidth`.
+    @discardableResult
+    func stack(_ items: [Item]) -> CGFloat {
+        let gap: CGFloat = 6
+        let keep = Set(items.map { ObjectIdentifier($0.view) })
+        for view in subviews where !keep.contains(ObjectIdentifier(view)) { view.removeFromSuperview() }
+
+        var minTop: CGFloat = 0
+        for item in items.sorted(by: { $0.order < $1.order }) {
+            if item.view.superview !== self { addSubview(item.view) }
+            let top = max(item.anchorTop - 4, minTop)
+            item.view.frame.origin = NSPoint(x: 0, y: top)
+            minTop = top + item.view.frame.height + gap
+        }
+        return minTop
+    }
+
+    /// Only the cards take the mouse: the empty column beside them belongs to nobody.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
+/// A floating pill: the Comment button over a selection.
+final class CommentAdderView: NSView {
+    var onClick: (() -> Void)?
+    private let button = NSButton(title: "Comment", target: nil, action: nil)
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 98, height: 32))
+        wantsLayer = true
+        shadow = NSShadow()
+        layer?.shadowOpacity = 0.25
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.masksToBounds = false
+        button.isBordered = false
+        button.font = .systemFont(ofSize: 13, weight: .semibold)
+        button.target = self
+        button.action = #selector(clicked)
+        button.setAccessibilityIdentifier("comment")
+        button.frame = bounds
+        addSubview(button)
+        setAccessibilityIdentifier("comment-adder")
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @objc private func clicked() { onClick?() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        AnnotationStyle.floatFill.setFill()
+        path.fill()
+    }
+
+    /// The button does not take focus: the selection in the page has to stay selected.
+    override var acceptsFirstResponder: Bool { false }
+}
+
+/// A short message with an optional Undo, shown for a few seconds after accepting or removing an
+/// annotation, since the card and its highlight disappear at once.
+final class ToastView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    private let undo = NSButton(title: "Undo", target: nil, action: nil)
+    private var onUndo: (() -> Void)?
+    private var timer: Timer?
+
+    var message: String { label.stringValue }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.shadowOpacity = 0.2
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.masksToBounds = false
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .labelColor
+        undo.isBordered = false
+        undo.font = .systemFont(ofSize: 13, weight: .semibold)
+        undo.contentTintColor = .controlAccentColor
+        undo.target = self
+        undo.action = #selector(undoClicked)
+        undo.setAccessibilityIdentifier("toast-undo")
+        addSubview(label)
+        addSubview(undo)
+        setAccessibilityIdentifier("toast")
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    @objc private func undoClicked() {
+        let action = onUndo
+        hide()
+        action?()
+    }
+
+    /// Shows the message, centred at `centerX` and `bottom` up from the bottom of `host`.
+    func show(_ text: String, undo action: (() -> Void)?, in host: NSView, centerX: CGFloat, bottom: CGFloat) {
+        onUndo = action
+        label.stringValue = text
+        label.sizeToFit()
+        undo.isHidden = action == nil
+        undo.sizeToFit()
+        let padding: CGFloat = 16
+        var width = label.frame.width + 2 * padding
+        if action != nil { width += undo.frame.width + 12 }
+        let height: CGFloat = 36
+        frame = NSRect(x: centerX - width / 2, y: bottom, width: width, height: height)
+        label.frame.origin = NSPoint(x: padding, y: (height - label.frame.height) / 2)
+        undo.frame.origin = NSPoint(x: label.frame.maxX + 12, y: (height - undo.frame.height) / 2)
+        if superview !== host { host.addSubview(self) }
+        isHidden = false
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in self?.hide() }
+    }
+
+    func hide() {
+        timer?.invalidate()
+        timer = nil
+        isHidden = true
+        onUndo = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
+        AnnotationStyle.floatFill.setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+}

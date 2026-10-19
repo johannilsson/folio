@@ -1,9 +1,9 @@
 import Foundation
 
 /// One markdown file and its `.folio` sidecar: the file IO behind the bridge, and the
-/// change detection that replaces watcher.rs.
+/// change detection.
 final class Document {
-    /// The id a window with a single file uses, like `folio serve` on one file.
+    /// The id a window with a single file uses.
     static let singleID = "main"
     static let emptySidecar = #"{"version":1,"annotations":[]}"#
 
@@ -57,10 +57,23 @@ final class Document {
         fileStamp = Self.stamp(file)
     }
 
+    /// Atomic (temp file, then rename), like `Sidecar::save`, so nobody reads a half-written sidecar.
     func writeSidecar(_ body: String) throws {
         try FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(body.utf8).write(to: sidecar)
+        try Data(body.utf8).write(to: sidecar, options: .atomic)
         sidecarStamp = Self.stamp(sidecar)
+    }
+
+    /// Applies one annotation to the markdown and marks it resolved, as `folio accept` does:
+    /// the patched file and the sidecar are written, and the page is told, in that order.
+    func accept(id: String) throws {
+        let result = try Rust.accept(doc: readFile(), sidecarJSON: readSidecar(), id: id)
+        if let patched = result.doc {
+            try writeFile(patched)
+            onEvent?("md:changed")
+        }
+        try writeSidecar(result.sidecar)
+        onEvent?("folio:changed")
     }
 
     /// Unresolved annotations, for the file menu badge.
@@ -75,7 +88,7 @@ final class Document {
 
     /// Polls rather than using FSEvents or a vnode source: those follow an inode and go
     /// quiet after an atomic save (write temp, rename), which is how agents and most
-    /// editors write. Same reasoning and interval as watcher.rs.
+    /// editors write.
     func startWatching() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in self?.poll() }
     }

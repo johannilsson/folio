@@ -5,14 +5,22 @@ import WebKit
 /// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
 class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDelegate, NSToolbarDelegate, NSSearchFieldDelegate {
     let webView: WKWebView
+    /// Holds the web view, which is as tall as its page; this is what scrolls.
+    let scrollHost: EditorScrollView
     let bridge: Bridge
     let workspace: Workspace
 
-    /// Mirrors of the page's toggles (see the `uiState` op).
-    private(set) var sourceOn = false
+    /// Where each file of the window was scrolled to when it was left (see `EditorScrollView.scrollFraction`).
+    private var scrollFractions: [String: CGFloat] = [:]
+
+    /// What the window shows of the document, and whether the comments pane is open. Both are the
+    /// app's own state: the toolbar and the View menu change them, and the page is not asked.
+    private(set) var mode: EditorMode = .preview
     private(set) var commentsOn = false
+    var sourceOn: Bool { mode == .source }
+    private var switchingMode = false
     /// Unresolved annotations in the file on screen; the badge on the comments icon.
-    private(set) var pendingCount = 0
+    var pendingCount: Int { currentStore.pending.count }
 
     private static let sourceID = NSToolbarItem.Identifier("source")
     private static let commentsID = NSToolbarItem.Identifier("comments")
@@ -26,6 +34,25 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
 
     /// The only file of a single-file window (the first of a set).
     var files: Document { workspace.entries[0].document }
+
+    /// The file on screen: the only one, or the one chosen in a set's sidebar.
+    var currentDocument: Document { files }
+
+    private var stores: [String: AnnotationStore] = [:]
+
+    /// The annotations of `document`; one store per file, so a set keeps each file's history.
+    func store(for document: Document) -> AnnotationStore {
+        if let store = stores[document.id] { return store }
+        let store = AnnotationStore(document: document)
+        stores[document.id] = store
+        return store
+    }
+
+    /// The annotations of the file on screen.
+    var currentStore: AnnotationStore { store(for: currentDocument) }
+
+    /// The annotation UI of this window: the comments pane, the open card, the comment form.
+    private(set) var annotations: AnnotationController!
 
     /// Toolbar items before the toggles, which sit at the trailing edge.
     var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
@@ -49,8 +76,9 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = ForwardingWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
+        scrollHost = EditorScrollView(webView: webView, source: SourceEditorView(frame: .zero))
 
         // The page's own background, so resizing and loading never flash white.
         let background = NSColor(name: nil) { appearance in
@@ -68,7 +96,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             backing: .buffered,
             defer: false
         )
-        if !fullHeightSidebar { window.contentView = webView }
+        if !fullHeightSidebar { window.contentView = scrollHost }
         window.backgroundColor = background
         window.minSize = NSSize(width: 480, height: 320)
         window.toolbarStyle = .unified
@@ -95,12 +123,17 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             item.isBordered = true
         }
         syncButtons()
-        bridge.onUIState = { [weak self] source, comments, pending in
-            self?.sourceOn = source
-            self?.commentsOn = comments
-            self?.pendingCount = pending
-            self?.syncButtons()
-        }
+        bridge.onLayout = { [weak self] height in self?.scrollHost.setContentHeight(height) }
+        bridge.onReveal = { [weak self] top, bottom in self?.scrollHost.reveal(top: top, bottom: bottom) }
+        scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
+
+        annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore,
+                                           preview: PreviewSurface(webView: webView, bridge: bridge), source: scrollHost.source)
+        annotations.onPendingChange = { [weak self] in self?.syncButtons() }
+        let keys: (NSEvent) -> Bool = { [weak self] event in self?.annotations.handleKey(event) ?? false }
+        (webView as? ForwardingWebView)?.keyHandler = keys
+        scrollHost.source.textView.keyHandler = keys
+        syncButtons()
 
         // Stand-in for the WebSocket: file changes reach the page as events.
         workspace.onEvent = { [weak self] type, id in self?.workspaceEvent(type, id) }
@@ -118,10 +151,27 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         window?.toolbar = toolbar
     }
 
+    /// The page sizes a short document to fill the window (see `__folioViewport` in layout.ts).
+    private func pushViewportHeight(_ height: CGFloat) {
+        webView.evaluateJavaScript("window.__folioViewport?.(\(Int(height)))")
+    }
+
+    /// Remember where `id` is scrolled to before another file replaces it.
+    func rememberScroll(of id: String) {
+        scrollFractions[id] = scrollHost.scrollFraction
+    }
+
+    /// Scroll to where `id` was left, or its top for a file not seen before.
+    func restoreScroll(of id: String) {
+        scrollHost.restoreScroll(scrollFractions[id] ?? 0)
+    }
+
     /// A file changed: tell the page. Subclasses also update what they show.
     func workspaceEvent(_ type: String, _ id: String) {
-        let quoted = id.replacingOccurrences(of: "'", with: "\\'")
-        webView.evaluateJavaScript("window.__folioEmit?.('\(type)', '\(quoted)')")
+        if type == "folio:changed", let document = workspace.document(id: id) { store(for: document).reload() }
+        // The source follows the file it is showing, unless typing is waiting to be saved.
+        if type == "md:changed", mode == .source, workspace.document(id: id) === currentDocument { scrollHost.source.reloadFromDisk() }
+        webView.callAsyncJavaScript("window.__folioEmit?.(type, id)", arguments: ["type": type, "id": id], in: nil, in: .page) { _ in }
     }
 
     func stopWatching() {
@@ -131,17 +181,50 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     // MARK: toggles
 
     @objc func toggleSource(_ sender: Any?) {
-        webView.evaluateJavaScript("document.getElementById('view-toggle-btn').click()")
+        setMode(mode == .preview ? .source : .preview)
     }
 
     @objc func toggleComments(_ sender: Any?) {
-        webView.evaluateJavaScript("document.getElementById('toggle-gutter-btn').click()")
+        commentsOn.toggle()
+        annotations.refreshMode()
+        syncButtons()
+    }
+
+    /// Shows the preview or the source. What was typed in the one is saved first, and the other
+    /// picks up the file; the reader stays about as far into the document.
+    func setMode(_ new: EditorMode) {
+        guard new != mode, !switchingMode else { return }
+        switchingMode = true
+        let fraction = scrollHost.scrollFraction
+        Task { @MainActor in
+            defer { switchingMode = false }
+            switch new {
+            case .source:
+                await annotations.preview.flush()
+                scrollHost.source.load(currentDocument)
+            case .preview:
+                // The preview shows the file: unsaved typing would be lost on the way back.
+                guard scrollHost.source.flushSave() else { return }
+                _ = try? await webView.callAsyncJavaScript("await window.__folioReload?.()", in: nil, contentWorld: .page)
+            }
+            // Annotation actions are kept in the preview's history or the text view's; Undo in
+            // one mode must not reach past what was done in the other.
+            for store in stores.values { store.forgetHistory() }
+            mode = new
+            scrollHost.mode = new
+            scrollHost.restoreScroll(fraction, for: 1.5)
+            annotations.refreshMode()
+            syncButtons()
+            window?.makeFirstResponder(new == .source ? scrollHost.source.textView : webView)
+        }
     }
 
     // MARK: find
 
     // WKWebView has no find bar on macOS: the toolbar's search field drives `find`, which
-    // selects the match and scrolls to it.
+    // selects the match. The page is as tall as its content, so it cannot scroll to the
+    // match itself: it reports the selection and the scroll view goes there. The source
+    // has its own search (`SourceEditorView.find`).
 
     @objc func showFind(_ sender: Any?) {
         window?.makeFirstResponder(findItem.searchField)
@@ -155,14 +238,20 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     private func find(backwards: Bool) {
         let text = findItem.searchField.stringValue
         guard !text.isEmpty else { return }
+        if mode == .source {
+            scrollHost.source.find(text, backwards: backwards)
+            return
+        }
         let config = WKFindConfiguration()
         config.backwards = backwards
         config.wraps = true
-        webView.find(text, configuration: config) { _ in }
+        webView.find(text, configuration: config) { [weak self] result in
+            if result.matchFound { self?.webView.evaluateJavaScript("window.__folioRevealSelection?.()") }
+        }
     }
 
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
-        window?.makeFirstResponder(webView)
+        window?.makeFirstResponder(mode == .source ? scrollHost.source.textView : webView)
     }
 
     private func syncButtons() {
@@ -246,6 +335,11 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = navigationAction.request.url { NSWorkspace.shared.open(url) }
         return nil
+    }
+
+    // A page loaded after the window was laid out has not been told how tall the window is.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pushViewportHeight(scrollHost.contentSize.height)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {

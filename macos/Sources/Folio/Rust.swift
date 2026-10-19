@@ -5,8 +5,7 @@ struct RustError: Error, CustomStringConvertible {
     let description: String
 }
 
-/// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI and
-/// the HTTP server use.
+/// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI uses.
 enum Rust {
     static func sidecarPath(for file: String) throws -> String {
         try take(folio_sidecar_path(file))
@@ -15,6 +14,15 @@ enum Rust {
     /// `items` is the JSON request body of `/api/anchor`; the result is its JSON response.
     static func anchor(doc: String, itemsJSON: String, raw: Bool) throws -> String {
         try take(folio_anchor(doc, itemsJSON, raw))
+    }
+
+    /// The selection `range` (UTF-16, as the text view has it) of the markdown `doc` as rendered text,
+    /// which is what agents and the preview anchor by: the selected words and up to 30 characters
+    /// before them, without markdown syntax. Nil when none of it is rendered text.
+    static func renderedSelection(doc: String, range: NSRange) throws -> (target: String, contextBefore: String)? {
+        let out = try object(folio_rendered_selection(doc, range.location, range.upperBound))
+        guard let target = out["target"] as? String, let context = out["context_before"] as? String else { return nil }
+        return (target, context)
     }
 
     /// The patched markdown (nil when accepting changes nothing in it) and the new
@@ -26,6 +34,15 @@ enum Rust {
             throw RustError(description: "unexpected accept result")
         }
         return (obj["doc"] as? String, sidecar)
+    }
+
+    /// Applies one editor action (see src/edit.rs) to the sidecar text. Returns the new
+    /// sidecar text and the id of the annotation or reply the action created.
+    static func edit(sidecarJSON: String, edit: [String: Any]) throws -> (sidecar: String, id: String?) {
+        let body = String(decoding: try JSONSerialization.data(withJSONObject: edit), as: UTF8.self)
+        let out = try object(folio_edit(sidecarJSON, body))
+        guard let sidecar = out["sidecar"] as? String else { throw RustError(description: "unexpected edit result") }
+        return (sidecar, out["id"] as? String)
     }
 
     // MARK: sets

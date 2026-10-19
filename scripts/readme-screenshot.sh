@@ -16,7 +16,6 @@ for arg in "$@"; do
 done
 
 [[ -f frontend/dist/index.html ]] || (cd frontend && pnpm build)
-export FOLIO_SKIP_FRONTEND_BUILD=1
 cargo build            # the `folio` CLI that seeds the annotations
 cargo build --release  # libfolio.a, which the app links
 swift build --package-path macos
