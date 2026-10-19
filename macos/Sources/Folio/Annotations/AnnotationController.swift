@@ -32,8 +32,9 @@ final class AnnotationController {
     private(set) var form: NewCommentView?
     private var formSelection: SelectionInfo?
 
-    private(set) var mode: EditorMode = .preview
-    private(set) var commentsOn = false
+    // The window owns the mode and whether the comments pane is open; this follows it (`refreshMode`).
+    var mode: EditorMode { owner.mode }
+    var commentsOn: Bool { owner.commentsOn }
     var sourceOn: Bool { mode == .source }
     private(set) var lastTypingAt = Date.distantPast
 
@@ -77,20 +78,18 @@ final class AnnotationController {
     // MARK: following the window
 
     /// The window showed the preview or the source, or opened or closed the pane.
-    func setMode(_ newMode: EditorMode, comments: Bool) {
-        let modeChanged = newMode != mode
-        guard modeChanged || comments != commentsOn else { return }
+    func refreshMode() {
+        let showing: AnnotationSurface = sourceOn ? source : preview
+        let modeChanged = showing !== surface
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
             cancelForm()
-            mode = newMode
-            surface = newMode == .source ? source : preview
+            surface = showing
             anchors = [:]
             anchorsKnown = false
             selection = nil
             focusedID = nil
         }
-        commentsOn = comments
         host.setPane(open: paneShown)
         if modeChanged {
             attach(store)

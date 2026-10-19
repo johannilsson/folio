@@ -186,7 +186,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
 
     @objc func toggleComments(_ sender: Any?) {
         commentsOn.toggle()
-        annotations.setMode(mode, comments: commentsOn)
+        annotations.refreshMode()
         syncButtons()
     }
 
@@ -213,7 +213,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             mode = new
             scrollHost.mode = new
             scrollHost.restoreScroll(fraction, for: 1.5)
-            annotations.setMode(new, comments: commentsOn)
+            annotations.refreshMode()
             syncButtons()
             window?.makeFirstResponder(new == .source ? scrollHost.source.textView : webView)
         }
