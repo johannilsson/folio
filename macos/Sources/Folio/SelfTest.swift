@@ -765,6 +765,17 @@ final class SelfTest {
             let bodies = store.annotation("modes")?.replies?.map { $0.body }
             return bodies == ["Replied in the preview", "Replied in the source"]
         }
+
+        // An Undo that cannot write the sidecar tells the reader.
+        _ = try? store.resolve("modes")
+        let folder = controller.files.sidecar.deletingLastPathComponent()
+        try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        store.undo()
+        await check("an Undo that fails is shown") {
+            await self.until(seconds: 3) { self.controller.window?.attachedSheet != nil } && store.annotation("modes")?.resolved == true
+        }
+        if let sheet = controller.window?.attachedSheet { controller.window?.endSheet(sheet) }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
         replaceSidecar([])
         _ = await until { store.annotations.isEmpty }
     }

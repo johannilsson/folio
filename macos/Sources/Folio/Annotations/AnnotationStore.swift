@@ -20,6 +20,8 @@ final class AnnotationStore {
 
     /// The annotations changed: by an action here, or by someone else writing the sidecar.
     var onChange: (() -> Void)?
+    /// An undo or redo failed: nothing else can tell the reader, as no action of theirs is waiting for an answer.
+    var onError: ((Error) -> Void)?
 
     /// Undo and redo of the actions below. In the preview the editor's own undo is the page's, so
     /// these have a history of their own, and Undo goes to it while an action here is the latest
@@ -88,7 +90,8 @@ final class AnnotationStore {
             "op": "add_comment", "context_before": contextBefore, "target": target,
             "comment": comment, "author": "me", "source": "local",
         ])
-        return record(id: id ?? "", before: nil)
+        guard let id else { throw RustError(description: "the comment was added, but the library returned no id for it") }
+        return record(id: id, before: nil)
     }
 
     @discardableResult
@@ -123,6 +126,7 @@ final class AnnotationStore {
                 try perform(["op": "remove", "id": entry.id])
             }
         } catch {
+            onError?(error)
             return
         }
         forgetHistory()
@@ -191,6 +195,7 @@ final class AnnotationStore {
                 try perform(["op": "remove", "id": entry.id])
             }
         } catch {
+            onError?(error)
             return
         }
         register(entry, undoing: !undoing)

@@ -117,6 +117,7 @@ final class AnnotationController {
     private func attach(_ store: AnnotationStore) {
         self.store = store
         store.onChange = { [weak self] in self?.storeChanged() }
+        store.onError = { [weak self] error in self?.fail(error) }
         // In the source an action is one step of the text view's history, with the typing.
         store.undoManagerSource = { [weak self] in
             guard let self, mode == .source else { return nil }
