@@ -385,8 +385,9 @@ final class AnnotationController {
         }
         // ⌘Z and ⇧⌘Z reach the page first; they are ours only while an annotation action is the latest.
         if event.charactersIgnoringModifiers?.lowercased() == "z" {
-            if flags == [.command] { return undoIfLatest() }
-            if flags == [.command, .shift] { return redoIfLatest() }
+            let responder = owner.window?.firstResponder
+            if flags == [.command] { return undo(from: responder) }
+            if flags == [.command, .shift] { return redo(from: responder) }
         }
         if flags.isEmpty, event.keyCode == 53 {
             if form != nil { cancelForm(refocusPage: true); return true }
@@ -430,26 +431,56 @@ final class AnnotationController {
     // In the source it is one history: the text view's, with the annotation actions in it in order.
     private var annotationActionIsLatest: Bool { !sourceOn && store.lastActionAt > lastTypingAt }
 
-    /// Undoes the last annotation action if it is the latest thing the reader did.
-    /// Returns false when Undo belongs to the page.
-    func undoIfLatest() -> Bool {
-        annotationActionIsLatest && store.canUndo && store.undo()
+    // The one place that decides Undo and Redo, for ⌘Z (`handleKey`) and Edit ▸ Undo (`AppDelegate`),
+    // from where the keyboard is: in the source text, the text view's history; in the page, the
+    // annotation actions while one is the latest thing the reader did, else the page's own.
+    // Anywhere else (a reply field, the sidebar) it is not ours.
+    private enum UndoScope { case source, page }
+
+    private func undoScope(of responder: NSResponder?) -> UndoScope? {
+        guard let view = responder as? NSView else { return nil }
+        if sourceOn { return view === source.textView ? .source : nil }
+        return view.isDescendant(of: owner.webView) ? .page : nil
     }
 
-    func redoIfLatest() -> Bool {
-        annotationActionIsLatest && store.canRedo && store.redo()
+    /// Undoes in the source or the last annotation action. Returns false when Undo belongs to the responder.
+    func undo(from responder: NSResponder?) -> Bool {
+        switch undoScope(of: responder) {
+        case .source:
+            guard source.canUndo else { return false }
+            source.undo()
+            return true
+        case .page: return annotationActionIsLatest && store.canUndo && store.undo()
+        case nil: return false
+        }
     }
 
-    /// Undo and Redo in the source: the text view's history, which has the annotation actions in it.
-    func undoInSource() -> Bool {
-        guard sourceOn, source.canUndo else { return false }
-        source.undo()
-        return true
+    func redo(from responder: NSResponder?) -> Bool {
+        switch undoScope(of: responder) {
+        case .source:
+            guard source.canRedo else { return false }
+            source.redo()
+            return true
+        case .page: return annotationActionIsLatest && store.canRedo && store.redo()
+        case nil: return false
+        }
     }
 
-    func redoInSource() -> Bool {
-        guard sourceOn, source.canRedo else { return false }
-        source.redo()
-        return true
+    /// Whether Edit ▸ Undo is available, or nil when the responder decides. The page's own undo
+    /// cannot be asked, so it counts as available.
+    func canUndo(from responder: NSResponder?) -> Bool? {
+        switch undoScope(of: responder) {
+        case .source: return source.canUndo
+        case .page: return true
+        case nil: return nil
+        }
+    }
+
+    func canRedo(from responder: NSResponder?) -> Bool? {
+        switch undoScope(of: responder) {
+        case .source: return source.canRedo
+        case .page: return true
+        case nil: return nil
+        }
     }
 }

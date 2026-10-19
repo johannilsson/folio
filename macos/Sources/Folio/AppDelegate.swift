@@ -180,33 +180,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// suggestion, a reply) while that is the latest thing the reader did in the page, and otherwise
     /// the page's own typing. A text field of the annotation UI keeps its own undo.
     @MainActor @objc private func undoEdit(_ sender: Any?) {
-        if let controller = editorInFront, controller.annotations.undoInSource() { return }
-        if let controller = annotationsInPage, controller.undoIfLatest() { return }
-        frontWindow?.firstResponder?.tryToPerform(Selector(("undo:")), with: sender)
+        let responder = frontWindow?.firstResponder
+        if frontEditor?.annotations.undo(from: responder) == true { return }
+        responder?.tryToPerform(Selector(("undo:")), with: sender)
     }
 
     @MainActor @objc private func redoEdit(_ sender: Any?) {
-        if let controller = editorInFront, controller.annotations.redoInSource() { return }
-        if let controller = annotationsInPage, controller.redoIfLatest() { return }
-        frontWindow?.firstResponder?.tryToPerform(Selector(("redo:")), with: sender)
+        let responder = frontWindow?.firstResponder
+        if frontEditor?.annotations.redo(from: responder) == true { return }
+        responder?.tryToPerform(Selector(("redo:")), with: sender)
     }
 
-    @MainActor private var editorInFront: EditorWindowController? {
-        guard let window = frontWindow, let controller = window.windowController as? EditorWindowController,
-              let responder = window.firstResponder as? NSView, responder === controller.scrollHost.source.textView else { return nil }
-        return controller
+    /// Undo and Redo are greyed out when there is nothing to undo: in the source and in text fields
+    /// that is known; the page's own undo cannot be asked, so they stay available there.
+    @MainActor func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let responder = frontWindow?.firstResponder
+        switch item.action {
+        case #selector(undoEdit(_:)):
+            return frontEditor?.annotations.canUndo(from: responder) ?? responder?.undoManager?.canUndo ?? false
+        case #selector(redoEdit(_:)):
+            return frontEditor?.annotations.canRedo(from: responder) ?? responder?.undoManager?.canRedo ?? false
+        default: return true
+        }
+    }
+
+    @MainActor private var frontEditor: EditorWindowController? {
+        frontWindow?.windowController as? EditorWindowController
     }
 
     /// The window Undo is for: the key window, or the front editor window if the app is not active.
     @MainActor private var frontWindow: NSWindow? {
         NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController is EditorWindowController }
-    }
-
-    /// The annotation UI of the front window, when the reader is in the page rather than in one of its text fields.
-    @MainActor private var annotationsInPage: AnnotationController? {
-        guard let window = frontWindow, let controller = window.windowController as? EditorWindowController,
-              (window.firstResponder as? NSView)?.isDescendant(of: controller.webView) == true else { return nil }
-        return controller.annotations
     }
 
     @objc private func openRecent(_ sender: NSMenuItem) {

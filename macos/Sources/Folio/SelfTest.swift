@@ -757,7 +757,23 @@ final class SelfTest {
         _ = try? store.reply(to: "modes", body: "Replied in the preview")
         send("toggleSource:")
         _ = await until { self.controller.sourceOn && !self.sourceView.isHidden }
+        controller.window?.makeFirstResponder(sourceView.textView)
+        func menuItemEnabled(_ title: String) -> Bool {
+            guard let delegate = NSApp.delegate as? AppDelegate,
+                  let edit = NSApp.mainMenu?.items.compactMap({ $0.submenu }).first(where: { $0.title == "Edit" }),
+                  let item = edit.item(withTitle: title) else { return true }
+            return delegate.validateMenuItem(item)
+        }
+        await check("Edit ▸ Undo and Redo are greyed out in the source when there is nothing to undo or redo") {
+            !menuItemEnabled("Undo") && !menuItemEnabled("Redo")
+        }
         _ = try? store.reply(to: "modes", body: "Replied in the source")
+        await check("Edit ▸ Undo is available in the source after an annotation action, Redo after the Undo") {
+            guard menuItemEnabled("Undo"), !menuItemEnabled("Redo") else { return false }
+            self.sourceView.undo()
+            return menuItemEnabled("Redo")
+        }
+        sourceView.redo()
         send("toggleSource:")
         _ = await until { !self.controller.sourceOn }
         await check("⌘Z in the preview after a switch leaves what was done in the source") {
