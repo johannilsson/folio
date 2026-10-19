@@ -309,6 +309,9 @@ final class SelfTest {
             if !errors.isEmpty { print("    \(errors)") }
             return errors.isEmpty
         }
+
+        // Last, since it closes every window.
+        await welcomeChecks()
         return finish()
     }
 
