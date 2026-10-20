@@ -141,14 +141,15 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
 
     // MARK: content
 
-    func reload() {
+    /// `recents` is the list to show when the caller knows it, as after changing it; otherwise AppKit's.
+    func reload(recents known: [URL]? = nil) {
         var next: [Row] = []
         let sets = ((try? Rust.setNames()) ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         if !sets.isEmpty {
             next.append(.header("Sets"))
             next += sets.map { .set(name: $0, files: (try? Rust.setLoad($0).files.count) ?? 0) }
         }
-        let recents = NSDocumentController.shared.recentDocumentURLs
+        let recents = known ?? NSDocumentController.shared.recentDocumentURLs
         if !recents.isEmpty {
             next.append(.header("Recent Files"))
             next += recents.map { .file($0) }
@@ -196,7 +197,8 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         let keep = controller.recentDocumentURLs.filter { $0.resolvingSymlinksInPath() != url.resolvingSymlinksInPath() }
         controller.clearRecentDocuments(nil)
         for other in keep.reversed() { controller.noteNewRecentDocumentURL(other) }
-        reload()
+        // AppKit can take a moment to apply the list, so a read right now may still be empty.
+        reload(recents: keep)
     }
 
     /// Return opens the selection, as a double-click does.

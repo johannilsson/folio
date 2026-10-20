@@ -55,7 +55,10 @@ extension SelfTest {
 
         welcome.removeFromRecents(member)
         await check("Remove from Recents takes the file out of the list and File ▸ Open Recent, keeping the rest in order") {
-            let ok = !files().contains(member) && !recents().contains(member) && recents().first == kept && files().first == kept
+            // AppKit applies the cleared and re-noted list a moment after it is asked to.
+            let ok = await self.until {
+                !files().contains(member) && !recents().contains(member) && recents().first == kept && files().first == kept
+            }
             if !ok { print("    recents \(recents().prefix(3).map(\.lastPathComponent)), listed \(files().prefix(3).map(\.lastPathComponent))") }
             return ok
         }

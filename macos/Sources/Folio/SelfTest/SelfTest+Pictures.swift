@@ -9,11 +9,14 @@ extension SelfTest {
     /// the comments pane (one focused) and the floating comment button over a selection.
     func tour(_ base: String) async {
         controller.window?.makeFirstResponder(controller.webView)
+        // The checks before this one left the document as they needed it; the pictures are of the fixture.
+        replaceFile((try? String(contentsOf: source, encoding: .utf8)) ?? "")
+        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('The last paragraph.')", seconds: 8)
         replaceSidecar([])
         _ = await until { self.controller.currentStore.annotations.isEmpty }
         for args in [
-            ["--kind", "comment", "--context-before", "Natural wine is made with ", "--target", "no additives", "--comment", "Is this claim sourced anywhere?"],
-            ["--kind", "replace", "--context-before", "vineyard and the ", "--target", "cave", "--replacement", "cellar"],
+            ["--kind", "comment", "--context-before", "Natural wine is made with ", "--target", "minimal intervention", "--comment", "Is this claim sourced anywhere?"],
+            ["--kind", "replace", "--context-before", "vineyard and the ", "--target", "cellar", "--replacement", "cave"],
             ["--kind", "highlight", "--context-before", "The last ", "--target", "paragraph"],
         ] {
             _ = cli(["annotate", name] + args + ["--author", "agent", "--source", "agent"])
