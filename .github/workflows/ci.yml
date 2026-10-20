@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  verify:
     strategy:
       fail-fast: false
       matrix:
@@ -60,3 +60,13 @@ jobs:
           name: selftest-pictures
           path: ${{ runner.temp }}/snapshots
           if-no-files-found: ignore
+
+  # A single check named `test`, which branch protection can require whatever the matrix holds.
+  # `always()` matters: a skipped job counts as passing, so this must run and fail on its own.
+  test:
+    needs: verify
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every verify job passed
+        run: test "${{ needs.verify.result }}" = success
