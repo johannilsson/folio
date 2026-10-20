@@ -31,7 +31,10 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
         let answer: Any?
         do {
             answer = try await webView.callAsyncJavaScript(
-                "return await window.__folioMermaid(code, dark)", arguments: ["code": code, "dark": dark], in: nil, contentWorld: .page
+                """
+                for (let i = 0; i < 100 && !window.__folioMermaid; i++) await new Promise(resolve => setTimeout(resolve, 100))
+                return await window.__folioMermaid(code, dark)
+                """, arguments: ["code": code, "dark": dark], in: nil, contentWorld: .page
             )
         } catch {
             fputs("mermaid: \(error)\n", stderr)

@@ -84,6 +84,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
         rebuilding = false
         loadPictures()
         fitPictures()
+        // The new text is as tall as it is, whatever the last one was.
+        relayout()
     }
 
     // MARK: layout
