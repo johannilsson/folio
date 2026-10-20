@@ -56,7 +56,14 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/snapshots"
           macos/.build/debug/Folio --self-test macos/selftest.md
-          FOLIO_SNAPSHOT="$RUNNER_TEMP/snapshots/native" macos/.build/debug/Folio -NativePreview YES --self-test macos/selftest.md
+
+      # The native preview's pictures, in a step of their own so a failure above does not skip them.
+      - name: Native preview pictures
+        if: always() && runner.os == 'macOS'
+        continue-on-error: true
+        env:
+          FOLIO_SNAPSHOT: ${{ runner.temp }}/snapshots/native
+        run: macos/.build/debug/Folio -NativePreview YES --self-test macos/selftest.md
 
       # Only for a pull request from this repository: forks and Dependabot get a read-only token.
       - name: Show the pictures on the pull request
