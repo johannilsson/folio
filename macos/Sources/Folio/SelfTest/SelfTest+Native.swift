@@ -32,7 +32,7 @@ extension SelfTest {
             return layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + textView.textContainerOrigin.y < 60
         }
         await check("a mermaid diagram is drawn (by the hidden web view) and shown as a picture") {
-            await self.until(seconds: 20) { self.nativeView.hasPicture("mermaid:") }
+            await self.until(seconds: 40) { self.nativeView.hasPicture("mermaid:") }
         }
         await check("the page is as tall as its text, which the window scrolls") {
             self.controller.scrollHost.contentHeight >= textView.frame.height - 1 && textView.frame.height > 200

@@ -28,11 +28,21 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
     private func draw(_ code: String) async -> NSImage? {
         guard await load(), let webView, let window else { return nil }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        guard let size = try? await webView.callAsyncJavaScript(
-            "return await window.__folioMermaid(code, dark)", arguments: ["code": code, "dark": dark], in: nil, contentWorld: .page
-        ) as? [Any], size.count == 2,
+        let answer: Any?
+        do {
+            answer = try await webView.callAsyncJavaScript(
+                "return await window.__folioMermaid(code, dark)", arguments: ["code": code, "dark": dark], in: nil, contentWorld: .page
+            )
+        } catch {
+            fputs("mermaid: \(error)\n", stderr)
+            return nil
+        }
+        guard let size = answer as? [Any], size.count == 2,
               let width = (size[0] as? NSNumber)?.doubleValue, let height = (size[1] as? NSNumber)?.doubleValue,
-              width > 0, height > 0 else { return nil }
+              width > 0, height > 0 else {
+            fputs("mermaid: no size for the diagram: \(String(describing: answer))\n", stderr)
+            return nil
+        }
         window.setContentSize(NSSize(width: width, height: height))
         webView.frame = NSRect(x: 0, y: 0, width: width, height: height)
         // Let the web view lay the new size out before it is photographed.
@@ -40,7 +50,10 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
         let configuration = WKSnapshotConfiguration()
         configuration.rect = NSRect(x: 0, y: 0, width: width, height: height)
         configuration.snapshotWidth = NSNumber(value: width * 2)
-        guard let image = try? await webView.takeSnapshot(configuration: configuration) else { return nil }
+        guard let image = try? await webView.takeSnapshot(configuration: configuration) else {
+            fputs("mermaid: the snapshot failed\n", stderr)
+            return nil
+        }
         // Twice the pixels for the same size on screen.
         image.size = NSSize(width: width, height: height)
         return image
@@ -68,6 +81,8 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
 
     private func finishLoading(_ ok: Bool) {
         loaded = ok
+        // A page that did not load is tried again by the next diagram.
+        if !ok { webView = nil; window?.close(); window = nil }
         let waiting = loading
         loading = []
         for continuation in waiting { continuation.resume(returning: ok) }

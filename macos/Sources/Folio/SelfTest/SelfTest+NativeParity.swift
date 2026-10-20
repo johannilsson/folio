@@ -48,11 +48,18 @@ extension SelfTest {
         // The scroll position is kept across the source and back.
         let tail = (1...150).map { "Paragraph \($0) of the long file.\n\n" }.joined()
         replaceFile("# Long\n\n" + tail)
-        _ = await until(seconds: 10) { host.contentHeight > 1600 }
-        host.contentView.scroll(to: NSPoint(x: 0, y: 1500))
-        host.reflectScrolledClipView(host.contentView)
-        let before = host.scrollFraction
-        await check("the long document scrolls in the window's scroll view") { before > 0.3 && host.scrollOffset > 1000 }
+        var before = 0.0 as CGFloat
+        await check("the long document scrolls in the window's scroll view") {
+            let scrolled = await self.until(seconds: 10) {
+                guard host.contentHeight > 1600 else { return false }
+                host.contentView.scroll(to: NSPoint(x: 0, y: 1500))
+                host.reflectScrolledClipView(host.contentView)
+                before = host.scrollFraction
+                return before > 0.3 && host.scrollOffset > 1000
+            }
+            if !scrolled { print("    height \(host.contentHeight), offset \(host.scrollOffset), fraction \(host.scrollFraction), text \(self.nativeText.prefix(40))") }
+            return scrolled
+        }
         send("toggleSource:")
         _ = await until { self.controller.sourceOn }
         send("toggleSource:")
