@@ -190,6 +190,10 @@ struct PreviewBuilder {
             picture(PreviewAsset(.plantuml(text)), of: code, context)
             return
         }
+        if code.language?.lowercased() == "mermaid" {
+            picture(PreviewAsset(.mermaid(text)), of: code, context)
+            return
+        }
         let start = result.text.length
         paragraph(context) { builder, style in
             var mono = style

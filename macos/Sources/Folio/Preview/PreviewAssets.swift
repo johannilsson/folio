@@ -38,8 +38,28 @@ final class PreviewAsset: NSObject {
         case .plantuml(let code):
             guard let url = URL(string: "\(AppConfig.plantumlURL)/png/\(PlantUML.encode(code))") else { return nil }
             return await Self.fetch(url)
-        case .mermaid:
-            return nil
+        case .mermaid(let code):
+            return await MermaidRenderer.shared.render(code)
+        }
+    }
+
+    /// What stands in for a diagram that cannot be drawn (no network, a mistake in it): its code.
+    func placeholder() -> NSImage? {
+        let code: String
+        switch kind {
+        case .image: return nil
+        case .plantuml(let text), .mermaid(let text): code = text
+        }
+        let text = NSAttributedString(string: code, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        let size = NSSize(width: ceil(text.size().width) + 24, height: ceil(text.size().height) + 24)
+        return NSImage(size: size, flipped: false) { rect in
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            text.draw(at: NSPoint(x: 12, y: 12))
+            return true
         }
     }
 

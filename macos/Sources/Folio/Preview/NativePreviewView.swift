@@ -36,6 +36,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
     /// The pictures (images, diagrams) asked for and had, by `PreviewAsset.key`.
     private var requested: Set<String> = []
     private var pictures: [String: NSImage] = [:]
+    /// Stand-ins for diagrams that did not draw.
+    private var stand: [String: NSImage] = [:]
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -108,8 +110,13 @@ final class NativePreviewView: NSView, AnnotationSurface {
         storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
             guard let asset = value as? PreviewAsset, requested.insert(asset.key).inserted else { return }
             Task { @MainActor [weak self] in
-                guard let image = await asset.load() else { return }
-                self?.pictures[asset.key] = image
+                if let image = await asset.load() {
+                    self?.pictures[asset.key] = image
+                } else if let image = asset.placeholder() {
+                    self?.stand[asset.key] = image
+                } else {
+                    return
+                }
                 self?.fitPictures()
                 self?.relayout()
                 self?.reportAnchors()
@@ -122,7 +129,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
         guard let storage = textView.textStorage, let layoutManager = textView.layoutManager, let container = textView.textContainer else { return }
         let available = max(100, container.size.width)
         storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard let asset = value as? PreviewAsset, let image = pictures[asset.key], image.size.width > 0,
+            guard let asset = value as? PreviewAsset, let image = pictures[asset.key] ?? stand[asset.key], image.size.width > 0,
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { return }
             let scale = min(1, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)

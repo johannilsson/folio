@@ -17,8 +17,8 @@ extension SelfTest {
             await self.until { self.nativeView.window != nil && !self.nativeView.isHidden && self.web.isHidden && self.nativeText.contains("The last paragraph.") }
         }
         await check("the toolbar shows the preview as current") { !self.controller.sourceOn }
-        await check("markdown syntax is not shown: no heading mark, no fences; the code is") {
-            self.nativeText.hasPrefix("Self-test document") && !self.nativeText.contains("```") && self.nativeText.contains("flowchart TD")
+        await check("markdown syntax is not shown: no heading mark, no fences, and diagrams are pictures, not their code") {
+            self.nativeText.hasPrefix("Self-test document") && !self.nativeText.contains("```") && !self.nativeText.contains("flowchart TD")
         }
         await check("the heading is larger than the text") {
             let storage = textView.textStorage!
@@ -30,6 +30,9 @@ extension SelfTest {
         await check("the text starts close under the title bar") {
             guard let layout = textView.layoutManager else { return false }
             return layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + textView.textContainerOrigin.y < 60
+        }
+        await check("a mermaid diagram is drawn (by the hidden web view) and shown as a picture") {
+            await self.until(seconds: 20) { self.nativeView.hasPicture("mermaid:") }
         }
         await check("the page is as tall as its text, which the window scrolls") {
             self.controller.scrollHost.contentHeight >= textView.frame.height - 1 && textView.frame.height > 200
