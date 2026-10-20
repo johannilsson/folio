@@ -51,7 +51,7 @@ final class AnnotationController {
         self.preview = preview
         self.source = source
         self.native = native
-        surface = native ?? preview
+        if let native { surface = native } else { surface = preview }
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
@@ -84,7 +84,8 @@ final class AnnotationController {
 
     /// The window showed the preview or the source, or opened or closed the pane.
     func refreshMode() {
-        let showing: AnnotationSurface = sourceOn ? source : (native ?? preview)
+        let showing: AnnotationSurface
+        if sourceOn { showing = source } else if let native { showing = native } else { showing = preview }
         let modeChanged = showing !== surface
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
