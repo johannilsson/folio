@@ -157,7 +157,13 @@ struct PreviewBuilder {
         case let heading as Heading:
             paragraph(context, heading: heading.level) { $0.inlines(of: heading, $1) }
         case let text as Paragraph:
+            let start = result.text.length
             paragraph(context) { $0.inlines(of: text, $1) }
+            // A picture alone in its paragraph may be wider than the text.
+            let only = Array(text.children)
+            if only.count == 1, only[0] is Image {
+                result.text.addAttribute(.folioWide, value: true, range: NSRange(location: start, length: result.text.length - start))
+            }
         case let code as CodeBlock:
             codeBlock(code, context)
         case let table as Markdown.Table:
@@ -317,13 +323,20 @@ struct PreviewBuilder {
         let columns = rows.map(\.count).max() ?? 0
         guard columns > 0 else { return }
         let grid = NSTextTable()
-        grid.numberOfColumns = columns
+        grid.numberOfColumns = columns + 1
         grid.collapsesBorders = true
         let info = PreviewTable(grid: grid)
         var widest = [CGFloat](repeating: 0, count: columns)
         for (r, row) in rows.enumerated() {
+            let spacer = NSTextTableBlock(table: grid, startingRow: r, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+            let spacing = NSMutableParagraphStyle()
+            spacing.textBlocks = [spacer]
+            let spacerStart = result.text.length
+            emit("\n", source: nil, linear: false, [.font: NSFont.systemFont(ofSize: 1)])
+            result.text.addAttribute(.paragraphStyle, value: spacing, range: NSRange(location: spacerStart, length: 1))
+            info.spacers.append(spacer)
             for c in 0..<columns {
-                let block = NSTextTableBlock(table: grid, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
+                let block = NSTextTableBlock(table: grid, startingRow: r, rowSpan: 1, startingColumn: c + 1, columnSpan: 1)
                 block.setWidth(0.5, type: .absoluteValueType, for: .border)
                 block.setBorderColor(NSColor.separatorColor)
                 block.setWidth(6, type: .absoluteValueType, for: .padding)
@@ -341,7 +354,6 @@ struct PreviewBuilder {
                 // What the cell needs on one line, and its padding and border.
                 let needed = result.text.attributedSubstring(from: NSRange(location: start, length: result.text.length - start)).size().width
                 widest[c] = max(widest[c], ceil(needed) + 13)
-                if c == 0 { info.firstColumn.append(block) }
                 emit("\n", source: nil, linear: false, attributes(style))
                 result.text.addAttribute(.paragraphStyle, value: layout, range: NSRange(location: start, length: result.text.length - start))
             }

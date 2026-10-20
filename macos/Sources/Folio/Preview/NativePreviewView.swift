@@ -162,8 +162,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
         let column = min(containerWidth, Self.column)
         for table in model.tables {
             let width = min(max(table.natural, column), max(column, containerWidth - side))
-            table.grid.setContentWidth(width, type: .absoluteValueType)
-            for block in table.firstColumn { block.setWidth(side, type: .absoluteValueType, for: .margin, edge: .minX) }
+            table.grid.setContentWidth(side + width, type: .absoluteValueType)
+            for block in table.spacers { block.setValue(side, type: .absoluteValueType, for: .width) }
         }
     }
 

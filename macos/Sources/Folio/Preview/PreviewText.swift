@@ -12,10 +12,11 @@ extension NSAttributedString.Key {
 
 /// A table of the text. Its width and its place are the view's to set once it knows how wide the window is
 /// (`NativePreviewView.applyColumn`): at least as wide as the text column, wider when its content asks for it.
+/// It starts where the text does: a text table has no left margin, so an empty first column makes it.
 final class PreviewTable {
     let grid: NSTextTable
-    /// The cells of the first column, which carry the table's left margin.
-    var firstColumn: [NSTextTableBlock] = []
+    /// The cells of an extra first column with nothing in it, whose width is the table's left margin.
+    var spacers: [NSTextTableBlock] = []
     /// How wide the table is when no cell has to wrap.
     var natural: CGFloat = 0
 
