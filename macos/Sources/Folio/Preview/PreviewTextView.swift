@@ -60,7 +60,8 @@ final class PreviewTextView: NSTextView {
             switch kind {
             case "code", "box":
                 let pad: CGFloat = kind == "box" ? 10 : 8
-                let area = NSRect(x: found.minX - (kind == "box" ? 14 : 12), y: found.minY - pad, width: 0, height: found.height + 2 * pad)
+                // The frontmatter box is the width of the text column; a code block starts where its text, indented, does.
+                let area = NSRect(x: kind == "box" ? left : found.minX - 12, y: found.minY - pad, width: 0, height: found.height + 2 * pad)
                 var drawn = area
                 drawn.size.width = right - drawn.minX
                 guard drawn.intersects(rect) else { return }

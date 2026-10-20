@@ -246,6 +246,12 @@ struct PreviewBuilder {
             spaced.paragraphSpacing = 14
             result.text.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: block.upperBound - 1, length: 1))
         }
+        // Room above the first line for the painted background.
+        let firstLine = (result.text.string as NSString).paragraphRange(for: NSRange(location: block.location, length: 0))
+        if let first = (result.text.attribute(.paragraphStyle, at: block.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            first.paragraphSpacingBefore = 10
+            result.text.addAttribute(.paragraphStyle, value: first, range: firstLine)
+        }
     }
 
     /// Marks what was just written (not its closing line break) as a block the view paints behind.
