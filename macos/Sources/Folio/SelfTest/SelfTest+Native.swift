@@ -179,6 +179,7 @@ extension SelfTest {
         }
 
         await blockChecks()
+        await nativeParityChecks()
 
         // Another program replaces the file the way agents do.
         replaceFile(disk() + "\nAdded by another program.\n")

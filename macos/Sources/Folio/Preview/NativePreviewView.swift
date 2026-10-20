@@ -388,6 +388,26 @@ final class NativePreviewView: NSView, AnnotationSurface {
     }
 }
 
+extension NativePreviewView {
+    /// Selects the next (or previous) match of `text` in what is on screen, wrapping round. Returns whether there is one.
+    @discardableResult
+    func find(_ text: String, backwards: Bool) -> Bool {
+        guard !text.isEmpty else { return false }
+        let all = textView.string as NSString
+        let selection = textView.selectedRange()
+        var options: NSString.CompareOptions = [.caseInsensitive]
+        if backwards { options.insert(.backwards) }
+        let ahead = backwards ? NSRange(location: 0, length: selection.location) : NSRange(location: selection.upperBound, length: all.length - selection.upperBound)
+        var found = all.range(of: text, options: options, range: ahead)
+        if found.location == NSNotFound { found = all.range(of: text, options: options) }
+        guard found.location != NSNotFound else { return false }
+        textView.setSelectedRange(found)
+        textView.scrollRangeToVisible(found)
+        textView.showFindIndicator(for: found)
+        return true
+    }
+}
+
 extension NativePreviewView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()

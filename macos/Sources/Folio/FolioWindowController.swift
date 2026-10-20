@@ -252,6 +252,10 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             scrollHost.source.find(text, backwards: backwards)
             return
         }
+        if let native = scrollHost.native {
+            native.find(text, backwards: backwards)
+            return
+        }
         let config = WKFindConfiguration()
         config.backwards = backwards
         config.wraps = true
