@@ -32,6 +32,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
     private var pendingRange: (from: Int, to: Int)?
     private var flash: String?
     private var lastLayoutWidth: CGFloat = 0
+    private var lastReportedWidth: CGFloat = 0
     private var rebuilding = false
     /// The pictures (images, diagrams) asked for and had, by `PreviewAsset.key`.
     private var requested: Set<String> = []
@@ -82,6 +83,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
         loadPictures()
+        fitPictures()
     }
 
     // MARK: layout
@@ -96,9 +98,15 @@ final class NativePreviewView: NSView, AnnotationSurface {
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
         textView.frame = NSRect(x: 0, y: 0, width: width, height: max(textView.frame.height, 1))
         fitPictures()
+        let before = frame.height
         let height = contentHeight(minHeight: minHeight)
         textView.frame.size.height = height
         frame = NSRect(x: 0, y: 0, width: width, height: height)
+        // Text that moved (a narrower column, a picture that now has its size) moves the cards with it.
+        if abs(height - before) > 0.5 || width != lastReportedWidth {
+            lastReportedWidth = width
+            reportAnchors()
+        }
         return height
     }
 
