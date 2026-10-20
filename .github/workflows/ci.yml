@@ -40,12 +40,18 @@ jobs:
 
       # Frontend build, cargo build/test and unit tests; the macOS app steps only run on macOS.
       - name: Verify
+        run: ./scripts/verify.sh
+
+      # The pictures tour only runs with FOLIO_SNAPSHOT set, as it does locally, so it is a separate
+      # run that does not gate the job; it is there to be looked at.
+      - name: Self-test pictures
+        if: always() && runner.os == 'macOS'
+        continue-on-error: true
         env:
-          # The self-test saves window pictures under this prefix (macOS only).
           FOLIO_SNAPSHOT: ${{ runner.temp }}/snapshots/folio
         run: |
           mkdir -p "$RUNNER_TEMP/snapshots"
-          ./scripts/verify.sh
+          macos/.build/debug/Folio --self-test macos/selftest.md
 
       - name: Upload self-test pictures
         if: always() && runner.os == 'macOS'
