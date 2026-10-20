@@ -9,6 +9,8 @@ struct PreviewBuilder {
         var indent: CGFloat = 0
         var quoted = false
         var inList = false
+        /// How many block quotes this is in.
+        var depth = 0
     }
 
     private struct Style {
@@ -19,10 +21,13 @@ struct PreviewBuilder {
         var strike = false
         var link: URL?
         var quoted = false
+        /// Code in a block of its own: the view paints the block's background, not each letter's.
+        var block = false
     }
 
     static let bodySize: CGFloat = 15
 
+    /// What is parsed: the file, but with the frontmatter blanked out, so offsets stay the file's.
     private let markdown: String
     /// Where relative image paths start: the folder of the file.
     private let base: URL?
@@ -34,16 +39,25 @@ struct PreviewBuilder {
     private var blockStart: Int?
 
     static func build(_ markdown: String, base: URL? = nil) -> PreviewText {
-        var builder = PreviewBuilder(markdown, base: base)
-        let document = Markdown.Document(parsing: markdown)
+        let front = PreviewFrontmatter.split(markdown)
+        var builder = PreviewBuilder(markdown, parsed: front.map { Self.blanked(markdown, $0.range) } ?? markdown, base: base)
+        if let front { builder.frontmatterBox(front) }
+        let document = Markdown.Document(parsing: builder.markdown)
         builder.blocks(of: document, Context())
         return builder.result
     }
 
-    private init(_ markdown: String, base: URL?) {
+    /// The text with `range` turned into spaces (its line breaks kept), the same length.
+    private static func blanked(_ text: String, _ range: NSRange) -> String {
+        var units = Array(text.utf16)
+        for index in range.location..<min(range.upperBound, units.count) where units[index] != 10 { units[index] = 32 }
+        return String(decoding: units, as: UTF16.self)
+    }
+
+    private init(_ original: String, parsed markdown: String, base: URL?) {
         self.markdown = markdown
         self.base = base
-        source = markdown as NSString
+        source = original as NSString
         // swift-markdown counts columns in UTF-8 bytes; the app counts UTF-16 units.
         var byte = 0, unit = 0
         utf16At.reserveCapacity(markdown.utf8.count + 1)
@@ -106,7 +120,7 @@ struct PreviewBuilder {
             .font: font,
             .foregroundColor: style.quoted ? NSColor.secondaryLabelColor : NSColor.labelColor,
         ]
-        if style.code { attributes[.backgroundColor] = NSColor.labelColor.withAlphaComponent(0.07) }
+        if style.code && !style.block { attributes[.backgroundColor] = NSColor.labelColor.withAlphaComponent(0.07) }
         if style.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
         if let link = style.link { attributes[.link] = link }
         return attributes
@@ -152,7 +166,14 @@ struct PreviewBuilder {
             var inner = context
             inner.quoted = true
             inner.indent += 18
+            inner.depth += 1
+            let start = result.text.length
             blocks(of: quote, inner)
+            // The bars of this level, where a deeper quote has not put its own count.
+            let whole = NSRange(location: start, length: result.text.length - start)
+            var open: [NSRange] = []
+            result.text.enumerateAttribute(.folioQuote, in: whole) { value, run, _ in if value == nil { open.append(run) } }
+            for run in open { result.text.addAttribute(.folioQuote, value: inner.depth, range: run) }
         case let list as UnorderedList:
             for item in list.listItems { listItem(item, marker: nil, context) }
         case let list as OrderedList:
@@ -162,9 +183,11 @@ struct PreviewBuilder {
                 number += 1
             }
         case is ThematicBreak:
+            let start = result.text.length
             paragraph(context) { builder, style in
-                builder.emit(String(repeating: "─", count: 24), source: builder.range(of: node), linear: false, builder.attributes(style))
+                builder.emit(" ", source: builder.range(of: node), linear: false, [.font: NSFont.systemFont(ofSize: 8)])
             }
+            result.text.addAttribute(.folioBlock, value: "rule", range: NSRange(location: start, length: 1))
         default:
             raw(node, context)
         }
@@ -176,11 +199,14 @@ struct PreviewBuilder {
         var text = source.substring(with: found)
         while text.hasSuffix("\n") { text.removeLast() }
         let whole = NSRange(location: found.location, length: (text as NSString).length)
+        let start = result.text.length
         paragraph(context) { builder, style in
             var code = style
             code.code = true
+            code.block = true
             builder.emit(text, source: whole, linear: true, builder.attributes(code))
         }
+        setApart(from: start, "code")
     }
 
     private mutating func codeBlock(_ code: CodeBlock, _ context: Context) {
@@ -198,12 +224,14 @@ struct PreviewBuilder {
         paragraph(context) { builder, style in
             var mono = style
             mono.code = true
+            mono.block = true
             builder.leaf(text, of: code, mono)
         }
         if let language = code.language, !language.isEmpty, !text.isEmpty {
             result.text.addAttribute(.folioCode, value: PreviewCode(language: language.lowercased(), code: text),
                                      range: NSRange(location: start, length: (text as NSString).length))
         }
+        setApart(from: start, "code")
         // Its lines are one block: no paragraph gap between them, and room after the last.
         let block = NSRange(location: start, length: result.text.length - start)
         if let style = (result.text.attribute(.paragraphStyle, at: block.location, effectiveRange: nil) as? NSParagraphStyle)?
@@ -218,6 +246,42 @@ struct PreviewBuilder {
             spaced.paragraphSpacing = 14
             result.text.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: block.upperBound - 1, length: 1))
         }
+    }
+
+    /// Marks what was just written (not its closing line break) as a block the view paints behind.
+    private mutating func setApart(from start: Int, _ kind: String) {
+        let end = result.text.length - 1
+        guard end > start else { return }
+        result.text.addAttribute(.folioBlock, value: kind, range: NSRange(location: start, length: end - start))
+    }
+
+    // MARK: frontmatter
+
+    /// The frontmatter as rows of key and value in a box, which the view paints behind them.
+    private mutating func frontmatterBox(_ front: PreviewFrontmatter) {
+        guard !front.entries.isEmpty else { return }
+        let size: CGFloat = 12
+        let key: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.secondaryLabelColor]
+        let value: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.labelColor]
+        let column = ceil(front.entries.map { NSAttributedString(string: $0.key, attributes: key).size().width }.max() ?? 0) + 14 + 24
+        let start = result.text.length
+        for (index, entry) in front.entries.enumerated() {
+            let rowStart = result.text.length
+            emit(entry.key, source: entry.keyRange, linear: true, key)
+            emit("\t", source: nil, linear: false, value)
+            emit(entry.value, source: entry.valueRange, linear: true, value)
+            emit("\n", source: nil, linear: false, value)
+            let layout = NSMutableParagraphStyle()
+            layout.firstLineHeadIndent = 14
+            layout.headIndent = column
+            layout.tailIndent = -14
+            layout.lineSpacing = 2
+            layout.paragraphSpacing = index == front.entries.count - 1 ? 26 : 2
+            layout.paragraphSpacingBefore = index == 0 ? 14 : 0
+            layout.tabStops = [NSTextTab(textAlignment: .left, location: column)]
+            result.text.addAttribute(.paragraphStyle, value: layout, range: NSRange(location: rowStart, length: result.text.length - rowStart))
+        }
+        setApart(from: start, "box")
     }
 
     /// A picture in a block of its own: one character the view fills in once the picture is loaded.

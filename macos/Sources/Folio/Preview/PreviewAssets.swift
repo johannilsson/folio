@@ -7,6 +7,13 @@ extension NSAttributedString.Key {
 }
 
 extension NSAttributedString.Key {
+    /// On text the view draws something behind: "box" (frontmatter), "code" (a code block) or "rule".
+    static let folioBlock = NSAttributedString.Key("folioBlock")
+    /// On quoted text: how deep it is quoted, which is how many bars are drawn beside it.
+    static let folioQuote = NSAttributedString.Key("folioQuote")
+}
+
+extension NSAttributedString.Key {
     /// On the code of a block that has a language; the value is its `PreviewCode`.
     static let folioCode = NSAttributedString.Key("folioCode")
 }

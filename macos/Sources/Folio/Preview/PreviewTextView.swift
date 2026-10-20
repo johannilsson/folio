@@ -31,6 +31,55 @@ final class PreviewTextView: NSTextView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    // MARK: blocks painted behind the text
+
+    /// The frontmatter box, the background of code blocks, the bars beside quotes and the rules: what
+    /// the text itself cannot draw, found by the attributes the builder put on the text.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let storage = textStorage, let layoutManager, let container = textContainer, storage.length > 0 else { return }
+        let origin = textContainerOrigin
+        let left = origin.x, right = origin.x + container.size.width
+        let whole = NSRange(location: 0, length: storage.length)
+        func box(_ range: NSRange) -> NSRect {
+            var found = layoutManager.boundingRect(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)
+            found.origin.x += origin.x
+            found.origin.y += origin.y
+            return found
+        }
+        storage.enumerateAttribute(.folioBlock, in: whole) { value, range, _ in
+            guard let kind = value as? String else { return }
+            let found = box(range)
+            switch kind {
+            case "code", "box":
+                let pad: CGFloat = kind == "box" ? 10 : 8
+                let area = NSRect(x: found.minX - (kind == "box" ? 14 : 12), y: found.minY - pad, width: 0, height: found.height + 2 * pad)
+                var drawn = area
+                drawn.size.width = right - drawn.minX
+                guard drawn.intersects(rect) else { return }
+                NSColor.labelColor.withAlphaComponent(kind == "box" ? 0.05 : 0.06).setFill()
+                NSBezierPath(roundedRect: drawn, xRadius: kind == "box" ? 10 : 6, yRadius: kind == "box" ? 10 : 6).fill()
+            case "rule":
+                guard found.insetBy(dx: -left, dy: -4).intersects(rect) else { return }
+                NSColor.separatorColor.setFill()
+                NSRect(x: left, y: found.midY - 0.5, width: right - left, height: 1).fill()
+            default: break
+            }
+        }
+        storage.enumerateAttribute(.folioQuote, in: whole) { value, range, _ in
+            guard let depth = value as? Int, depth > 0 else { return }
+            // A little past the text each way, so bars of neighbouring quotes join up.
+            var found = box(range)
+            found.origin.y -= 5
+            found.size.height += 10
+            guard found.intersects(rect.insetBy(dx: -left, dy: 0)) else { return }
+            NSColor.tertiaryLabelColor.setFill()
+            for level in 0..<depth {
+                NSRect(x: left + CGFloat(level) * 18 + 4, y: found.minY, width: 3, height: found.height).fill()
+            }
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         if keyHandler?(event) == true { return }
         super.keyDown(with: event)

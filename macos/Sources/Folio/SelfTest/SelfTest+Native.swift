@@ -205,6 +205,11 @@ extension SelfTest {
             try? png.write(to: dir.appendingPathComponent("pic.png"))
         }
         let md = """
+        ---
+        title: Hello there
+        tags: [wine, notes]
+        ---
+
         # Blocks
 
         ![a picture](pic.png)
@@ -213,6 +218,12 @@ extension SelfTest {
         |:-----|------:|
         | one  | 1 |
         | two  | 2 |
+
+        > quoted text
+        >
+        > > deeper
+
+        ---
 
         1. first
         2. second
@@ -233,6 +244,35 @@ extension SelfTest {
         After.
         """
         replaceFile(md)
+        await check("the frontmatter is a box of rows, not markdown: no rules, no heading, the values shown") {
+            await self.until(seconds: 8) { self.nativeText.hasPrefix("title\tHello there\ntags\twine, notes\n") }
+                && !self.nativeText.contains("---") && self.nativeText.contains("Blocks")
+        }
+        await check("the box is marked for painting, in a small type, and the heading after it is large") {
+            guard let storage = textView.textStorage else { return false }
+            let text = self.nativeText as NSString
+            let box = storage.attribute(.folioBlock, at: 0, effectiveRange: nil) as? String
+            let small = (storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize ?? 99
+            let heading = (storage.attribute(.font, at: text.range(of: "Blocks").location, effectiveRange: nil) as? NSFont)?.pointSize ?? 0
+            return box == "box" && small < 14 && heading > 20
+        }
+        await check("a value in the box and the heading after it map to their place in the file") {
+            let built = PreviewBuilder.build(md)
+            let shown = built.text.string as NSString
+            let hello = built.sourceRange(forDisplay: shown.range(of: "Hello there"))
+            let heading = built.sourceRange(forDisplay: shown.range(of: "Blocks"))
+            return hello == (md as NSString).range(of: "Hello there") && heading == (md as NSString).range(of: "Blocks")
+        }
+        await check("a quote has its bars (two deep for the inner one), a rule and a code block are painted, and no rule characters are typed") {
+            guard let storage = textView.textStorage else { return false }
+            let text = self.nativeText as NSString
+            let quoted = storage.attribute(.folioQuote, at: text.range(of: "quoted").location, effectiveRange: nil) as? Int
+            let deeper = storage.attribute(.folioQuote, at: text.range(of: "deeper").location, effectiveRange: nil) as? Int
+            let code = storage.attribute(.folioBlock, at: text.range(of: "const").location, effectiveRange: nil) as? String
+            var rules = 0
+            storage.enumerateAttribute(.folioBlock, in: NSRange(location: 0, length: storage.length)) { value, _, _ in if value as? String == "rule" { rules += 1 } }
+            return quoted == 1 && deeper == 2 && code == "code" && rules == 1 && !self.nativeText.contains("─")
+        }
         await check("a table is drawn as cells, without its pipes and rule row") {
             await self.until(seconds: 8) { self.nativeText.contains("Count") }
                 && !self.nativeText.contains("|") && !self.nativeText.contains("---")
