@@ -1,12 +1,13 @@
 import AppKit
 import WebKit
 
-/// Draws mermaid diagrams for the native preview. Mermaid is JavaScript, so a hidden web view
-/// loads the diagram page of the bundle (`frontend/src/diagram.ts`), draws a diagram in it, and
-/// a picture of that is the result. Diagrams are drawn one at a time.
+/// What the native preview gets from JavaScript: mermaid diagrams and the colours of code. A hidden
+/// web view loads the diagram page of the bundle (`frontend/src/diagram.ts`); it draws a diagram
+/// and a picture of that is the result, and it answers which parts of a block of code are keywords,
+/// strings and so on. Diagrams are drawn one at a time.
 @MainActor
-final class MermaidRenderer: NSObject, WKNavigationDelegate {
-    static let shared = MermaidRenderer()
+final class DiagramPage: NSObject, WKNavigationDelegate {
+    static let shared = DiagramPage()
 
     private var webView: WKWebView?
     private var window: NSWindow?
@@ -23,6 +24,29 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
         }
         last = Task { _ = await job.value }
         return await job.value
+    }
+
+    /// The coloured pieces of `code` in `language`: UTF-16 ranges of the code and their highlight.js
+    /// scope. Empty when the language is not known or the page does not answer.
+    func highlight(_ code: String, language: String) async -> [(range: NSRange, scope: String)] {
+        guard await load(), let webView else { return [] }
+        let answer: Any?
+        do {
+            answer = try await webView.callAsyncJavaScript(
+                """
+                for (let i = 0; i < 100 && !window.__folioHighlight; i++) await new Promise(resolve => setTimeout(resolve, 100))
+                return window.__folioHighlight(code, language)
+                """, arguments: ["code": code, "language": language], in: nil, contentWorld: .page
+            )
+        } catch {
+            fputs("highlight: \(error)\n", stderr)
+            return []
+        }
+        return (answer as? [[Any]] ?? []).compactMap { span in
+            guard span.count == 3, let from = (span[0] as? NSNumber)?.intValue, let to = (span[1] as? NSNumber)?.intValue,
+                  let scope = span[2] as? String, to > from else { return nil }
+            return (NSRange(location: from, length: to - from), scope)
+        }
     }
 
     private func draw(_ code: String, dark: Bool) async -> NSImage? {

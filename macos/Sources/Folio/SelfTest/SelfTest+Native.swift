@@ -220,6 +220,10 @@ extension SelfTest {
         - [x] done
         - [ ] open
 
+        ```js
+        const x = 'a' // note
+        ```
+
         ```plantuml
         @startuml
         Alice -> Bob: hello
@@ -257,6 +261,19 @@ extension SelfTest {
                     if let attachment = value as? NSTextAttachment, attachment.image != nil, attachment.bounds.width == 80 { found = true }
                 }
                 return found
+            }
+        }
+        await check("code in a block with a language is coloured: a keyword, a string and a comment differ from plain text") {
+            await self.until(seconds: 20) {
+                let text = self.nativeText as NSString
+                guard let storage = textView.textStorage else { return false }
+                func color(_ word: String, offset: Int = 0) -> NSColor? {
+                    let at = text.range(of: word).location
+                    return at == NSNotFound ? nil : storage.attribute(.foregroundColor, at: at + offset, effectiveRange: nil) as? NSColor
+                }
+                guard let keyword = color("const x"), let string = color("'a'"), let comment = color("// note"),
+                      let plain = color("const x", offset: 6) else { return false }
+                return !keyword.isEqual(plain) && !string.isEqual(plain) && !comment.isEqual(plain) && !keyword.isEqual(string)
             }
         }
         // Needs the network, like the page's check: a failure says where.

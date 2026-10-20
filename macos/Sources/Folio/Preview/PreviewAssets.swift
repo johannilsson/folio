@@ -6,6 +6,56 @@ extension NSAttributedString.Key {
     static let folioAsset = NSAttributedString.Key("folioAsset")
 }
 
+extension NSAttributedString.Key {
+    /// On the code of a block that has a language; the value is its `PreviewCode`.
+    static let folioCode = NSAttributedString.Key("folioCode")
+}
+
+/// The code of a block with a language, which the view colours once the page has said what is what in it.
+final class PreviewCode: NSObject {
+    let language: String
+    let code: String
+
+    init(language: String, code: String) {
+        self.language = language
+        self.code = code
+    }
+
+    var key: String { "\(language)\n\(code)" }
+}
+
+/// The colours of the parts of code, for the light and the dark look.
+enum SyntaxColors {
+    private static func pair(_ light: UInt32, _ dark: UInt32) -> NSColor {
+        func color(_ hex: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? color(dark) : color(light)
+        }
+    }
+
+    private static let keyword = pair(0xCF222E, 0xFF7B72)
+    private static let string = pair(0x0A3069, 0xA5D6FF)
+    private static let number = pair(0x0550AE, 0x79C0FF)
+    private static let comment = pair(0x6E7781, 0x8B949E)
+    private static let title = pair(0x8250DF, 0xD2A8FF)
+    private static let name = pair(0x116329, 0x7EE787)
+
+    /// The colour of a highlight.js scope, or nil for one that keeps the text colour.
+    static func color(for scope: String) -> NSColor? {
+        switch scope {
+        case "keyword", "selector-tag", "doctag", "deletion": return keyword
+        case "string", "regexp", "addition", "template-variable", "selector-attr": return string
+        case "number", "literal", "symbol", "meta", "attr", "attribute", "variable", "property", "selector-id", "selector-class", "bullet": return number
+        case "comment", "quote": return comment
+        case "title", "built_in", "type", "class", "function", "section": return title
+        case "tag", "name": return name
+        default: return nil
+        }
+    }
+}
+
 /// Something in the document that is a picture: an image, or a diagram drawn from the code of a block.
 final class PreviewAsset: NSObject {
     enum Kind {
@@ -39,7 +89,7 @@ final class PreviewAsset: NSObject {
             guard let url = URL(string: "\(AppConfig.plantumlURL)/png/\(PlantUML.encode(code))") else { return nil }
             return await Self.fetch(url)
         case .mermaid(let code):
-            return await MermaidRenderer.shared.render(code, dark: dark)
+            return await DiagramPage.shared.render(code, dark: dark)
         }
     }
 

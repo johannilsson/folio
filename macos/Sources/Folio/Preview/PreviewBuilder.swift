@@ -200,6 +200,10 @@ struct PreviewBuilder {
             mono.code = true
             builder.leaf(text, of: code, mono)
         }
+        if let language = code.language, !language.isEmpty, !text.isEmpty {
+            result.text.addAttribute(.folioCode, value: PreviewCode(language: language.lowercased(), code: text),
+                                     range: NSRange(location: start, length: (text as NSString).length))
+        }
         // Its lines are one block: no paragraph gap between them, and room after the last.
         let block = NSRange(location: start, length: result.text.length - start)
         if let style = (result.text.attribute(.paragraphStyle, at: block.location, effectiveRange: nil) as? NSParagraphStyle)?

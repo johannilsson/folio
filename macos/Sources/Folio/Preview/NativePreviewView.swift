@@ -39,6 +39,9 @@ final class NativePreviewView: NSView, AnnotationSurface {
     private var pictures: [String: NSImage] = [:]
     /// Stand-ins for diagrams that did not draw.
     private var stand: [String: NSImage] = [:]
+    /// What the page said of each block of code (`PreviewCode.key`), and which it has been asked about.
+    private var tokens: [String: [(range: NSRange, scope: String)]] = [:]
+    private var highlightRequested: Set<String> = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -83,6 +86,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
         loadPictures()
+        loadHighlights()
+        applyHighlights()
         fitPictures()
         // The new text is as tall as it is, whatever the last one was.
         relayout()
@@ -132,6 +137,37 @@ final class NativePreviewView: NSView, AnnotationSurface {
                 self?.reportAnchors()
             }
         }
+    }
+
+    // MARK: code colours
+
+    /// Asks the page about each block of code that has a language and has not been asked about.
+    private func loadHighlights() {
+        guard let storage = textView.textStorage else { return }
+        storage.enumerateAttribute(.folioCode, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let code = value as? PreviewCode, highlightRequested.insert(code.key).inserted else { return }
+            Task { @MainActor [weak self] in
+                let answer = await DiagramPage.shared.highlight(code.code, language: code.language)
+                self?.tokens[code.key] = answer
+                self?.applyHighlights()
+            }
+        }
+    }
+
+    /// Colours the code in the text with what the page said. Only whole blocks are touched: a
+    /// block that something was put into (a suggestion's preview) is left plain.
+    private func applyHighlights() {
+        guard let storage = textView.textStorage else { return }
+        storage.beginEditing()
+        storage.enumerateAttribute(.folioCode, in: NSRange(location: 0, length: storage.length)) { value, run, _ in
+            guard let code = value as? PreviewCode, let found = tokens[code.key], run.length == (code.code as NSString).length else { return }
+            for token in found where token.range.upperBound <= run.length {
+                guard let color = SyntaxColors.color(for: token.scope) else { continue }
+                storage.addAttribute(.foregroundColor, value: color,
+                                     range: NSRange(location: run.location + token.range.location, length: token.range.length))
+            }
+        }
+        storage.endEditing()
     }
 
     /// Gives each loaded picture its size: its own, or the width of the text.
@@ -232,6 +268,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
             textView.textStorage?.setAttributedString(model.text)
             textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: model.text.length)))
             rebuilding = false
+            applyHighlights()
             fitPictures()
             relayout()
         }
