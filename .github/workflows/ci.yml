@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -36,4 +40,17 @@ jobs:
 
       # Frontend build, cargo build/test and unit tests; the macOS app steps only run on macOS.
       - name: Verify
-        run: ./scripts/verify.sh
+        env:
+          # The self-test saves window pictures under this prefix (macOS only).
+          FOLIO_SNAPSHOT: ${{ runner.temp }}/snapshots/folio
+        run: |
+          mkdir -p "$RUNNER_TEMP/snapshots"
+          ./scripts/verify.sh
+
+      - name: Upload self-test pictures
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-pictures
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: ignore
