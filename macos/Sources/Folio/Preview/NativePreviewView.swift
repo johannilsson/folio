@@ -179,7 +179,12 @@ final class NativePreviewView: NSView, AnnotationSurface {
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { return }
             let scale = min(1, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
-            if attachment.image !== image { attachment.image = image }
+            if attachment.image !== image {
+                attachment.image = image
+                // Same size, other picture (a diagram drawn again): the text view has to paint it again.
+                layoutManager.invalidateDisplay(forCharacterRange: range)
+                textView.needsDisplay = true
+            }
             if attachment.bounds.size != size {
                 attachment.bounds = NSRect(origin: .zero, size: size)
                 layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
