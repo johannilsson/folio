@@ -51,6 +51,8 @@ final class EditorScrollView: NSScrollView {
     private let canvas = FlippedView()
     private let web: WKWebView
     let source: SourceEditorView
+    /// The native preview, when it replaces the web page (the `NativePreview` default).
+    let native: NativePreviewView?
     /// The cards of the comments pane (see `AnnotationController`).
     let gutter = AnnotationGutterView()
 
@@ -58,14 +60,15 @@ final class EditorScrollView: NSScrollView {
     var mode: EditorMode = .preview {
         didSet {
             guard mode != oldValue else { return }
-            web.isHidden = mode == .source
+            web.isHidden = mode == .source || native != nil
+            native?.isHidden = mode == .source
             source.isHidden = mode == .preview
             fit()
         }
     }
 
     /// How tall the text is: the page's reported height, or the source's.
-    var contentHeight: CGFloat { mode == .source ? source.frame.height : pageHeight }
+    var contentHeight: CGFloat { mode == .source ? source.frame.height : (native?.frame.height ?? pageHeight) }
     private var pageHeight: CGFloat = 0
     private var viewportHeight: CGFloat = 0
     /// A scroll position to hold while the page settles after a switch (it keeps growing
@@ -85,9 +88,10 @@ final class EditorScrollView: NSScrollView {
     /// The pane moved or the window resized: cards beside the text may have to move.
     var onPaneLayout: (() -> Void)?
 
-    init(webView: WKWebView, source: SourceEditorView) {
+    init(webView: WKWebView, source: SourceEditorView, native: NativePreviewView? = nil) {
         web = webView
         self.source = source
+        self.native = native
         super.init(frame: .zero)
         hasVerticalScroller = true
         drawsBackground = false
@@ -100,6 +104,11 @@ final class EditorScrollView: NSScrollView {
         source.isHidden = true
         webView.autoresizingMask = []
         source.onHeightChange = { [weak self] _ in self?.fit() }
+        if let native {
+            canvas.addSubview(native)
+            webView.isHidden = true
+            native.onHeightChange = { [weak self] _ in self?.fit() }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -140,6 +149,8 @@ final class EditorScrollView: NSScrollView {
         let textHeight: CGFloat
         if mode == .source {
             textHeight = source.layoutContent(width: textWidth, minHeight: contentSize.height)
+        } else if let native {
+            textHeight = native.layoutContent(width: textWidth, minHeight: contentSize.height)
         } else {
             textHeight = max(pageHeight, contentSize.height)
             web.frame = NSRect(x: 0, y: 0, width: textWidth, height: textHeight)

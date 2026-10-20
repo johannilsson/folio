@@ -15,6 +15,9 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
+    /// The preview is drawn natively instead of by the web page (`-NativePreview YES`, or the
+    /// `NativePreview` default), while the native preview is being built up to parity.
+    static var nativePreview: Bool { UserDefaults.standard.bool(forKey: "NativePreview") }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?

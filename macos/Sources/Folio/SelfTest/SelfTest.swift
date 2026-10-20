@@ -10,6 +10,8 @@ final class SelfTest {
     let app: AppDelegate
     let source: URL
     var failures = 0
+    /// Set when the native preview's checks have run (see `SelfTest+Native.swift`).
+    var nativeVerdict: Bool?
     var dirs: [URL] = []
 
     // Set once the first document is open.
@@ -49,6 +51,11 @@ final class SelfTest {
             return false
         }
         controller = first
+
+        if AppConfig.nativePreview {
+            await nativePreviewChecks()
+            return nativeVerdict ?? false
+        }
 
         await check("the editor opens in the WYSIWYG preview") {
             await self.waitFor("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")

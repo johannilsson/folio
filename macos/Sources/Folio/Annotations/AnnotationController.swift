@@ -16,6 +16,8 @@ final class AnnotationController {
     private(set) var surface: AnnotationSurface
     let preview: PreviewSurface
     let source: SourceEditorView
+    /// Shows the preview instead of the web page when it is on (`AppConfig.nativePreview`).
+    let native: NativePreviewView?
     /// The pending annotations may have changed (the toolbar shows how many).
     var onPendingChange: (() -> Void)?
 
@@ -41,18 +43,21 @@ final class AnnotationController {
     private var cardWidth: CGFloat { AnnotationStyle.cardWidth }
     var paneShown: Bool { commentsOn }
 
-    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, preview: PreviewSurface, source: SourceEditorView) {
+    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, preview: PreviewSurface, source: SourceEditorView,
+         native: NativePreviewView? = nil) {
         self.owner = owner
         self.host = host
         self.store = store
         self.preview = preview
         self.source = source
-        surface = preview
+        self.native = native
+        surface = native ?? preview
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
         listen(to: preview)
         listen(to: source)
+        if let native { listen(to: native) }
         preview.onTyping = { [weak self] in self?.lastTypingAt = Date() }
         attach(store)
         refresh()
@@ -79,7 +84,7 @@ final class AnnotationController {
 
     /// The window showed the preview or the source, or opened or closed the pane.
     func refreshMode() {
-        let showing: AnnotationSurface = sourceOn ? source : preview
+        let showing: AnnotationSurface = sourceOn ? source : (native ?? preview)
         let modeChanged = showing !== surface
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
@@ -440,6 +445,7 @@ final class AnnotationController {
     private func undoScope(of responder: NSResponder?) -> UndoScope? {
         guard let view = responder as? NSView else { return nil }
         if sourceOn { return view === source.textView ? .source : nil }
+        if let native { return view.isDescendant(of: native) ? .page : nil }
         return view.isDescendant(of: owner.webView) ? .page : nil
     }
 
@@ -471,7 +477,7 @@ final class AnnotationController {
     func canUndo(from responder: NSResponder?) -> Bool? {
         switch undoScope(of: responder) {
         case .source: return source.canUndo
-        case .page: return true
+        case .page: return native != nil ? store.canUndo : true
         case nil: return nil
         }
     }
@@ -479,7 +485,7 @@ final class AnnotationController {
     func canRedo(from responder: NSResponder?) -> Bool? {
         switch undoScope(of: responder) {
         case .source: return source.canRedo
-        case .page: return true
+        case .page: return native != nil ? store.canRedo : true
         case nil: return nil
         }
     }

@@ -20,6 +20,7 @@ step "frontend unit tests" bash -c 'cd frontend && pnpm test'
 if [[ "$(uname)" == "Darwin" && " $* " != *" --skip-macos "* ]]; then
   step "macos build" bash -c 'cargo build --release && swift build --package-path macos'
   step "macos self-test" macos/.build/debug/Folio --self-test macos/selftest.md
+  step "macos native preview self-test" macos/.build/debug/Folio -NativePreview YES --self-test macos/selftest.md
 fi
 
 if ((${#failed[@]})); then

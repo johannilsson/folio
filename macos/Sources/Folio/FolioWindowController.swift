@@ -78,7 +78,8 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         ))
         webView = ForwardingWebView(frame: .zero, configuration: config)
         webView.isInspectable = true
-        scrollHost = EditorScrollView(webView: webView, source: SourceEditorView(frame: .zero))
+        scrollHost = EditorScrollView(webView: webView, source: SourceEditorView(frame: .zero),
+                                      native: AppConfig.nativePreview ? NativePreviewView(frame: .zero) : nil)
 
         // The page's own background, so resizing and loading never flash white.
         let background = NSColor(name: nil) { appearance in
@@ -127,19 +128,23 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         bridge.onReveal = { [weak self] top, bottom in self?.scrollHost.reveal(top: top, bottom: bottom) }
         scrollHost.onViewportHeight = { [weak self] height in self?.pushViewportHeight(height) }
 
+        scrollHost.native?.load(currentDocument)
         annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore,
-                                           preview: PreviewSurface(webView: webView, bridge: bridge), source: scrollHost.source)
+                                           preview: PreviewSurface(webView: webView, bridge: bridge), source: scrollHost.source,
+                                           native: scrollHost.native)
         annotations.onPendingChange = { [weak self] in self?.syncButtons() }
         let keys: (NSEvent) -> Bool = { [weak self] event in self?.annotations.handleKey(event) ?? false }
         (webView as? ForwardingWebView)?.keyHandler = keys
         scrollHost.source.textView.keyHandler = keys
+        scrollHost.native?.textView.keyHandler = keys
         syncButtons()
 
         // Stand-in for the WebSocket: file changes reach the page as events.
         workspace.onEvent = { [weak self] type, id in self?.workspaceEvent(type, id) }
         workspace.startWatching()
 
-        webView.load(URLRequest(url: entryURL))
+        // The native preview does not need the page.
+        if scrollHost.native == nil { webView.load(URLRequest(url: entryURL)) }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -171,6 +176,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
         if type == "folio:changed", let document = workspace.document(id: id) { store(for: document).reload() }
         // The source follows the file it is showing, unless typing is waiting to be saved.
         if type == "md:changed", mode == .source, workspace.document(id: id) === currentDocument { scrollHost.source.reloadFromDisk() }
+        if type == "md:changed", workspace.document(id: id) === currentDocument { scrollHost.native?.reloadFromDisk() }
         webView.callAsyncJavaScript("window.__folioEmit?.(type, id)", arguments: ["type": type, "id": id], in: nil, in: .page) { _ in }
     }
 
@@ -205,7 +211,11 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             case .preview:
                 // The preview shows the file: unsaved typing would be lost on the way back.
                 guard scrollHost.source.flushSave() else { return }
-                _ = try? await webView.callAsyncJavaScript("await window.__folioReload?.()", in: nil, contentWorld: .page)
+                if let native = scrollHost.native {
+                    native.reloadFromDisk()
+                } else {
+                    _ = try? await webView.callAsyncJavaScript("await window.__folioReload?.()", in: nil, contentWorld: .page)
+                }
             }
             // Annotation actions are kept in the preview's history or the text view's; Undo in
             // one mode must not reach past what was done in the other.
@@ -215,7 +225,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             scrollHost.restoreScroll(fraction, for: 1.5)
             annotations.refreshMode()
             syncButtons()
-            window?.makeFirstResponder(new == .source ? scrollHost.source.textView : webView)
+            window?.makeFirstResponder(new == .source ? scrollHost.source.textView : (scrollHost.native?.textView ?? webView))
         }
     }
 
@@ -251,7 +261,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     }
 
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
-        window?.makeFirstResponder(mode == .source ? scrollHost.source.textView : webView)
+        window?.makeFirstResponder(mode == .source ? scrollHost.source.textView : (scrollHost.native?.textView ?? webView))
     }
 
     private func syncButtons() {

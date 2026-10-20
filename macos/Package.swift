@@ -14,11 +14,14 @@ let infoPlist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appe
 let package = Package(
     name: "Folio",
     platforms: [.macOS("13.3")],
+    dependencies: [
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.5.0"),
+    ],
     targets: [
         .target(name: "CFolio"),
         .executableTarget(
             name: "Folio",
-            dependencies: ["CFolio"],
+            dependencies: ["CFolio", .product(name: "Markdown", package: "swift-markdown")],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .unsafeFlags(["-L", rustLib]),
