@@ -181,19 +181,25 @@ struct PreviewBuilder {
     private mutating func codeBlock(_ code: CodeBlock, _ context: Context) {
         var text = code.code
         while text.hasSuffix("\n") { text.removeLast() }
+        let start = result.text.length
         paragraph(context) { builder, style in
             var mono = style
             mono.code = true
             builder.leaf(text, of: code, mono)
         }
-        // Set apart from the text around it.
-        let end = result.text.length
-        if let last = result.text.attribute(.paragraphStyle, at: end - 1, effectiveRange: nil) as? NSParagraphStyle,
+        // Its lines are one block: no paragraph gap between them, and room after the last.
+        let block = NSRange(location: start, length: result.text.length - start)
+        if let style = (result.text.attribute(.paragraphStyle, at: block.location, effectiveRange: nil) as? NSParagraphStyle)?
+            .mutableCopy() as? NSMutableParagraphStyle {
+            style.paragraphSpacing = 0
+            style.headIndent += 12
+            style.firstLineHeadIndent += 12
+            result.text.addAttribute(.paragraphStyle, value: style, range: block)
+        }
+        if let last = result.text.attribute(.paragraphStyle, at: block.upperBound - 1, effectiveRange: nil) as? NSParagraphStyle,
            let spaced = last.mutableCopy() as? NSMutableParagraphStyle {
             spaced.paragraphSpacing = 14
-            spaced.headIndent += 12
-            spaced.firstLineHeadIndent += 12
-            result.text.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: end - 1, length: 1))
+            result.text.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: block.upperBound - 1, length: 1))
         }
     }
 
