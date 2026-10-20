@@ -14,20 +14,19 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
     private var loaded = false
     private var last: Task<Void, Never>?
 
-    /// The diagram as a picture, in the app's light or dark look, or nil when it does not draw.
-    func render(_ code: String) async -> NSImage? {
+    /// The diagram as a picture, in a light or dark look, or nil when it does not draw.
+    func render(_ code: String, dark: Bool) async -> NSImage? {
         let before = last
         let job = Task { @MainActor [self] () -> NSImage? in
             await before?.value
-            return await draw(code)
+            return await draw(code, dark: dark)
         }
         last = Task { _ = await job.value }
         return await job.value
     }
 
-    private func draw(_ code: String) async -> NSImage? {
+    private func draw(_ code: String, dark: Bool) async -> NSImage? {
         guard await load(), let webView, let window else { return nil }
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let answer: Any?
         do {
             answer = try await webView.callAsyncJavaScript(

@@ -120,7 +120,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
         storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
             guard let asset = value as? PreviewAsset, requested.insert(asset.key).inserted else { return }
             Task { @MainActor [weak self] in
-                if let image = await asset.load() {
+                if let image = await asset.load(dark: self?.isDark ?? false) {
                     self?.pictures[asset.key] = image
                 } else if let image = asset.placeholder() {
                     self?.stand[asset.key] = image
@@ -151,9 +151,22 @@ final class NativePreviewView: NSView, AnnotationSurface {
         }
     }
 
-    /// Whether the picture `key` of the text has loaded (the self-test asks).
-    func hasPicture(_ kind: String) -> Bool {
-        pictures.keys.contains { $0.hasPrefix(kind) }
+    /// The picture of a kind that has loaded (`"mermaid:"`), for the self-test.
+    func picture(_ kind: String) -> NSImage? {
+        pictures.first { $0.key.hasPrefix(kind) }?.value
+    }
+
+    private var isDark: Bool {
+        effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    /// Diagrams are drawn in a look, so a change of appearance draws them again.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        let drawn = requested.filter { $0.hasPrefix("mermaid:") }
+        guard !drawn.isEmpty, drawn.count == requested.count || !pictures.isEmpty else { return }
+        requested.subtract(drawn)
+        loadPictures()
     }
 
     private func contentHeight(minHeight: CGFloat) -> CGFloat {

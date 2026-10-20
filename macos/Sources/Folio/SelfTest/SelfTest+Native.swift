@@ -32,7 +32,7 @@ extension SelfTest {
             return layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + textView.textContainerOrigin.y < 60
         }
         await check("a mermaid diagram is drawn (by the hidden web view) and shown as a picture") {
-            await self.until(seconds: 40) { self.nativeView.hasPicture("mermaid:") }
+            await self.until(seconds: 40) { self.nativeView.picture("mermaid:") != nil }
         }
         await check("the page is as tall as its text, which the window scrolls") {
             self.controller.scrollHost.contentHeight >= textView.frame.height - 1 && textView.frame.height > 200
@@ -260,7 +260,7 @@ extension SelfTest {
             }
         }
         // Needs the network, like the page's check: a failure says where.
-        report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.nativeView.hasPicture("plantuml:") })
+        report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.nativeView.picture("plantuml:") != nil })
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             controller.scrollHost.contentView.scroll(to: .zero)
             controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)

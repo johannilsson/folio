@@ -10,6 +10,8 @@ extension SelfTest {
         replaceFile((try? String(contentsOf: source, encoding: .utf8)) ?? "")
         _ = await until { self.nativeText.contains("The last paragraph.") && self.controller.currentStore.pending.isEmpty }
 
+        await darkDiagramChecks()
+
         // Find: the Edit menu focuses the toolbar's search field, Return selects the next match.
         let find = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }?.item(withTitle: "Find…")
         if let find, let action = find.action { send(NSStringFromSelector(action)) }
@@ -71,6 +73,27 @@ extension SelfTest {
         host.reflectScrolledClipView(host.contentView)
         replaceFile((try? String(contentsOf: source, encoding: .utf8)) ?? "")
         await setChecksNative()
+    }
+
+    /// Diagrams are drawn for the look the window has, and again when it changes.
+    private func darkDiagramChecks() async {
+        func background(_ image: NSImage?) -> CGFloat? {
+            guard let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
+            return rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB)?.brightnessComponent
+        }
+        controller.window?.appearance = NSAppearance(named: .aqua)
+        _ = await until(seconds: 20) { background(self.nativeView.picture("mermaid:")).map { $0 > 0.8 } ?? false }
+        await check("a diagram is drawn light in a light window") { background(self.nativeView.picture("mermaid:")).map { $0 > 0.8 } ?? false }
+        controller.window?.appearance = NSAppearance(named: .darkAqua)
+        await check("and drawn again, dark, when the window turns dark") {
+            await self.until(seconds: 20) { background(self.nativeView.picture("mermaid:")).map { $0 < 0.3 } ?? false }
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            controller.scrollHost.contentView.scroll(to: .zero)
+            controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)
+            await snapshot("\(base)-dark.png")
+        }
+        controller.window?.appearance = nil
     }
 
     /// A set's window on the native preview: the sidebar switches the file shown, in place, and each file keeps its place.

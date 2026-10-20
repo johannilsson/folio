@@ -31,7 +31,7 @@ final class PreviewAsset: NSObject {
 
     /// The picture, or nil when it cannot be had (a missing file, no network).
     @MainActor
-    func load() async -> NSImage? {
+    func load(dark: Bool) async -> NSImage? {
         switch kind {
         case .image(let url):
             return await Self.fetch(url)
@@ -39,7 +39,7 @@ final class PreviewAsset: NSObject {
             guard let url = URL(string: "\(AppConfig.plantumlURL)/png/\(PlantUML.encode(code))") else { return nil }
             return await Self.fetch(url)
         case .mermaid(let code):
-            return await MermaidRenderer.shared.render(code)
+            return await MermaidRenderer.shared.render(code, dark: dark)
         }
     }
 
