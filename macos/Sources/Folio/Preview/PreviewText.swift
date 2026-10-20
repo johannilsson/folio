@@ -1,9 +1,27 @@
 import AppKit
 
 extension NSAttributedString.Key {
+    /// On a paragraph that may be wider than the text column (a picture): it starts where the text does
+    /// and may run on to the right edge of the window.
+    static let folioWide = NSAttributedString.Key("folioWide")
+
     /// Marks the preview of a suggestion (the text a `replace` or `insert` would put in). The value is
     /// the annotation's id. The text is in the view but not in the file.
     static let folioGhost = NSAttributedString.Key("folioGhost")
+}
+
+/// A table of the text. Its width and its place are the view's to set once it knows how wide the window is
+/// (`NativePreviewView.applyColumn`): at least as wide as the text column, wider when its content asks for it.
+final class PreviewTable {
+    let grid: NSTextTable
+    /// The cells of the first column, which carry the table's left margin.
+    var firstColumn: [NSTextTableBlock] = []
+    /// How wide the table is when no cell has to wrap.
+    var natural: CGFloat = 0
+
+    init(grid: NSTextTable) {
+        self.grid = grid
+    }
 }
 
 /// The rendered text of a markdown file, and how its characters line up with the file's. Everything
@@ -22,6 +40,7 @@ struct PreviewText {
 
     var text = NSMutableAttributedString()
     var segments: [Segment] = []
+    var tables: [PreviewTable] = []
 
     private var sourced: [Segment] { segments.filter { $0.source != nil } }
 

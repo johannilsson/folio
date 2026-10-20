@@ -179,6 +179,7 @@ extension SelfTest {
         }
 
         await blockChecks()
+        await wideBlockChecks()
         await nativeParityChecks()
 
         // Another program replaces the file the way agents do.
@@ -323,6 +324,94 @@ extension SelfTest {
             controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)
             await snapshot("\(base)-blocks.png")
         }
+    }
+
+    /// Tables and pictures may be wider than the text column, up to the right side of a wide window;
+    /// the text, and anything narrower, keeps the column.
+    func wideBlockChecks() async {
+        let textView = nativeView.textView
+        if pane.commentsOn {
+            send("toggleComments:")
+            _ = await until { !self.pane.commentsOn && self.controller.scrollHost.paneWidth == 0 }
+        }
+        controller.window?.setContentSize(NSSize(width: 1500, height: 800))
+        let wide = NSImage(size: NSSize(width: 1300, height: 100), flipped: false) { rect in
+            NSColor.systemOrange.setFill()
+            rect.fill()
+            return true
+        }
+        if let tiff = wide.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: dir.appendingPathComponent("wide.png"))
+        }
+        let headers = (1...8).map { "Alphabetical\($0)" }
+        let md = """
+        # Wide
+
+        A paragraph of text that stays in its column however wide the window is, so that its margins can be compared.
+
+        ![wide](wide.png)
+
+        | \(headers.joined(separator: " | ")) |
+        |\(String(repeating: "---|", count: 8))
+        | \((1...8).map { "value-number-\($0)" }.joined(separator: " | ")) |
+
+        | Short | Table |
+        |---|---|
+        | a | b |
+        """
+        replaceFile(md)
+        _ = await until(seconds: 8) { self.nativeText.contains("Alphabetical8") }
+        guard let layout = textView.layoutManager, let container = textView.textContainer else {
+            report("the text view has a layout", false)
+            return
+        }
+        let origin = textView.textContainerOrigin
+        func extent(_ word: String) -> (min: CGFloat, max: CGFloat)? {
+            let at = (self.nativeText as NSString).range(of: word)
+            guard at.location != NSNotFound else { return nil }
+            let rect = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: at, actualCharacterRange: nil), in: container)
+            return (rect.minX + origin.x, rect.maxX + origin.x)
+        }
+        let column: CGFloat = 760
+        let side = (container.size.width - column) / 2
+        let textLeft = origin.x + side
+        await check("a window wider than the text column leaves the text in its column") {
+            guard let paragraph = extent("A paragraph") else { return false }
+            return abs(paragraph.min - textLeft) < 2 && textView.columnInset > 100
+        }
+        await check("a picture wider than the column starts at the column's left edge and runs past its right edge") {
+            let ok = await self.until(seconds: 10) {
+                guard let storage = textView.textStorage else { return false }
+                var width: CGFloat = 0
+                storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                    if let attachment = value as? NSTextAttachment, attachment.image != nil { width = max(width, attachment.bounds.width) }
+                }
+                return width > column + 100
+            }
+            if !ok { print("    container \(container.size.width), column inset \(textView.columnInset)") }
+            return ok
+        }
+        await check("a table whose content is wider than the column is wider than it, from the same left edge") {
+            guard let first = extent("Alphabetical1"), let last = extent("value-number-8") else {
+                print("    cells not found")
+                return false
+            }
+            let ok = abs(first.min - textLeft) < 16 && last.max > textLeft + column + 20 && last.max < origin.x + container.size.width
+            if !ok { print("    text left \(textLeft), first cell \(first), last cell \(last), container \(container.size.width)") }
+            return ok
+        }
+        await check("a small table is as wide as the text column") {
+            guard let a = extent("Short"), let b = extent("Table") else { return false }
+            let ok = abs(a.min - textLeft) < 16 && b.max <= textLeft + column + 2 && b.max > textLeft + column - 80
+            if !ok { print("    text left \(textLeft), cells \(a) \(b)") }
+            return ok
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            controller.scrollHost.contentView.scroll(to: .zero)
+            controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)
+            await snapshot("\(base)-wide.png")
+        }
+        controller.window?.setContentSize(NSSize(width: 1100, height: 800))
     }
 
     private func finishNative() {

@@ -286,9 +286,11 @@ struct PreviewBuilder {
 
     /// A picture in a block of its own: one character the view fills in once the picture is loaded.
     private mutating func picture(_ asset: PreviewAsset, of node: Markup, _ context: Context) {
+        let start = result.text.length
         paragraph(context) { builder, style in
             builder.emitPicture(asset, of: node, builder.attributes(style))
         }
+        result.text.addAttribute(.folioWide, value: true, range: NSRange(location: start, length: result.text.length - start))
     }
 
     private mutating func emitPicture(_ asset: PreviewAsset, of node: Markup, _ attributes: [NSAttributedString.Key: Any]) {
@@ -311,6 +313,8 @@ struct PreviewBuilder {
         let grid = NSTextTable()
         grid.numberOfColumns = columns
         grid.collapsesBorders = true
+        let info = PreviewTable(grid: grid)
+        var widest = [CGFloat](repeating: 0, count: columns)
         for (r, row) in rows.enumerated() {
             for c in 0..<columns {
                 let block = NSTextTableBlock(table: grid, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
@@ -328,10 +332,16 @@ struct PreviewBuilder {
                 style.bold = r == 0
                 style.quoted = context.quoted
                 if c < row.count { inlines(of: row[c], style) }
+                // What the cell needs on one line, and its padding and border.
+                let needed = result.text.attributedSubstring(from: NSRange(location: start, length: result.text.length - start)).size().width
+                widest[c] = max(widest[c], ceil(needed) + 13)
+                if c == 0 { info.firstColumn.append(block) }
                 emit("\n", source: nil, linear: false, attributes(style))
                 result.text.addAttribute(.paragraphStyle, value: layout, range: NSRange(location: start, length: result.text.length - start))
             }
         }
+        info.natural = widest.reduce(0, +)
+        result.tables.append(info)
         // Room after the table.
         var gap = Style()
         gap.quoted = context.quoted

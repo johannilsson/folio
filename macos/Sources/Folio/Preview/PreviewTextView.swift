@@ -11,6 +11,13 @@ final class PreviewTextView: NSTextView {
     /// A key press to offer the annotation shortcuts first. Returns whether it was used.
     var keyHandler: ((NSEvent) -> Bool)?
 
+    /// How far the text column is in from each side of the text container: the text is a column in
+    /// the middle, and tables and pictures may be wider than it. The blocks painted behind the text
+    /// follow the column.
+    var columnInset: CGFloat = 0 {
+        didSet { if columnInset != oldValue { needsDisplay = true } }
+    }
+
     init() {
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -39,7 +46,7 @@ final class PreviewTextView: NSTextView {
         super.drawBackground(in: rect)
         guard let storage = textStorage, let layoutManager, let container = textContainer, storage.length > 0 else { return }
         let origin = textContainerOrigin
-        let left = origin.x, right = origin.x + container.size.width
+        let left = origin.x + columnInset, right = origin.x + container.size.width - columnInset
         let whole = NSRange(location: 0, length: storage.length)
         func box(_ range: NSRange) -> NSRect {
             var found = layoutManager.boundingRect(forGlyphRange: layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), in: container)

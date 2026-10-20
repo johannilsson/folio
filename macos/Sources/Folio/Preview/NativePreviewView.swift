@@ -6,8 +6,10 @@ import AppKit
 /// from Rust against the markdown itself; `PreviewText` maps between that and what is on screen.
 @MainActor
 final class NativePreviewView: NSView, AnnotationSurface {
-    private static let column: CGFloat = 760
     private static let insets = NSSize(width: 32, height: 24)
+    /// The text column. A window wider than it leaves the rest at the sides, which only tables and
+    /// pictures use.
+    private static let column: CGFloat = 760
 
     let textView = PreviewTextView()
     private(set) var document: Document?
@@ -33,6 +35,11 @@ final class NativePreviewView: NSView, AnnotationSurface {
     private var flash: String?
     private var lastLayoutWidth: CGFloat = 0
     private var lastReportedWidth: CGFloat = 0
+    /// How wide the text container is, and how far the text column is in from its sides.
+    private var containerWidth: CGFloat = 0
+    private var side: CGFloat = 0
+    /// The `side` the paragraph styles of the text have now.
+    private var appliedSide: CGFloat = 0
     private var rebuilding = false
     /// The pictures (images, diagrams) asked for and had, by `PreviewAsset.key`.
     private var requested: Set<String> = []
@@ -85,6 +92,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
         rebuilding = true
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
+        appliedSide = 0
+        applyColumn()
         loadPictures()
         loadHighlights()
         applyHighlights()
@@ -100,10 +109,13 @@ final class NativePreviewView: NSView, AnnotationSurface {
     func layoutContent(width: CGFloat, minHeight: CGFloat) -> CGFloat {
         let width = max(width, 200)
         lastLayoutWidth = width
-        let side = max(Self.insets.width, (width - Self.column) / 2)
-        let inset = NSSize(width: side, height: Self.insets.height)
+        let inset = Self.insets
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
+        containerWidth = max(100, width - 2 * inset.width)
+        side = max(0, (containerWidth - Self.column) / 2)
+        textView.columnInset = side
         textView.frame = NSRect(x: 0, y: 0, width: width, height: max(textView.frame.height, 1))
+        applyColumn()
         fitPictures()
         let before = frame.height
         let height = contentHeight(minHeight: minHeight)
@@ -115,6 +127,44 @@ final class NativePreviewView: NSView, AnnotationSurface {
             reportAnchors()
         }
         return height
+    }
+
+    // MARK: the text column
+
+    /// Puts the text in its column: each paragraph is indented by `side` and stops short of the right
+    /// side by as much, except the ones that may be wider (pictures) and the tables, whose width and
+    /// left margin are set here too.
+    private func applyColumn() {
+        guard let storage = textView.textStorage else { return }
+        let delta = side - appliedSide
+        if abs(delta) > 0.01, storage.length > 0 {
+            appliedSide = side
+            let text = storage.string as NSString
+            var changes: [(NSRange, NSParagraphStyle)] = []
+            var at = 0
+            while at < text.length {
+                let paragraph = text.paragraphRange(for: NSRange(location: at, length: 0))
+                at = paragraph.upperBound
+                guard let style = storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle,
+                      style.textBlocks.isEmpty, let copy = style.mutableCopy() as? NSMutableParagraphStyle else { continue }
+                copy.headIndent += delta
+                copy.firstLineHeadIndent += delta
+                if storage.attribute(.folioWide, at: paragraph.location, effectiveRange: nil) == nil { copy.tailIndent -= delta }
+                copy.tabStops = style.tabStops.map { NSTextTab(textAlignment: $0.alignment, location: $0.location + delta, options: $0.options) }
+                changes.append((paragraph, copy))
+            }
+            storage.beginEditing()
+            for (range, style) in changes { storage.addAttribute(.paragraphStyle, value: style, range: range) }
+            storage.endEditing()
+        }
+        // A table is at least as wide as the text, and as wide as its content needs up to the right
+        // side of the window; it starts where the text does.
+        let column = min(containerWidth, Self.column)
+        for table in model.tables {
+            let width = min(max(table.natural, column), max(column, containerWidth - side))
+            table.grid.setContentWidth(width, type: .absoluteValueType)
+            for block in table.firstColumn { block.setWidth(side, type: .absoluteValueType, for: .margin, edge: .minX) }
+        }
     }
 
     // MARK: pictures
@@ -173,10 +223,13 @@ final class NativePreviewView: NSView, AnnotationSurface {
     /// Gives each loaded picture its size: its own, or the width of the text.
     private func fitPictures() {
         guard let storage = textView.textStorage, let layoutManager = textView.layoutManager, let container = textView.textContainer else { return }
-        let available = max(100, container.size.width)
+        let whole = max(100, containerWidth > 0 ? containerWidth : container.size.width)
         storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
             guard let asset = value as? PreviewAsset, let image = pictures[asset.key] ?? stand[asset.key], image.size.width > 0,
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { return }
+            // A picture in a block of its own may be wider than the text; one in a sentence is not.
+            let wide = storage.attribute(.folioWide, at: range.location, effectiveRange: nil) != nil
+            let available = wide ? whole - side : min(whole, Self.column)
             let scale = min(1, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
             if attachment.image !== image {
@@ -273,6 +326,8 @@ final class NativePreviewView: NSView, AnnotationSurface {
             textView.textStorage?.setAttributedString(model.text)
             textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: model.text.length)))
             rebuilding = false
+            appliedSide = 0
+            applyColumn()
             applyHighlights()
             fitPictures()
             relayout()
