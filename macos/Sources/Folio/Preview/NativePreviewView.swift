@@ -33,6 +33,9 @@ final class NativePreviewView: NSView, AnnotationSurface {
     private var flash: String?
     private var lastLayoutWidth: CGFloat = 0
     private var rebuilding = false
+    /// The pictures (images, diagrams) asked for and had, by `PreviewAsset.key`.
+    private var requested: Set<String> = []
+    private var pictures: [String: NSImage] = [:]
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -70,12 +73,13 @@ final class NativePreviewView: NSView, AnnotationSurface {
 
     private func setMarkdown(_ text: String) {
         markdown = text
-        base = PreviewBuilder.build(text)
+        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent())
         ghosts = []
         model = base
         rebuilding = true
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
+        loadPictures()
     }
 
     // MARK: layout
@@ -89,10 +93,50 @@ final class NativePreviewView: NSView, AnnotationSurface {
         let inset = NSSize(width: side, height: Self.insets.height)
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
         textView.frame = NSRect(x: 0, y: 0, width: width, height: max(textView.frame.height, 1))
+        fitPictures()
         let height = contentHeight(minHeight: minHeight)
         textView.frame.size.height = height
         frame = NSRect(x: 0, y: 0, width: width, height: height)
         return height
+    }
+
+    // MARK: pictures
+
+    /// Asks for each picture of the text that is not here yet.
+    private func loadPictures() {
+        guard let storage = textView.textStorage else { return }
+        storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let asset = value as? PreviewAsset, requested.insert(asset.key).inserted else { return }
+            Task { @MainActor [weak self] in
+                guard let image = await asset.load() else { return }
+                self?.pictures[asset.key] = image
+                self?.fitPictures()
+                self?.relayout()
+                self?.reportAnchors()
+            }
+        }
+    }
+
+    /// Gives each loaded picture its size: its own, or the width of the text.
+    private func fitPictures() {
+        guard let storage = textView.textStorage, let layoutManager = textView.layoutManager, let container = textView.textContainer else { return }
+        let available = max(100, container.size.width)
+        storage.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard let asset = value as? PreviewAsset, let image = pictures[asset.key], image.size.width > 0,
+                  let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { return }
+            let scale = min(1, available / image.size.width)
+            let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            if attachment.image !== image { attachment.image = image }
+            if attachment.bounds.size != size {
+                attachment.bounds = NSRect(origin: .zero, size: size)
+                layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+            }
+        }
+    }
+
+    /// Whether the picture `key` of the text has loaded (the self-test asks).
+    func hasPicture(_ kind: String) -> Bool {
+        pictures.keys.contains { $0.hasPrefix(kind) }
     }
 
     private func contentHeight(minHeight: CGFloat) -> CGFloat {
@@ -158,6 +202,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
             textView.textStorage?.setAttributedString(model.text)
             textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: model.text.length)))
             rebuilding = false
+            fitPictures()
             relayout()
         }
         ghostRanges = [:]

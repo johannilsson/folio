@@ -175,6 +175,8 @@ extension SelfTest {
             await self.until(seconds: 8) { !self.controller.sourceOn && !self.nativeView.isHidden && self.nativeText.hasPrefix("ZZ# Self-test document") }
         }
 
+        await blockChecks()
+
         // Another program replaces the file the way agents do.
         replaceFile(disk() + "\nAdded by another program.\n")
         await check("an atomic replace from outside shows in the preview") {
@@ -184,6 +186,82 @@ extension SelfTest {
             await self.until { self.nativeView.ranges.count == self.controller.currentStore.pending.count }
         }
         finishNative()
+    }
+
+    /// Tables, images and diagrams, on a document of their own.
+    func blockChecks() async {
+        let textView = nativeView.textView
+        replaceSidecar([])
+        let image = NSImage(size: NSSize(width: 80, height: 40), flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        if let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: dir.appendingPathComponent("pic.png"))
+        }
+        let md = """
+        # Blocks
+
+        ![a picture](pic.png)
+
+        | Name | Count |
+        |:-----|------:|
+        | one  | 1 |
+        | two  | 2 |
+
+        1. first
+        2. second
+
+        - [x] done
+        - [ ] open
+
+        ```plantuml
+        @startuml
+        Alice -> Bob: hello
+        @enduml
+        ```
+
+        After.
+        """
+        replaceFile(md)
+        await check("a table is drawn as cells, without its pipes and rule row") {
+            await self.until(seconds: 8) { self.nativeText.contains("Count") }
+                && !self.nativeText.contains("|") && !self.nativeText.contains("---")
+        }
+        await check("each cell is in a table block of the text view") {
+            let at = (self.nativeText as NSString).range(of: "two").location
+            guard at != NSNotFound,
+                  let style = textView.textStorage?.attribute(.paragraphStyle, at: at, effectiveRange: nil) as? NSParagraphStyle else { return false }
+            return !style.textBlocks.isEmpty
+        }
+        await check("a selection in a cell maps to its words in the file") {
+            let shown = (self.nativeText as NSString).range(of: "two")
+            textView.setSelectedRange(shown)
+            return await self.until { self.pane.selection?.target == "two" }
+                && self.pane.selection?.from == (md as NSString).range(of: "two").location
+        }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        await check("numbers and task boxes are drawn, and are not in the file") {
+            self.nativeText.contains("1.\tfirst") && self.nativeText.contains("☑\tdone") && self.nativeText.contains("☐\topen")
+        }
+        await check("a local image is loaded and shown at its own size") {
+            await self.until(seconds: 8) {
+                guard let storage = textView.textStorage else { return false }
+                var found = false
+                storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                    if let attachment = value as? NSTextAttachment, attachment.image != nil, attachment.bounds.width == 80 { found = true }
+                }
+                return found
+            }
+        }
+        // Needs the network, like the page's check: a failure says where.
+        report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.nativeView.hasPicture("plantuml:") })
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            controller.scrollHost.contentView.scroll(to: .zero)
+            controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)
+            await snapshot("\(base)-blocks.png")
+        }
     }
 
     private func finishNative() {

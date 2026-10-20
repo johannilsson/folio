@@ -15,6 +15,8 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
+    /// Where PlantUML diagrams are drawn (the page and the native preview both ask it).
+    static let plantumlURL = "https://www.plantuml.com/plantuml"
     /// The preview is drawn natively instead of by the web page (`-NativePreview YES`, or the
     /// `NativePreview` default), while the native preview is being built up to parity.
     static var nativePreview: Bool { UserDefaults.standard.bool(forKey: "NativePreview") }

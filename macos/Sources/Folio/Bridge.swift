@@ -61,7 +61,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 "id": document.id,
                 "filename": document.file.lastPathComponent,
                 "set": workspace.setName ?? NSNull(),
-                "plantumlUrl": "https://www.plantuml.com/plantuml",
+                "plantumlUrl": AppConfig.plantumlURL,
             ] as [String: Any]
         case "layout":
             onLayout?((body["height"] as? NSNumber)?.doubleValue ?? 0)

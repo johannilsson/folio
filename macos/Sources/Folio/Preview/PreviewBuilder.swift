@@ -24,6 +24,8 @@ struct PreviewBuilder {
     static let bodySize: CGFloat = 15
 
     private let markdown: String
+    /// Where relative image paths start: the folder of the file.
+    private let base: URL?
     private let source: NSString
     private var lineStarts = [0]
     private var utf16At: [Int] = []
@@ -31,15 +33,16 @@ struct PreviewBuilder {
     /// Where the block being written starts, when a list marker has been written ahead of it.
     private var blockStart: Int?
 
-    static func build(_ markdown: String) -> PreviewText {
-        var builder = PreviewBuilder(markdown)
+    static func build(_ markdown: String, base: URL? = nil) -> PreviewText {
+        var builder = PreviewBuilder(markdown, base: base)
         let document = Markdown.Document(parsing: markdown)
         builder.blocks(of: document, Context())
         return builder.result
     }
 
-    private init(_ markdown: String) {
+    private init(_ markdown: String, base: URL?) {
         self.markdown = markdown
+        self.base = base
         source = markdown as NSString
         // swift-markdown counts columns in UTF-8 bytes; the app counts UTF-16 units.
         var byte = 0, unit = 0
@@ -143,6 +146,8 @@ struct PreviewBuilder {
             paragraph(context) { $0.inlines(of: text, $1) }
         case let code as CodeBlock:
             codeBlock(code, context)
+        case let table as Markdown.Table:
+            self.table(table, context)
         case let quote as BlockQuote:
             var inner = context
             inner.quoted = true
@@ -181,6 +186,10 @@ struct PreviewBuilder {
     private mutating func codeBlock(_ code: CodeBlock, _ context: Context) {
         var text = code.code
         while text.hasSuffix("\n") { text.removeLast() }
+        if code.language?.lowercased() == "plantuml" {
+            picture(PreviewAsset(.plantuml(text)), of: code, context)
+            return
+        }
         let start = result.text.length
         paragraph(context) { builder, style in
             var mono = style
@@ -203,6 +212,60 @@ struct PreviewBuilder {
         }
     }
 
+    /// A picture in a block of its own: one character the view fills in once the picture is loaded.
+    private mutating func picture(_ asset: PreviewAsset, of node: Markup, _ context: Context) {
+        paragraph(context) { builder, style in
+            builder.emitPicture(asset, of: node, builder.attributes(style))
+        }
+    }
+
+    private mutating func emitPicture(_ asset: PreviewAsset, of node: Markup, _ attributes: [NSAttributedString.Key: Any]) {
+        let attachment = NSTextAttachment()
+        attachment.bounds = NSRect(x: 0, y: 0, width: 1, height: 1)
+        var tagged = attributes
+        tagged[.attachment] = attachment
+        tagged[.folioAsset] = asset
+        emit("\u{FFFC}", source: range(of: node), linear: false, tagged)
+    }
+
+    // MARK: tables
+
+    private mutating func table(_ table: Markdown.Table, _ context: Context) {
+        let rows: [[Markdown.Table.Cell]] =
+            [table.head.children.compactMap { $0 as? Markdown.Table.Cell }]
+            + table.body.children.compactMap { ($0 as? Markdown.Table.Row)?.children.compactMap { $0 as? Markdown.Table.Cell } }
+        let columns = rows.map(\.count).max() ?? 0
+        guard columns > 0 else { return }
+        let grid = NSTextTable()
+        grid.numberOfColumns = columns
+        grid.collapsesBorders = true
+        for (r, row) in rows.enumerated() {
+            for c in 0..<columns {
+                let block = NSTextTableBlock(table: grid, startingRow: r, rowSpan: 1, startingColumn: c, columnSpan: 1)
+                block.setWidth(0.5, type: .absoluteValueType, for: .border)
+                block.setBorderColor(NSColor.separatorColor)
+                block.setWidth(6, type: .absoluteValueType, for: .padding)
+                if r == 0 { block.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06) }
+                let layout = NSMutableParagraphStyle()
+                layout.textBlocks = [block]
+                if c < table.columnAlignments.count, let alignment = table.columnAlignments[c] {
+                    layout.alignment = alignment == .center ? .center : (alignment == .right ? .right : .left)
+                }
+                let start = result.text.length
+                var style = Style()
+                style.bold = r == 0
+                style.quoted = context.quoted
+                if c < row.count { inlines(of: row[c], style) }
+                emit("\n", source: nil, linear: false, attributes(style))
+                result.text.addAttribute(.paragraphStyle, value: layout, range: NSRange(location: start, length: result.text.length - start))
+            }
+        }
+        // Room after the table.
+        var gap = Style()
+        gap.quoted = context.quoted
+        emit("\n", source: nil, linear: false, attributes(gap).merging([.font: NSFont.systemFont(ofSize: 6)]) { _, new in new })
+    }
+
     private mutating func listItem(_ item: ListItem, marker: String?, _ context: Context) {
         var inner = context
         inner.indent += 22
@@ -218,6 +281,12 @@ struct PreviewBuilder {
     }
 
     // MARK: inline
+
+    private func imageURL(_ path: String) -> URL? {
+        if let url = URL(string: path), url.scheme != nil { return url }
+        guard let base else { return nil }
+        return URL(fileURLWithPath: path.removingPercentEncoding ?? path, relativeTo: base).standardizedFileURL
+    }
 
     private mutating func inlines(of parent: Markup, _ style: Style) {
         for child in parent.children { inline(child, style) }
@@ -235,6 +304,12 @@ struct PreviewBuilder {
             emit(" ", source: range(of: node), linear: true, attributes(style))
         case is LineBreak:
             emit("\n", source: range(of: node), linear: false, attributes(style))
+        case let image as Image:
+            if let place = image.source.flatMap({ imageURL($0) }) {
+                emitPicture(PreviewAsset(.image(place)), of: node, attributes(style))
+            } else {
+                inlines(of: node, style)
+            }
         case let html as InlineHTML:
             next.code = true
             leaf(html.rawHTML, of: node, next)
