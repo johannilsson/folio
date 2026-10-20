@@ -141,14 +141,15 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
 
     // MARK: content
 
-    func reload() {
+    /// `recents` is the list to show when the caller knows it, as after changing it; otherwise AppKit's.
+    func reload(recents known: [URL]? = nil) {
         var next: [Row] = []
         let sets = ((try? Rust.setNames()) ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         if !sets.isEmpty {
             next.append(.header("Sets"))
             next += sets.map { .set(name: $0, files: (try? Rust.setLoad($0).files.count) ?? 0) }
         }
-        let recents = NSDocumentController.shared.recentDocumentURLs
+        let recents = known ?? NSDocumentController.shared.recentDocumentURLs
         if !recents.isEmpty {
             next.append(.header("Recent Files"))
             next += recents.map { .file($0) }
@@ -196,7 +197,24 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         let keep = controller.recentDocumentURLs.filter { $0.resolvingSymlinksInPath() != url.resolvingSymlinksInPath() }
         controller.clearRecentDocuments(nil)
         for other in keep.reversed() { controller.noteNewRecentDocumentURL(other) }
-        reload()
+        // AppKit can take a moment to apply the list, so a read right now may still be empty.
+        reload(recents: keep)
+        restoreRecents(keep, attempts: 15)
+    }
+
+    /// AppKit can apply the clear after the notes that follow it, which leaves the list empty for good.
+    /// Look again shortly, and note the rest once more if any is missing. Noting a file that is
+    /// already listed only moves it to the front, so the order is kept.
+    private func restoreRecents(_ keep: [URL], attempts: Int) {
+        guard attempts > 0 else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            let controller = NSDocumentController.shared
+            let listed = Set(controller.recentDocumentURLs.map { $0.resolvingSymlinksInPath() })
+            guard !Set(keep.map { $0.resolvingSymlinksInPath() }).isSubset(of: listed) else { return }
+            for other in keep.reversed() { controller.noteNewRecentDocumentURL(other) }
+            self?.restoreRecents(keep, attempts: attempts - 1)
+        }
     }
 
     /// Return opens the selection, as a double-click does.
