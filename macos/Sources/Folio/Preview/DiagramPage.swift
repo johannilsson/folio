@@ -75,12 +75,12 @@ final class DiagramPage: NSObject, WKNavigationDelegate {
         try? await Task.sleep(nanoseconds: 150_000_000)
         let configuration = WKSnapshotConfiguration()
         configuration.rect = NSRect(x: 0, y: 0, width: width, height: height)
-        configuration.snapshotWidth = NSNumber(value: width * 2)
+        configuration.snapshotWidth = NSNumber(value: width * 4)
         guard let image = try? await webView.takeSnapshot(configuration: configuration) else {
             fputs("mermaid: the snapshot failed\n", stderr)
             return nil
         }
-        // Twice the pixels for the same size on screen.
+        // Four times the pixels for the same size on screen: the preview may show it twice as large.
         image.size = NSSize(width: width, height: height)
         return image
     }
@@ -97,6 +97,12 @@ final class DiagramPage: NSObject, WKNavigationDelegate {
             host.contentView = view
             host.isReleasedWhenClosed = false
             host.ignoresMouseEvents = true
+            // Never to be seen, even where the system puts it on a screen.
+            host.alphaValue = 0
+            host.hasShadow = false
+            host.isOpaque = false
+            host.backgroundColor = .clear
+            host.collectionBehavior = [.transient, .ignoresCycle, .stationary]
             host.orderBack(nil)
             webView = view
             window = host

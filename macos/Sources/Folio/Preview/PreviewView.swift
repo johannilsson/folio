@@ -147,7 +147,8 @@ final class PreviewView: NSView, AnnotationSurface {
                 let paragraph = text.paragraphRange(for: NSRange(location: at, length: 0))
                 at = paragraph.upperBound
                 guard let style = storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle,
-                      style.textBlocks.isEmpty, let copy = style.mutableCopy() as? NSMutableParagraphStyle else { continue }
+                      style.textBlocks.isEmpty, storage.attribute(.folioCentered, at: paragraph.location, effectiveRange: nil) == nil,
+                      let copy = style.mutableCopy() as? NSMutableParagraphStyle else { continue }
                 copy.headIndent += delta
                 copy.firstLineHeadIndent += delta
                 if storage.attribute(.folioWide, at: paragraph.location, effectiveRange: nil) == nil { copy.tailIndent -= delta }
@@ -237,8 +238,12 @@ final class PreviewView: NSView, AnnotationSurface {
                   let attachment = storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment else { return }
             // A picture in a block of its own may be wider than the text; one in a sentence is not.
             let wide = storage.attribute(.folioWide, at: range.location, effectiveRange: nil) != nil
-            let available = wide ? whole - side : min(whole, Self.column)
-            let scale = min(1, available / image.size.width)
+            let centered = storage.attribute(.folioCentered, at: range.location, effectiveRange: nil) != nil
+            let available = centered ? whole : (wide ? whole - side : min(whole, Self.column))
+            // A diagram fills the window as it did in the web preview: up to twice its size and 800 points tall
+            // when it is smaller, and the width of the window when it is larger. Pictures are never enlarged.
+            let grow = centered ? max(1, min(2, 800 / max(1, image.size.height))) : 1
+            let scale = min(grow, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
             if attachment.image !== image {
                 attachment.image = image

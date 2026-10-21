@@ -51,6 +51,10 @@ extension SelfTest {
             guard let id = self.pane.focusedID, let card = self.pane.cards[id] else { return false }
             return card.isFloating && card.superview === host.floatingHost
         }
+        await check("the open card is inside the visible part of the window") {
+            guard let id = self.pane.focusedID, let card = self.pane.cards[id] else { return false }
+            return host.visibleDocumentRect.contains(card.frame)
+        }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-overlay.png") }
         _ = pane.handleKey(keyEvent("\u{1b}", [], code: 53))
         await check("Escape closes it") { self.pane.focusedID == nil }

@@ -40,33 +40,43 @@ enum TextSurface {
         for key in [NSAttributedString.Key.backgroundColor, .strikethroughStyle, .strikethroughColor, .underlineStyle, .underlineColor] {
             layoutManager.removeTemporaryAttribute(key, forCharacterRange: whole)
         }
-        func clamped(_ range: NSRange) -> NSRange? {
-            let clipped = NSIntersectionRange(range, whole)
-            return clipped.length > 0 ? clipped : nil
+        // A mark is drawn line by line and never over a line break: the background of a break runs to
+        // the edge of the line, outside the text column.
+        let text = textView.string as NSString
+        func mark(_ attributes: [NSAttributedString.Key: Any], _ range: NSRange) {
+            let range = NSIntersectionRange(range, whole)
+            var start = range.location
+            for index in range.location...max(range.location, range.upperBound) {
+                let atBreak = index < range.upperBound && "\n\r\u{2028}\u{2029}".contains(Character(UnicodeScalar(text.character(at: index)) ?? " "))
+                guard atBreak || index == range.upperBound else { continue }
+                if index > start { layoutManager.addTemporaryAttributes(attributes, forCharacterRange: NSRange(location: start, length: index - start)) }
+                start = index + 1
+            }
         }
         var inserts: [Int] = []
         for annotation in pending {
             guard let range = ranges[annotation.id] else { continue }
             switch annotation.kind {
             case .comment, .highlight:
-                if let range = clamped(range) { layoutManager.addTemporaryAttribute(.backgroundColor, value: purple.withAlphaComponent(0.22), forCharacterRange: range) }
+                mark([.backgroundColor: purple.withAlphaComponent(0.22)], range)
             case .replace, .delete:
-                guard let range = clamped(range) else { continue }
-                layoutManager.addTemporaryAttributes([
+                var attributes: [NSAttributedString.Key: Any] = [
                     .backgroundColor: red.withAlphaComponent(0.12),
                     .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                     .strikethroughColor: red,
-                ], forCharacterRange: range)
+                ]
                 if annotation.kind == .delete {
-                    layoutManager.addTemporaryAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: red], forCharacterRange: range)
+                    attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    attributes[.underlineColor] = red
                 }
+                mark(attributes, range)
             case .insert:
                 inserts.append(range.location)
             default: break
             }
         }
-        if let pendingRange, let range = clamped(pendingRange) {
-            layoutManager.addTemporaryAttribute(.backgroundColor, value: purple.withAlphaComponent(0.4), forCharacterRange: range)
+        if let pendingRange {
+            mark([.backgroundColor: purple.withAlphaComponent(0.4)], pendingRange)
         }
         return inserts
     }

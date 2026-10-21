@@ -1,5 +1,31 @@
 import AppKit
 
+/// A layout manager whose text backgrounds (inline code, marks, suggestions) stay where the text is:
+/// the stock ones run to the edge of the line at a line break and a wrap, outside the text column.
+final class PreviewLayoutManager: NSLayoutManager {
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int, forCharacterRange charRange: NSRange, color: NSColor) {
+        // A table's cells are painted the same way and are not text: the stock fill.
+        let style = textStorage?.attribute(.paragraphStyle, at: min(charRange.location, max(0, (textStorage?.length ?? 1) - 1)), effectiveRange: nil) as? NSParagraphStyle
+        guard let container = textContainers.first, style?.textBlocks.isEmpty ?? true else {
+            super.fillBackgroundRectArray(rectArray, count: rectCount, forCharacterRange: charRange, color: color)
+            return
+        }
+        // The rectangles are in the text view's coordinates; the layout is in the container's.
+        let origin = firstTextView?.textContainerOrigin ?? .zero
+        color.setFill()
+        for index in 0..<rectCount {
+            var rect = rectArray[index]
+            let glyph = glyphIndex(for: NSPoint(x: rect.midX - origin.x, y: rect.midY - origin.y), in: container)
+            let used = lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+            let minX = max(rect.minX, used.minX + origin.x), maxX = min(rect.maxX, used.maxX + origin.x)
+            guard maxX > minX else { continue }
+            rect.origin.x = minX
+            rect.size.width = maxX - minX
+            rect.fill()
+        }
+    }
+}
+
 /// The rendered document as an `NSTextView` the reader can select in but not edit. Like the source,
 /// it is not in a scroll view of its own: `EditorScrollView` scrolls it with the comments pane, so it
 /// is as tall as its text (`PreviewView` sets the height) and laid out whole (TextKit 1).
@@ -23,7 +49,7 @@ final class PreviewTextView: NSTextView {
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
         let storage = NSTextStorage()
-        let layout = NSLayoutManager()
+        let layout = PreviewLayoutManager()
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
         super.init(frame: .zero, textContainer: container)
@@ -59,9 +85,9 @@ final class PreviewTextView: NSTextView {
             let found = box(range)
             switch kind {
             case "code", "box":
-                let pad: CGFloat = kind == "box" ? 10 : 8
-                // The frontmatter box is the width of the text column; a code block starts where its text, indented, does.
-                let area = NSRect(x: kind == "box" ? left : found.minX - 12, y: found.minY - pad, width: 0, height: found.height + 2 * pad)
+                let pad: CGFloat = 10
+                // Both are the width of the text column: the bounding rect of a block can start further left (an empty line, a picture above).
+                let area = NSRect(x: left, y: found.minY - pad, width: 0, height: found.height + 2 * pad)
                 var drawn = area
                 drawn.size.width = right - drawn.minX
                 guard drawn.intersects(rect) else { return }

@@ -257,7 +257,10 @@ final class AnnotationController {
         let visible = host.visibleDocumentRect
         let fitsBelow = visible.maxY - CGFloat(bottom) >= height + 12
         let fitsAbove = CGFloat(top) - visible.minY > height + 12
-        let y = !fitsBelow && fitsAbove ? CGFloat(top) - height - 6 : CGFloat(bottom) + 6
+        var y = !fitsBelow && fitsAbove ? CGFloat(top) - height - 6 : CGFloat(bottom) + 6
+        // Fits neither way (the text is at the bottom of the window): kept inside what is visible.
+        y = min(y, visible.maxY - height - 8)
+        y = max(y, visible.minY + 8)
         let maxX = max(8, host.textWidth - width - 8)
         return NSPoint(x: min(max(8, CGFloat(left)), maxX), y: y)
     }

@@ -5,6 +5,10 @@ extension NSAttributedString.Key {
     /// and may run on to the right edge of the window.
     static let folioWide = NSAttributedString.Key("folioWide")
 
+    /// On a paragraph that is a diagram: centred between the sides of the text container, whatever the
+    /// text column is.
+    static let folioCentered = NSAttributedString.Key("folioCentered")
+
     /// Marks the preview of a suggestion (the text a `replace` or `insert` would put in). The value is
     /// the annotation's id. The text is in the view but not in the file.
     static let folioGhost = NSAttributedString.Key("folioGhost")

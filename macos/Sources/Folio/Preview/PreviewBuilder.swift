@@ -247,15 +247,17 @@ struct PreviewBuilder {
             style.firstLineHeadIndent += 12
             result.text.addAttribute(.paragraphStyle, value: style, range: block)
         }
-        if let last = result.text.attribute(.paragraphStyle, at: block.upperBound - 1, effectiveRange: nil) as? NSParagraphStyle,
+        // A paragraph has the style of its first character, so the whole last line is set, not its line break.
+        let lastLine = (result.text.string as NSString).paragraphRange(for: NSRange(location: block.upperBound - 1, length: 0))
+        if let last = result.text.attribute(.paragraphStyle, at: lastLine.location, effectiveRange: nil) as? NSParagraphStyle,
            let spaced = last.mutableCopy() as? NSMutableParagraphStyle {
-            spaced.paragraphSpacing = 14
-            result.text.addAttribute(.paragraphStyle, value: spaced, range: NSRange(location: block.upperBound - 1, length: 1))
+            spaced.paragraphSpacing = 22
+            result.text.addAttribute(.paragraphStyle, value: spaced, range: lastLine)
         }
         // Room above the first line for the painted background.
         let firstLine = (result.text.string as NSString).paragraphRange(for: NSRange(location: block.location, length: 0))
         if let first = (result.text.attribute(.paragraphStyle, at: block.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
-            first.paragraphSpacingBefore = 10
+            first.paragraphSpacingBefore = 16
             result.text.addAttribute(.paragraphStyle, value: first, range: firstLine)
         }
     }
@@ -325,7 +327,14 @@ struct PreviewBuilder {
         paragraph(context) { builder, style in
             builder.emitPicture(asset, of: node, builder.attributes(style))
         }
-        result.text.addAttribute(.folioWide, value: true, range: NSRange(location: start, length: result.text.length - start))
+        let whole = NSRange(location: start, length: result.text.length - start)
+        result.text.addAttribute(.folioWide, value: true, range: whole)
+        // A diagram is centred in the window and may be as wide as it, as in the web preview.
+        result.text.addAttribute(.folioCentered, value: true, range: whole)
+        if let style = (result.text.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.alignment = .center
+            result.text.addAttribute(.paragraphStyle, value: style, range: whole)
+        }
     }
 
     private mutating func emitPicture(_ asset: PreviewAsset, of node: Markup, _ attributes: [NSAttributedString.Key: Any]) {
