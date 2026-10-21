@@ -357,7 +357,11 @@ extension SelfTest {
             }
         }
         // Needs the network, like the page's check: a failure says where.
-        report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.previewView.picture("plantuml:") != nil })
+        if AppConfig.renderPlantUML {
+            report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.previewView.picture("plantuml:") != nil })
+        } else {
+            report("a PlantUML block stays a code block", self.previewView.picture("plantuml:") == nil)
+        }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             controller.scrollHost.contentView.scroll(to: .zero)
             controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)

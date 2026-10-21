@@ -228,11 +228,13 @@ final class SelfTest {
             await self.waitFor("!!document.querySelector('#editor-tiptap .diagram-block svg')", seconds: 15)
         }
         // Needs the network; a failure here says where, not that the scheme is broken.
-        let plantuml = await waitFor(
-            "(() => { const i = document.querySelector('#editor-tiptap .diagram-block img'); return !!i && i.complete && i.naturalWidth > 0 })()",
-            seconds: 15
-        )
-        report("plantuml image loads from the external server", plantuml)
+        if AppConfig.renderPlantUML {
+            let plantuml = await waitFor(
+                "(() => { const i = document.querySelector('#editor-tiptap .diagram-block img'); return !!i && i.complete && i.naturalWidth > 0 })()",
+                seconds: 15
+            )
+            report("plantuml image loads from the external server", plantuml)
+        }
 
         // Accept in preview mode is the app's own card (Rust anchors and patches).
         let secondCLI = cli([

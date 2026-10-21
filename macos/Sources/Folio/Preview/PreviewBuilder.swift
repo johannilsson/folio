@@ -218,7 +218,7 @@ struct PreviewBuilder {
     private mutating func codeBlock(_ code: CodeBlock, _ context: Context) {
         var text = code.code
         while text.hasSuffix("\n") { text.removeLast() }
-        if code.language?.lowercased() == "plantuml" {
+        if AppConfig.renderPlantUML, code.language?.lowercased() == "plantuml" {
             picture(PreviewAsset(.plantuml(text)), of: code, context)
             return
         }

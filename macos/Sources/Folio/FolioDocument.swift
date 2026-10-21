@@ -17,6 +17,9 @@ enum AppConfig {
     static var selfTest = false
     /// Where PlantUML diagrams are drawn (the web page and the preview both ask it).
     static let plantumlURL = "https://www.plantuml.com/plantuml"
+    /// Off for now: a `plantuml` block shows as a fenced code block. The rendering stays; flip this (and
+    /// `renderPlantUML` in `frontend/src/diagrams.ts`) to bring it back.
+    static let renderPlantUML = false
     /// Whether the preview is the web page (Tiptap, `-WebPreview YES` or the `WebPreview` default) instead
     /// of `PreviewView`, which is what shows by default. The flag and everything that checks it goes with
     /// the web page.
