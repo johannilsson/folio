@@ -340,6 +340,8 @@ final class PreviewView: NSView, AnnotationSurface {
         if signature != ghosts {
             ghosts = signature
             var built = base
+            // `text` is a reference: without a copy the previews would be written into `base` and stay there.
+            built.text = NSMutableAttributedString(attributedString: base.text)
             for insert in inserts { built.insertGhost(insert.text, at: insert.location) }
             model = built
             let selection = textView.selectedRange()

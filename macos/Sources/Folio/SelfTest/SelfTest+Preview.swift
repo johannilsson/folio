@@ -167,6 +167,27 @@ extension SelfTest {
         }
         await check("accepting shows a toast") { self.pane.toastMessage == "Accepted replace" }
 
+        // An insertion matches the same place before and after it is applied.
+        _ = cli(["annotate", name, "--kind", "insert", "--context-before", "Natural wine is made ", "--replacement", "only ", "--author", "agent", "--source", "agent"])
+        _ = await until { self.previewText.contains("made only with") }
+        press("accept", inCardOf: pendingID(.insert))
+        await check("accepting an insertion shows the text once, as plain text") {
+            await self.until {
+                let text = self.previewText as NSString
+                let at = text.range(of: "made only with")
+                return at.location != NSNotFound && !self.previewText.contains("only only")
+                    && textView.textStorage!.attribute(.folioGhost, at: at.location + 6, effectiveRange: nil) == nil
+            }
+        }
+
+        // Rejecting a suggestion takes its preview out of the text, and a preview shown before is not left behind.
+        _ = cli(["annotate", name, "--kind", "insert", "--context-before", "Natural wine is made only ", "--replacement", "mostly ", "--author", "agent", "--source", "agent"])
+        _ = await until { self.previewText.contains("only mostly with") }
+        _ = try? controller.currentStore.resolve(pendingID(.insert))
+        await check("rejecting an insertion takes its preview out of the text") {
+            await self.until { self.previewText.contains("made only with") && !self.previewText.contains("mostly") }
+        }
+
         // Rejecting, and Undo taking it back.
         let highlightID = pendingID(.highlight)
         textView.onClick?((previewText as NSString).range(of: "paragraph").location + 1)
