@@ -434,12 +434,13 @@ extension SelfTest {
             if !ok { print("    container \(container.size.width), column inset \(textView.columnInset)") }
             return ok
         }
-        await check("a table whose content is wider than the column is wider than it, from the same left edge") {
+        await check("a table whose content is wider than the column is wider than it, centred in the window") {
             guard let first = extent("Alphabetical1"), let last = extent("value-number-8") else {
                 print("    cells not found")
                 return false
             }
-            let ok = abs(first.min - textLeft) < 16 && last.max > textLeft + column + 20 && last.max < origin.x + container.size.width
+            let left = first.min - origin.x, right = origin.x + container.size.width - last.max
+            let ok = first.min < textLeft - 20 && last.max > textLeft + column + 20 && abs(left - right) < 16
             if !ok { print("    text left \(textLeft), first cell \(first), last cell \(last), container \(container.size.width)") }
             return ok
         }
@@ -456,6 +457,20 @@ extension SelfTest {
             await snapshot("\(base)-wide.png")
         }
         controller.window?.setContentSize(NSSize(width: 1100, height: 800))
+        // With the comments pane open the text is narrower than its column: the tables follow it.
+        send("toggleComments:")
+        _ = await until { self.pane.commentsOn && self.controller.scrollHost.paneWidth > 0 }
+        await check("with the comments pane open a table starts where the text starts") {
+            let ok = await self.until(seconds: 4) {
+                guard let paragraph = extent("A paragraph"), let cell = extent("Short") else { return false }
+                return abs(cell.min - paragraph.min) < 16
+            }
+            if !ok { print("    paragraph \(String(describing: extent("A paragraph"))), cell \(String(describing: extent("Short")))") }
+            return ok
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-wide-pane.png") }
+        send("toggleComments:")
+        _ = await until { !self.pane.commentsOn && self.controller.scrollHost.paneWidth == 0 }
     }
 
     /// A PlantUML diagram as text again: the server's own base64, then raw deflate.

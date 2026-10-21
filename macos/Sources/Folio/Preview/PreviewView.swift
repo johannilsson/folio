@@ -158,13 +158,19 @@ final class PreviewView: NSView, AnnotationSurface {
             for (range, style) in changes { storage.addAttribute(.paragraphStyle, value: style, range: range) }
             storage.endEditing()
         }
-        // A table is at least as wide as the text, and as wide as its content needs up to the right
-        // side of the window; it starts where the text does.
+        // A table is at least as wide as the text (edge to edge with it), and as wide as its content
+        // needs up to the window; a table wider than the text is centred in the window.
         let column = min(containerWidth, Self.column)
         for table in model.tables {
-            let width = min(max(table.natural, column), max(column, containerWidth - side))
-            table.grid.setContentWidth(side + width, type: .absoluteValueType)
-            for block in table.spacers { block.setValue(side, type: .absoluteValueType, for: .width) }
+            let wanted = min(max(table.natural, column), containerWidth)
+            // Never 0: a spacer of no width is left to the table's automatic layout, which gives it some.
+            let margin = max(1, min(side, (containerWidth - wanted) / 2))
+            let width = min(wanted, containerWidth - margin)
+            guard table.applied != (margin, width) else { continue }
+            table.applied = (margin, width)
+            table.grid.setContentWidth(margin + width, type: .absoluteValueType)
+            for block in table.spacers { block.setValue(margin, type: .absoluteValueType, for: .width) }
+            textView.layoutManager?.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
         }
     }
 

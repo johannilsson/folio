@@ -19,6 +19,8 @@ final class PreviewTable {
     var spacers: [NSTextTableBlock] = []
     /// How wide the table is when no cell has to wrap.
     var natural: CGFloat = 0
+    /// The margin and width last given to the grid: laid-out text keeps what it was laid out with until told otherwise.
+    var applied: (margin: CGFloat, width: CGFloat) = (-1, -1)
 
     init(grid: NSTextTable) {
         self.grid = grid
