@@ -402,7 +402,8 @@ extension SelfTest {
         }
         await check("a small table is as wide as the text column") {
             guard let a = extent("Short"), let b = extent("Table") else { return false }
-            let ok = abs(a.min - textLeft) < 16 && b.max <= textLeft + column + 2 && b.max > textLeft + column - 80
+            // Two equal columns across the text column: the second starts half way (plus its padding).
+            let ok = abs(a.min - textLeft) < 16 && abs(b.min - (textLeft + column / 2)) < 20
             if !ok { print("    text left \(textLeft), cells \(a) \(b)") }
             return ok
         }
