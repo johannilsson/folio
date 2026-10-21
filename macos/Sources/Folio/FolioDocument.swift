@@ -15,6 +15,15 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
+    /// Where PlantUML diagrams are drawn (the web page and the preview both ask it).
+    static let plantumlURL = "https://www.plantuml.com/plantuml"
+    /// Off for now: a `plantuml` block shows as a fenced code block. The rendering stays; flip this (and
+    /// `renderPlantUML` in `frontend/src/diagrams.ts`) to bring it back.
+    static let renderPlantUML = false
+    /// Whether the preview is the web page (Tiptap, `-WebPreview YES` or the `WebPreview` default) instead
+    /// of `PreviewView`, which is what shows by default. The flag and everything that checks it goes with
+    /// the web page.
+    static var webPreview: Bool { UserDefaults.standard.bool(forKey: "WebPreview") }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?
@@ -41,6 +50,7 @@ final class FolioDocument: NSDocument {
     }
 
     override func makeWindowControllers() {
+        if let url = fileURL { RecentFiles.note(url) }
         addWindowController(FolioWindowController(document: self))
     }
 

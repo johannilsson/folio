@@ -17,9 +17,10 @@ extension SelfTest {
         }
         // Two recent files, the one to remove noted last so it is first in the list.
         let documents = NSDocumentController.shared
-        documents.noteNewRecentDocumentURL(kept)
-        documents.noteNewRecentDocumentURL(member)
-        func recents() -> [URL] { documents.recentDocumentURLs.map { $0.resolvingSymlinksInPath() } }
+        RecentFiles.note(kept)
+        RecentFiles.note(member)
+        func recents() -> [URL] { RecentFiles.list().map { $0.resolvingSymlinksInPath() } }
+        let stored = config.appendingPathComponent("recents.json")
         let welcome = app.welcome
         func files() -> [URL] { welcome.rows.compactMap { if case .file(let url) = $0 { return url.resolvingSymlinksInPath() } else { return nil } } }
 
@@ -55,12 +56,21 @@ extension SelfTest {
 
         welcome.removeFromRecents(member)
         await check("Remove from Recents takes the file out of the list and File ▸ Open Recent, keeping the rest in order") {
-            // AppKit applies the cleared and re-noted list a moment after it is asked to.
             let ok = await self.until {
                 !files().contains(member) && !recents().contains(member) && recents().first == kept && files().first == kept
             }
             if !ok { print("    recents \(recents().prefix(3).map(\.lastPathComponent)), listed \(files().prefix(3).map(\.lastPathComponent))") }
             return ok
+        }
+
+        await check("the list is kept in recents.json, so it outlives a build") {
+            let text = (try? String(contentsOf: stored, encoding: .utf8)) ?? ""
+            return text.contains("kept.md") && !text.contains("member.md")
+        }
+        welcome.clearRecents()
+        await check("Clear All Recents empties the list, File ▸ Open Recent and recents.json") {
+            let text = (try? String(contentsOf: stored, encoding: .utf8)) ?? ""
+            return files().isEmpty && recents().isEmpty && !text.contains("kept.md")
         }
 
         // Return opens the selection: the set, whose window puts the welcome window away.

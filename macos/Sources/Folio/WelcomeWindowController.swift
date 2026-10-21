@@ -141,15 +141,14 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
 
     // MARK: content
 
-    /// `recents` is the list to show when the caller knows it, as after changing it; otherwise AppKit's.
-    func reload(recents known: [URL]? = nil) {
+    func reload() {
         var next: [Row] = []
         let sets = ((try? Rust.setNames()) ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         if !sets.isEmpty {
             next.append(.header("Sets"))
             next += sets.map { .set(name: $0, files: (try? Rust.setLoad($0).files.count) ?? 0) }
         }
-        let recents = known ?? NSDocumentController.shared.recentDocumentURLs
+        let recents = RecentFiles.list()
         if !recents.isEmpty {
             next.append(.header("Recent Files"))
             next += recents.map { .file($0) }
@@ -190,31 +189,21 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         for url in urls where WelcomeDropView.isMarkdown(url) { app?.open(url) }
     }
 
-    /// AppKit can only clear the whole list, so the rest are noted again, oldest first, which keeps
-    /// their order (and File ▸ Open Recent with them).
-    func removeFromRecents(_ url: URL) {
-        let controller = NSDocumentController.shared
-        let keep = controller.recentDocumentURLs.filter { $0.resolvingSymlinksInPath() != url.resolvingSymlinksInPath() }
-        controller.clearRecentDocuments(nil)
-        for other in keep.reversed() { controller.noteNewRecentDocumentURL(other) }
-        // AppKit can take a moment to apply the list, so a read right now may still be empty.
-        reload(recents: keep)
-        restoreRecents(keep, attempts: 15)
+    /// Empties the list: ours, AppKit's (the Dock menu) and what is shown.
+    func clearRecents() {
+        RecentFiles.clear()
+        NSDocumentController.shared.clearRecentDocuments(nil)
+        reload()
     }
 
-    /// AppKit can apply the clear after the notes that follow it, which leaves the list empty for good.
-    /// Look again shortly, and note the rest once more if any is missing. Noting a file that is
-    /// already listed only moves it to the front, so the order is kept.
-    private func restoreRecents(_ keep: [URL], attempts: Int) {
-        guard attempts > 0 else { return }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            let controller = NSDocumentController.shared
-            let listed = Set(controller.recentDocumentURLs.map { $0.resolvingSymlinksInPath() })
-            guard !Set(keep.map { $0.resolvingSymlinksInPath() }).isSubset(of: listed) else { return }
-            for other in keep.reversed() { controller.noteNewRecentDocumentURL(other) }
-            self?.restoreRecents(keep, attempts: attempts - 1)
-        }
+    /// Takes the file out of the list. AppKit's own list (the Dock menu) can only be cleared whole, so the rest
+    /// are noted again, oldest first.
+    func removeFromRecents(_ url: URL) {
+        RecentFiles.remove(url)
+        let controller = NSDocumentController.shared
+        controller.clearRecentDocuments(nil)
+        for other in RecentFiles.list().reversed() { controller.noteNewRecentDocumentURL(other) }
+        reload()
     }
 
     /// Return opens the selection, as a double-click does.
@@ -316,10 +305,15 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         let remove = menu.addItem(withTitle: "Remove from Recents", action: #selector(removeClicked(_:)), keyEquivalent: "")
         remove.target = self
         remove.representedObject = url
+        menu.addItem(withTitle: "Clear All Recents", action: #selector(clearClicked(_:)), keyEquivalent: "").target = self
     }
 
     @objc private func showInFinder(_ sender: NSMenuItem) {
         if let url = sender.representedObject as? URL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    }
+
+    @objc private func clearClicked(_ sender: NSMenuItem) {
+        clearRecents()
     }
 
     @objc private func removeClicked(_ sender: NSMenuItem) {

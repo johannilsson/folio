@@ -18,30 +18,31 @@ enum WindowPicture {
 @MainActor
 enum Screenshot {
     static func run(_ win: SetWindowController, to path: String) async {
-        func page(_ source: String) async -> Any? {
-            try? await win.webView.callAsyncJavaScript("return \(source)", contentWorld: .page)
-        }
-        func wait(_ condition: String, seconds: Double = 10) async {
+        func until(_ seconds: Double = 10, _ condition: () -> Bool) async {
             let deadline = Date().addingTimeInterval(seconds)
-            while Date() < deadline {
-                if await page(condition) as? Bool == true { return }
-                try? await Task.sleep(nanoseconds: 150_000_000)
-            }
+            while Date() < deadline, !condition() { try? await Task.sleep(nanoseconds: 150_000_000) }
         }
 
         win.window?.setFrame(NSRect(x: 0, y: 0, width: 1240, height: 720), display: true)
         win.window?.center()
         win.showWindow(nil)
         win.showSidebar()
-        await wait("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")
+        // The text is on screen: the preview's, or the web page's.
+        if let preview = win.scrollHost.preview {
+            await until { !preview.textView.string.isEmpty }
+        } else {
+            await until(10) { win.bridge.count("getFile") > 0 }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
 
         // The file of the set with the most going on: a replacement, a highlight and a comment.
         if let target = win.workspace.entries.first(where: { $0.name.hasSuffix("producers.md") }) {
             win.sidebar.choose(target.document.id)
-            await wait("document.getElementById('filename-display').textContent === 'producers.md'")
+            await until { win.currentID == target.document.id }
         }
-        _ = await page("document.getElementById('toggle-gutter-btn').click()")
-        await wait("document.querySelectorAll('#annotation-gutter .ann-card').length >= 3")
+        // The comments pane is the app's, so the window opens it, whichever preview is showing.
+        win.toggleComments(nil)
+        await until { win.annotations.cards.count >= 3 }
 
         // Let the pane finish sliding and the cards settle, and the window come to the front.
         try? await Task.sleep(nanoseconds: 1_500_000_000)

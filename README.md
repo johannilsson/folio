@@ -16,7 +16,7 @@ Folio is a local markdown editor built for review. An agent reads a document and
 - **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
 - **Sets.** Group files from different folders or repositories under a name (`folio set`) and review them together, with a pending count per file.
 
-Fenced `mermaid` and `plantuml` blocks render as diagrams, and tables are editable.
+Fenced `mermaid` blocks render as diagrams, and tables are editable.
 
 ## Using it with an agent
 

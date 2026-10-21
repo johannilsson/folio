@@ -10,6 +10,8 @@ final class SelfTest {
     let app: AppDelegate
     let source: URL
     var failures = 0
+    /// Set when the preview's checks have run (see `SelfTest+Preview.swift`).
+    var previewVerdict: Bool?
     var dirs: [URL] = []
 
     // Set once the first document is open.
@@ -50,6 +52,11 @@ final class SelfTest {
         }
         controller = first
 
+        if !AppConfig.webPreview {
+            await previewChecks()
+            return previewVerdict ?? false
+        }
+
         await check("the editor opens in the WYSIWYG preview") {
             await self.waitFor("!!document.querySelector('#editor-tiptap .ProseMirror') && !document.getElementById('editor-wrapper').hidden")
         }
@@ -65,8 +72,7 @@ final class SelfTest {
             self.controller.window?.title == self.name && self.controller.window?.representedURL == self.file
         }
         await check("the file is in Open Recent") {
-            // AppKit records the resolved path (/private/var for /var).
-            NSDocumentController.shared.recentDocumentURLs.contains { $0.resolvingSymlinksInPath() == self.file.resolvingSymlinksInPath() }
+            RecentFiles.list().contains { $0.resolvingSymlinksInPath() == self.file.resolvingSymlinksInPath() }
         }
         await check("bridge served info, getFile and getFolio") {
             ["info", "getFile", "getFolio"].allSatisfy { self.controller.bridge.count($0) > 0 }
@@ -221,11 +227,13 @@ final class SelfTest {
             await self.waitFor("!!document.querySelector('#editor-tiptap .diagram-block svg')", seconds: 15)
         }
         // Needs the network; a failure here says where, not that the scheme is broken.
-        let plantuml = await waitFor(
-            "(() => { const i = document.querySelector('#editor-tiptap .diagram-block img'); return !!i && i.complete && i.naturalWidth > 0 })()",
-            seconds: 15
-        )
-        report("plantuml image loads from the external server", plantuml)
+        if AppConfig.renderPlantUML {
+            let plantuml = await waitFor(
+                "(() => { const i = document.querySelector('#editor-tiptap .diagram-block img'); return !!i && i.complete && i.naturalWidth > 0 })()",
+                seconds: 15
+            )
+            report("plantuml image loads from the external server", plantuml)
+        }
 
         // Accept in preview mode is the app's own card (Rust anchors and patches).
         let secondCLI = cli([
