@@ -113,7 +113,7 @@ struct PreviewBuilder {
         if style.code {
             font = .monospacedSystemFont(ofSize: size * 0.88, weight: style.bold ? .bold : .regular)
         } else {
-            font = .systemFont(ofSize: size, weight: style.heading > 0 || style.bold ? .bold : .regular)
+            font = .systemFont(ofSize: size, weight: style.bold ? .bold : (style.heading > 0 ? .medium : .regular))
         }
         if style.italic { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
         var attributes: [NSAttributedString.Key: Any] = [
@@ -162,7 +162,7 @@ struct PreviewBuilder {
             // A picture alone in its paragraph may be wider than the text.
             let only = Array(text.children)
             if only.count == 1, only[0] is Image {
-                result.text.addAttribute(.folioWide, value: true, range: NSRange(location: start, length: result.text.length - start))
+                centre(NSRange(location: start, length: result.text.length - start))
             }
         case let code as CodeBlock:
             codeBlock(code, context)
@@ -327,13 +327,16 @@ struct PreviewBuilder {
         paragraph(context) { builder, style in
             builder.emitPicture(asset, of: node, builder.attributes(style))
         }
-        let whole = NSRange(location: start, length: result.text.length - start)
-        result.text.addAttribute(.folioWide, value: true, range: whole)
-        // A diagram is centred in the window and may be as wide as it, as in the web preview.
-        result.text.addAttribute(.folioCentered, value: true, range: whole)
-        if let style = (result.text.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+        centre(NSRange(location: start, length: result.text.length - start))
+    }
+
+    /// A picture in a block of its own is centred in the window and may be as wide as it, as in the web preview.
+    private mutating func centre(_ range: NSRange) {
+        result.text.addAttribute(.folioWide, value: true, range: range)
+        result.text.addAttribute(.folioCentered, value: true, range: range)
+        if let style = (result.text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
             style.alignment = .center
-            result.text.addAttribute(.paragraphStyle, value: style, range: whole)
+            result.text.addAttribute(.paragraphStyle, value: style, range: range)
         }
     }
 

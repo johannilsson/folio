@@ -14,14 +14,15 @@ final class PreviewLayoutManager: NSLayoutManager {
         let origin = firstTextView?.textContainerOrigin ?? .zero
         color.setFill()
         for index in 0..<rectCount {
-            var rect = rectArray[index]
-            let glyph = glyphIndex(for: NSPoint(x: rect.midX - origin.x, y: rect.midY - origin.y), in: container)
-            let used = lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
-            let minX = max(rect.minX, used.minX + origin.x), maxX = min(rect.maxX, used.maxX + origin.x)
-            guard maxX > minX else { continue }
-            rect.origin.x = minX
-            rect.size.width = maxX - minX
-            rect.fill()
+            let rect = rectArray[index]
+            // One rectangle may cover several lines (and the empty ones between paragraphs): each line on its own.
+            let local = rect.offsetBy(dx: -origin.x, dy: -origin.y)
+            enumerateLineFragments(forGlyphRange: glyphRange(forBoundingRect: local, in: container)) { line, used, _, _, _ in
+                let top = max(local.minY, line.minY), bottom = min(local.maxY, line.maxY)
+                let left = max(local.minX, used.minX), right = min(local.maxX, used.maxX)
+                guard bottom > top, right > left else { return }
+                NSRect(x: left + origin.x, y: top + origin.y, width: right - left, height: bottom - top).fill()
+            }
         }
     }
 }

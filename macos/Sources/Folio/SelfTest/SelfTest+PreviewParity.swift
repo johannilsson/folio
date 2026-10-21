@@ -35,6 +35,24 @@ extension SelfTest {
         }
         replaceSidecar([])
         _ = await until { !self.previewText.contains("zzghost") }
+        // A suggestion of several paragraphs stays in the text column: every paragraph of it is indented like the one it goes into.
+        _ = cli(["annotate", name, "--kind", "replace", "--context-before", "vineyard and the ", "--target", "cellar",
+                 "--replacement", "zzfirst\n\nzzsecond\n\nzzthird", "--author", "agent", "--source", "agent"])
+        _ = await until { self.previewText.contains("zzthird") }
+        await check("the paragraphs of a long suggestion are in the text column") {
+            guard let storage = textView.textStorage else { return false }
+            let text = storage.string as NSString
+            func indent(_ word: String) -> CGFloat? {
+                let found = text.range(of: word)
+                guard found.location != NSNotFound else { return nil }
+                return (storage.attribute(.paragraphStyle, at: found.location, effectiveRange: nil) as? NSParagraphStyle)?.headIndent
+            }
+            guard let own = indent("Natural wine"), let second = indent("zzsecond"), let third = indent("zzthird") else { return false }
+            return own > 0 && second == own && third == own
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-long-suggestion.png") }
+        replaceSidecar([])
+        _ = await until { !self.previewText.contains("zzthird") }
         textView.setSelectedRange(NSRange(location: 0, length: 0))
 
         // With the pane closed, clicking annotated text opens its card beside it; Esc closes it.

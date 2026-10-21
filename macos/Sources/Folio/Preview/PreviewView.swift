@@ -241,8 +241,8 @@ final class PreviewView: NSView, AnnotationSurface {
             let centered = storage.attribute(.folioCentered, at: range.location, effectiveRange: nil) != nil
             let available = centered ? whole : (wide ? whole - side : min(whole, Self.column))
             // A diagram fills the window as it did in the web preview: up to twice its size and 800 points tall
-            // when it is smaller, and the width of the window when it is larger. Pictures are never enlarged.
-            let grow = centered ? max(1, min(2, 800 / max(1, image.size.height))) : 1
+            // when it is smaller, and the width of the window when it is larger. Images are never enlarged.
+            let grow = centered && !asset.key.hasPrefix("image:") ? max(1, min(2, 800 / max(1, image.size.height))) : 1
             let scale = min(grow, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
             if attachment.image !== image {
@@ -337,9 +337,11 @@ final class PreviewView: NSView, AnnotationSurface {
             switch annotation.kind {
             case .replace:
                 guard let end = base.displayLocation(forSource: range.upperBound, end: true) else { continue }
+                attributes[.paragraphStyle] = ghostStyle(at: end)
                 inserts.append((end, annotation.id, NSAttributedString(string: replacement, attributes: attributes)))
             case .insert:
                 guard let at = base.displayLocation(forSource: range.location, end: true) else { continue }
+                attributes[.paragraphStyle] = ghostStyle(at: at)
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 attributes[.underlineColor] = green
                 inserts.append((at, annotation.id, NSAttributedString(string: replacement, attributes: attributes)))
@@ -385,6 +387,22 @@ final class PreviewView: NSView, AnnotationSurface {
         applyMarks()
         reportAnchors()
         reportSelection()
+    }
+
+    /// The paragraph style for a suggestion's preview put in at `location`: that of the paragraph it goes into,
+    /// so that the paragraphs a long suggestion adds are in the text column too (a paragraph with no style
+    /// of its own runs from one side of the window to the other).
+    private func ghostStyle(at location: Int) -> NSParagraphStyle? {
+        let length = base.text.length
+        guard length > 0 else { return nil }
+        // The paragraph the text goes into: the one before the position, unless it is at the start of one.
+        let text = base.text.string as NSString
+        let index = location > 0 && text.character(at: location - 1) != 10 ? location - 1 : min(location, length - 1)
+        guard let style = base.text.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle,
+              let copy = style.mutableCopy() as? NSMutableParagraphStyle else { return nil }
+        // A paragraph that starts inside the preview has no list marker to hang.
+        copy.firstLineHeadIndent = copy.headIndent
+        return copy
     }
 
     /// Draws each annotation over its text without touching the text.

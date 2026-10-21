@@ -343,6 +343,16 @@ extension SelfTest {
                 return found
             }
         }
+        await check("an image in a block of its own is centred, and may use the sides of the window") {
+            guard let storage = textView.textStorage else { return false }
+            var centred = false
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard value != nil, storage.attribute(.folioAsset, at: range.location, effectiveRange: nil) != nil else { return }
+                let style = storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+                if style?.alignment == .center, storage.attribute(.folioCentered, at: range.location, effectiveRange: nil) != nil { centred = true }
+            }
+            return centred
+        }
         await check("code in a block with a language is coloured: a keyword, a string and a comment differ from plain text") {
             await self.until(seconds: 20) {
                 let text = self.previewText as NSString
