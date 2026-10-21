@@ -1,6 +1,6 @@
 import AppKit
 
-/// The preview (`-WebPreview NO`): what is drawn, how the text maps to the file, the
+/// The preview (the default; `-WebPreview YES` is the web one): what is drawn, how the text maps to the file, the
 /// annotation UI on it, and accepting. The web page is not loaded in this mode, so this replaces
 /// the checks that drive it.
 extension SelfTest {
