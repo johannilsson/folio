@@ -106,8 +106,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         // The source shows the file it was opened on until it is told otherwise (the page swaps by
         // itself). It comes first: the annotation UI then hands the new file's annotations to it.
         if mode == .source { scrollHost.source.load(entry.document) }
-        if let native = scrollHost.native {
-            native.load(entry.document)
+        if let preview = scrollHost.preview {
+            preview.load(entry.document)
             annotations.fileChanged(store: currentStore)
             restoreScroll(of: id)
             completion?()

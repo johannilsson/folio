@@ -2,7 +2,7 @@ import AppKit
 
 /// The rendered document as an `NSTextView` the reader can select in but not edit. Like the source,
 /// it is not in a scroll view of its own: `EditorScrollView` scrolls it with the comments pane, so it
-/// is as tall as its text (`NativePreviewView` sets the height) and laid out whole (TextKit 1).
+/// is as tall as its text (`PreviewView` sets the height) and laid out whole (TextKit 1).
 final class PreviewTextView: NSTextView {
     /// The mouse was pressed in the text, before the text view acts on it.
     var onPointer: (() -> Void)?
@@ -33,7 +33,7 @@ final class PreviewTextView: NSTextView {
         isVerticallyResizable = false
         isHorizontallyResizable = false
         usesFindBar = false
-        setAccessibilityIdentifier("native-preview")
+        setAccessibilityIdentifier("preview")
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }

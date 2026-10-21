@@ -11,7 +11,7 @@ extension NSAttributedString.Key {
 }
 
 /// A table of the text. Its width and its place are the view's to set once it knows how wide the window is
-/// (`NativePreviewView.applyColumn`): at least as wide as the text column, wider when its content asks for it.
+/// (`PreviewView.applyColumn`): at least as wide as the text column, wider when its content asks for it.
 /// It starts where the text does: a text table has no left margin, so an empty first column makes it.
 final class PreviewTable {
     let grid: NSTextTable

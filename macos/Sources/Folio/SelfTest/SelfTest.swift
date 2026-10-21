@@ -10,8 +10,8 @@ final class SelfTest {
     let app: AppDelegate
     let source: URL
     var failures = 0
-    /// Set when the native preview's checks have run (see `SelfTest+Native.swift`).
-    var nativeVerdict: Bool?
+    /// Set when the preview's checks have run (see `SelfTest+Preview.swift`).
+    var previewVerdict: Bool?
     var dirs: [URL] = []
 
     // Set once the first document is open.
@@ -52,9 +52,9 @@ final class SelfTest {
         }
         controller = first
 
-        if AppConfig.nativePreview {
-            await nativePreviewChecks()
-            return nativeVerdict ?? false
+        if !AppConfig.webPreview {
+            await previewChecks()
+            return previewVerdict ?? false
         }
 
         await check("the editor opens in the WYSIWYG preview") {

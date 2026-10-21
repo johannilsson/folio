@@ -51,8 +51,8 @@ final class EditorScrollView: NSScrollView {
     private let canvas = FlippedView()
     private let web: WKWebView
     let source: SourceEditorView
-    /// The native preview, when it replaces the web page (the `NativePreview` default).
-    let native: NativePreviewView?
+    /// The preview, when it replaces the web page (`AppConfig.webPreview` off).
+    let preview: PreviewView?
     /// The cards of the comments pane (see `AnnotationController`).
     let gutter = AnnotationGutterView()
 
@@ -60,15 +60,15 @@ final class EditorScrollView: NSScrollView {
     var mode: EditorMode = .preview {
         didSet {
             guard mode != oldValue else { return }
-            web.isHidden = mode == .source || native != nil
-            native?.isHidden = mode == .source
+            web.isHidden = mode == .source || preview != nil
+            preview?.isHidden = mode == .source
             source.isHidden = mode == .preview
             fit()
         }
     }
 
     /// How tall the text is: the page's reported height, or the source's.
-    var contentHeight: CGFloat { mode == .source ? source.frame.height : (native?.frame.height ?? pageHeight) }
+    var contentHeight: CGFloat { mode == .source ? source.frame.height : (preview?.frame.height ?? pageHeight) }
     private var pageHeight: CGFloat = 0
     private var viewportHeight: CGFloat = 0
     /// A scroll position to hold while the page settles after a switch (it keeps growing
@@ -88,10 +88,10 @@ final class EditorScrollView: NSScrollView {
     /// The pane moved or the window resized: cards beside the text may have to move.
     var onPaneLayout: (() -> Void)?
 
-    init(webView: WKWebView, source: SourceEditorView, native: NativePreviewView? = nil) {
+    init(webView: WKWebView, source: SourceEditorView, preview: PreviewView? = nil) {
         web = webView
         self.source = source
-        self.native = native
+        self.preview = preview
         super.init(frame: .zero)
         hasVerticalScroller = true
         drawsBackground = false
@@ -104,10 +104,10 @@ final class EditorScrollView: NSScrollView {
         source.isHidden = true
         webView.autoresizingMask = []
         source.onHeightChange = { [weak self] _ in self?.fit() }
-        if let native {
-            canvas.addSubview(native)
+        if let preview {
+            canvas.addSubview(preview)
             webView.isHidden = true
-            native.onHeightChange = { [weak self] _ in self?.fit() }
+            preview.onHeightChange = { [weak self] _ in self?.fit() }
         }
     }
 
@@ -149,8 +149,8 @@ final class EditorScrollView: NSScrollView {
         let textHeight: CGFloat
         if mode == .source {
             textHeight = source.layoutContent(width: textWidth, minHeight: contentSize.height)
-        } else if let native {
-            textHeight = native.layoutContent(width: textWidth, minHeight: contentSize.height)
+        } else if let preview {
+            textHeight = preview.layoutContent(width: textWidth, minHeight: contentSize.height)
         } else {
             textHeight = max(pageHeight, contentSize.height)
             web.frame = NSRect(x: 0, y: 0, width: textWidth, height: textHeight)

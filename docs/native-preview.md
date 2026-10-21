@@ -5,6 +5,10 @@ the source mode was rewritten as a native `NSTextView`. It is written to be pass
 session: it holds the decisions, what the code already offers, a phased plan, and how to verify
 changes using CI (the work does not need a Mac, but you can only judge looks from CI's pictures).
 
+> **Status:** phases 1–4 are in (PR #45). The new preview is `PreviewView` (`macos/Sources/Folio/Preview/`); the web
+> one is what the `Web`-prefixed names (`WebPreviewSurface`, `AnnotationController.webPreview`, `AppConfig.webPreview`)
+> and `frontend/` stand for. Run the new one with `-WebPreview NO`. Phase 5 deletes the `Web` names and flips the flag's default.
+
 To start: read this file, `CLAUDE.md`, `macos/README.md` and `macos/BRIDGE.md`, then begin at
 "Phase 1".
 
@@ -91,7 +95,7 @@ Each phase ends with self-test checks and pictures (see "How to verify").
    to the annotation actions, see `AppDelegate.undoEdit`).
 5. **Flip and delete.** Make native the default. Remove `frontend/` editor code the page no longer needs, the bridge ops it
    used (`anchors`, `selection`, `focus`, `pointer`, `typing`, `layout`, `reveal`, `anchor`, ...), `PreviewSurface`, and the
-   bridge's page calls. Remove every `if let native` / `scrollHost.native` branch, not only the ones noticed first: `AnnotationController`
+   bridge's page calls. Remove every `if let preview` / `scrollHost.preview` / `AppConfig.webPreview` branch, not only the ones noticed first: `AnnotationController`
    (4 places), `EditorScrollView`, `FolioWindowController` (the find, the mode switch and `textResponder`), `SetWindowController`
    and `SelfTest`.
    Update `macos/BRIDGE.md` and `CLAUDE.md` together with the code (CLAUDE.md says a bridge op

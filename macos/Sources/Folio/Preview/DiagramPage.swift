@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-/// What the native preview gets from JavaScript: mermaid diagrams and the colours of code. A hidden
+/// What the preview gets from JavaScript: mermaid diagrams and the colours of code. A hidden
 /// web view loads the diagram page of the bundle (`frontend/src/diagram.ts`); it draws a diagram
 /// and a picture of that is the result, and it answers which parts of a block of code are keywords,
 /// strings and so on. Diagrams are drawn one at a time.

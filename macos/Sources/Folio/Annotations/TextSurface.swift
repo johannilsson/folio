@@ -1,6 +1,6 @@
 import AppKit
 
-/// What the two text surfaces, the markdown source and the native preview, do the same way on their
+/// What the two text surfaces, the markdown source and the preview, do the same way on their
 /// `NSTextView`: anchor annotations in the markdown, draw them as marks, say where a character is, build
 /// the selection the annotation UI needs, find and flash. What differs (how the text is edited, how a
 /// position in the text is a position in the file) stays in the surfaces.

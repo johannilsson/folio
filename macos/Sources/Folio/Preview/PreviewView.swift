@@ -5,7 +5,7 @@ import AppKit
 /// preview is showing (`AnnotationSurface`). Anchoring and the words a comment is anchored by come
 /// from Rust against the markdown itself; `PreviewText` maps between that and what is on screen.
 @MainActor
-final class NativePreviewView: NSView, AnnotationSurface {
+final class PreviewView: NSView, AnnotationSurface {
     private static let insets = NSSize(width: 32, height: 24)
     /// The text column. A window wider than it leaves the rest at the sides, which only tables and
     /// pictures use.
@@ -424,7 +424,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
     }
 }
 
-extension NativePreviewView {
+extension PreviewView {
     /// Selects the next (or previous) match of `text` in what is on screen, wrapping round. Returns whether there is one.
     /// A match in the preview of a suggestion is text that is not in the file: it is skipped.
     @discardableResult
@@ -439,7 +439,7 @@ extension NativePreviewView {
     }
 }
 
-extension NativePreviewView: NSTextViewDelegate {
+extension PreviewView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()
     }

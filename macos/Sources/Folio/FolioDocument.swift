@@ -15,11 +15,14 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
-    /// Where PlantUML diagrams are drawn (the page and the native preview both ask it).
+    /// Where PlantUML diagrams are drawn (the web page and the preview both ask it).
     static let plantumlURL = "https://www.plantuml.com/plantuml"
-    /// The preview is drawn natively instead of by the web page (`-NativePreview YES`, or the
-    /// `NativePreview` default), while the native preview is being built up to parity.
-    static var nativePreview: Bool { UserDefaults.standard.bool(forKey: "NativePreview") }
+    /// Whether the preview is still the web page (Tiptap) rather than `PreviewView`: it is until the
+    /// new one has parity (`-WebPreview NO`, or the `WebPreview` default, shows `PreviewView`). The flag
+    /// and everything that checks it goes with the web page.
+    static var webPreview: Bool {
+        UserDefaults.standard.object(forKey: "WebPreview") == nil || UserDefaults.standard.bool(forKey: "WebPreview")
+    }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?

@@ -61,7 +61,7 @@ protocol AnnotationSurface: AnyObject {
 /// The rendered preview: a web page that draws the highlights, and tells the app what it needs
 /// through the bridge (the `anchors`, `selection`, `focus` and `pointer` ops).
 @MainActor
-final class PreviewSurface: AnnotationSurface {
+final class WebPreviewSurface: AnnotationSurface {
     private unowned let webView: WKWebView
     var onAnchors: (([AnchorRect]) -> Void)?
     var onSelection: ((SelectionInfo?) -> Void)?
