@@ -26,6 +26,16 @@ extension SelfTest {
             (self.nativeText as NSString).substring(with: textView.selectedRange()) == "last paragraph"
         }
         textView.setSelectedRange(NSRange(location: 0, length: 0))
+        // The preview of a suggestion is not in the file, so Find does not stop on it.
+        _ = cli(["annotate", name, "--kind", "replace", "--context-before", "vineyard and the ", "--target", "cellar",
+                 "--replacement", "zzghost", "--author", "agent", "--source", "agent"])
+        _ = await until { self.nativeText.contains("cellarzzghost") }
+        await check("Find skips the text of a suggestion's preview") {
+            !self.nativeView.find("zzghost", backwards: false) && self.nativeView.find("cellar", backwards: false)
+        }
+        replaceSidecar([])
+        _ = await until { !self.nativeText.contains("zzghost") }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
 
         // With the pane closed, clicking annotated text opens its card beside it; Esc closes it.
         _ = cli(["annotate", name, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph",

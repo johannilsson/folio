@@ -517,9 +517,25 @@ extension NativePreviewView {
         let selection = textView.selectedRange()
         var options: NSString.CompareOptions = [.caseInsensitive]
         if backwards { options.insert(.backwards) }
+        // A match in the preview of a suggestion is text that is not in the file: it is skipped.
+        func match(in range: NSRange) -> NSRange {
+            var rest = range
+            while rest.length > 0 {
+                let found = all.range(of: text, options: options, range: rest)
+                guard found.location != NSNotFound else { break }
+                var ghost = false
+                model.text.enumerateAttribute(.folioGhost, in: NSIntersectionRange(found, NSRange(location: 0, length: model.text.length))) { value, _, _ in
+                    if value != nil { ghost = true }
+                }
+                if !ghost { return found }
+                rest = backwards ? NSRange(location: range.location, length: found.location - range.location)
+                                 : NSRange(location: found.upperBound, length: range.upperBound - found.upperBound)
+            }
+            return NSRange(location: NSNotFound, length: 0)
+        }
         let ahead = backwards ? NSRange(location: 0, length: selection.location) : NSRange(location: selection.upperBound, length: all.length - selection.upperBound)
-        var found = all.range(of: text, options: options, range: ahead)
-        if found.location == NSNotFound { found = all.range(of: text, options: options) }
+        var found = match(in: ahead)
+        if found.location == NSNotFound { found = match(in: NSRange(location: 0, length: all.length)) }
         guard found.location != NSNotFound else { return false }
         textView.setSelectedRange(found)
         textView.scrollRangeToVisible(found)

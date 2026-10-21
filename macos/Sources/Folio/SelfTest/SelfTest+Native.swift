@@ -56,6 +56,15 @@ extension SelfTest {
             return bold == (md as NSString).range(of: "bold** word") && bullet == nil && one == (md as NSString).range(of: "one")
         }
 
+        await check("fenced code in a list keeps its line-by-line map to the file, though the file indents it") {
+            let md = "- item\n\n  ```js\n  const y = 1\n  let z = 2\n  ```\n"
+            let built = PreviewBuilder.build(md)
+            let shown = built.text.string as NSString
+            let y = built.sourceRange(forDisplay: shown.range(of: "y = 1"))
+            let z = built.sourceRange(forDisplay: shown.range(of: "z = 2"))
+            return y == (md as NSString).range(of: "y = 1") && z == (md as NSString).range(of: "z = 2")
+        }
+
         // An agent annotates through the CLI; the cards and marks follow.
         send("toggleComments:")
         _ = await until { self.controller.commentsOn && self.controller.scrollHost.paneWidth > 300 }

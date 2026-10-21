@@ -225,7 +225,7 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
             scrollHost.restoreScroll(fraction, for: 1.5)
             annotations.refreshMode()
             syncButtons()
-            window?.makeFirstResponder(new == .source ? scrollHost.source.textView : (scrollHost.native?.textView ?? webView))
+            window?.makeFirstResponder(textResponder)
         }
     }
 
@@ -265,7 +265,12 @@ class EditorWindowController: NSWindowController, WKNavigationDelegate, WKUIDele
     }
 
     func searchFieldDidEndSearching(_ sender: NSSearchField) {
-        window?.makeFirstResponder(mode == .source ? scrollHost.source.textView : (scrollHost.native?.textView ?? webView))
+        window?.makeFirstResponder(textResponder)
+    }
+
+    /// What has the keyboard when the text does: the source, the native preview or the page.
+    private var textResponder: NSView {
+        mode == .source ? scrollHost.source.textView : (scrollHost.native?.textView ?? webView)
     }
 
     private func syncButtons() {

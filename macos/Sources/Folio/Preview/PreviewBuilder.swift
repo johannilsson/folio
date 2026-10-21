@@ -231,7 +231,7 @@ struct PreviewBuilder {
             var mono = style
             mono.code = true
             mono.block = true
-            builder.leaf(text, of: code, mono)
+            builder.codeLines(text, of: code, mono)
         }
         if let language = code.language, !language.isEmpty, !text.isEmpty {
             result.text.addAttribute(.folioCode, value: PreviewCode(language: language.lowercased(), code: text),
@@ -294,6 +294,29 @@ struct PreviewBuilder {
             result.text.addAttribute(.paragraphStyle, value: layout, range: NSRange(location: rowStart, length: result.text.length - rowStart))
         }
         setApart(from: start, "box")
+    }
+
+    /// The code of a block. Where it is written as it is shown (a fence at the left edge) it is one piece; in a
+    /// list or a quote the file has the indentation the code does not, so each line is found on its own.
+    private mutating func codeLines(_ text: String, of node: CodeBlock, _ style: Style) {
+        guard let whole = range(of: node), !source.substring(with: whole).contains(text) else {
+            leaf(text, of: node, style)
+            return
+        }
+        var cursor = whole.location
+        let lines = text.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            var place: NSRange?
+            if !line.isEmpty {
+                let found = source.range(of: line, options: [], range: NSRange(location: cursor, length: whole.upperBound - cursor))
+                if found.location != NSNotFound {
+                    place = found
+                    cursor = found.upperBound
+                }
+            }
+            emit(line, source: place, linear: place != nil, attributes(style))
+            if index < lines.count - 1 { emit("\n", source: nil, linear: false, attributes(style)) }
+        }
     }
 
     /// A picture in a block of its own: one character the view fills in once the picture is loaded.
