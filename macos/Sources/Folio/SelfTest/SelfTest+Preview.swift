@@ -1,4 +1,5 @@
 import AppKit
+import Compression
 
 /// The preview (the default; `-WebPreview YES` is the web one): what is drawn, how the text maps to the file, the
 /// annotation UI on it, and accepting. The web page is not loaded in this mode, so this replaces
@@ -56,10 +57,13 @@ extension SelfTest {
             return bold == (md as NSString).range(of: "bold** word") && bullet == nil && one == (md as NSString).range(of: "one")
         }
 
-        await check("the PlantUML encoding is the encoder's, so the server can read it") {
-            // The strings come from the plantuml-encoder package the web page uses.
-            PlantUML.encode("@startuml\nAlice -> Bob: hello\n@enduml") == "SoWkIImgAStDuNBCoKnELT2rKt3AJx9Io4ZDoSddSaZDIodDpG40"
-                && PlantUML.encode("A") == "SmG0"
+        await check("the PlantUML encoding reads back as the text, and so does the web page's encoder's") {
+            // The compressed bytes differ with the compressor, so they are compared by what they say. The
+            // second string comes from the plantuml-encoder package the web page uses.
+            let text = "@startuml\nAlice -> Bob: hello\n@enduml"
+            return Self.plantUMLDecode(PlantUML.encode(text)) == text
+                && Self.plantUMLDecode("SoWkIImgAStDuNBCoKnELT2rKt3AJx9Io4ZDoSddSaZDIodDpG40") == text
+                && Self.plantUMLDecode(PlantUML.encode("A")) == "A"
         }
         await check("fenced code in a list keeps its line-by-line map to the file, though the file indents it") {
             let md = "- item\n\n  ```js\n  const y = 1\n  let z = 2\n  ```\n"
@@ -427,6 +431,23 @@ extension SelfTest {
             await snapshot("\(base)-wide.png")
         }
         controller.window?.setContentSize(NSSize(width: 1100, height: 800))
+    }
+
+    /// A PlantUML diagram as text again: the server's own base64, then raw deflate.
+    static func plantUMLDecode(_ encoded: String) -> String? {
+        let alphabet = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_")
+        let sixes = encoded.compactMap { alphabet.firstIndex(of: $0) }
+        guard sixes.count == encoded.count else { return nil }
+        var bytes: [UInt8] = []
+        var index = 0
+        while index + 3 < sixes.count {
+            let (a, b, c, d) = (sixes[index], sixes[index + 1], sixes[index + 2], sixes[index + 3])
+            bytes += [UInt8(a << 2 | b >> 4), UInt8((b & 0xF) << 4 | c >> 2), UInt8((c & 0x3) << 6 | d)]
+            index += 4
+        }
+        var output = [UInt8](repeating: 0, count: 65536)
+        let size = compression_decode_buffer(&output, 65536, bytes, bytes.count, nil, COMPRESSION_ZLIB)
+        return size > 0 ? String(decoding: output.prefix(size), as: UTF8.self) : nil
     }
 
     private func finishPreview() {
