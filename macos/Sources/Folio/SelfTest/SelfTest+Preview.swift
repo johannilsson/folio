@@ -56,6 +56,11 @@ extension SelfTest {
             return bold == (md as NSString).range(of: "bold** word") && bullet == nil && one == (md as NSString).range(of: "one")
         }
 
+        await check("the PlantUML encoding is the encoder's, so the server can read it") {
+            // The strings come from the plantuml-encoder package the web page uses.
+            PlantUML.encode("@startuml\nAlice -> Bob: hello\n@enduml") == "SoWkIImgAStDuNBCoKnELT2rKt3AJx9Io4ZDoSddSaZDIodDpG40"
+                && PlantUML.encode("A") == "SmG0"
+        }
         await check("fenced code in a list keeps its line-by-line map to the file, though the file indents it") {
             let md = "- item\n\n  ```js\n  const y = 1\n  let z = 2\n  ```\n"
             let built = PreviewBuilder.build(md)

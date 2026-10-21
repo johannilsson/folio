@@ -94,6 +94,7 @@ final class PreviewView: NSView, AnnotationSurface {
         rebuilding = false
         appliedSide = 0
         applyColumn()
+        pruneCaches()
         loadPictures()
         loadHighlights()
         applyHighlights()
@@ -177,10 +178,11 @@ final class PreviewView: NSView, AnnotationSurface {
             Task { @MainActor [weak self] in
                 if let image = await asset.load(dark: self?.isDark ?? false) {
                     self?.pictures[asset.key] = image
-                } else if let image = asset.placeholder() {
-                    self?.stand[asset.key] = image
                 } else {
-                    return
+                    // Not had (no network, a missing file): the next time the text is read it is asked for again.
+                    self?.requested.remove(asset.key)
+                    guard let image = asset.placeholder() else { return }
+                    self?.stand[asset.key] = image
                 }
                 self?.fitPictures()
                 self?.relayout()
@@ -258,9 +260,28 @@ final class PreviewView: NSView, AnnotationSurface {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         let drawn = requested.filter { $0.hasPrefix("mermaid:") }
-        guard !drawn.isEmpty, drawn.count == requested.count || !pictures.isEmpty else { return }
+        guard !drawn.isEmpty else { return }
         requested.subtract(drawn)
         loadPictures()
+    }
+
+    /// Forgets the pictures and code colours of text that is gone: a long session of edits to a diagram
+    /// would keep every version of it.
+    private func pruneCaches() {
+        guard let storage = textView.textStorage else { return }
+        let whole = NSRange(location: 0, length: storage.length)
+        var assets = Set<String>(), codes = Set<String>()
+        storage.enumerateAttribute(.folioAsset, in: whole) { value, _, _ in
+            if let asset = value as? PreviewAsset { assets.insert(asset.key) }
+        }
+        storage.enumerateAttribute(.folioCode, in: whole) { value, _, _ in
+            if let code = value as? PreviewCode { codes.insert(code.key) }
+        }
+        requested.formIntersection(assets)
+        pictures = pictures.filter { assets.contains($0.key) }
+        stand = stand.filter { assets.contains($0.key) }
+        highlightRequested.formIntersection(codes)
+        tokens = tokens.filter { codes.contains($0.key) }
     }
 
     private func contentHeight(minHeight: CGFloat) -> CGFloat {

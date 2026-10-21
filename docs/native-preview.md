@@ -95,7 +95,11 @@ Each phase ends with self-test checks and pictures (see "How to verify").
    to the annotation actions, see `AppDelegate.undoEdit`).
 5. **Flip and delete.** Make native the default. Remove `frontend/` editor code the page no longer needs, the bridge ops it
    used (`anchors`, `selection`, `focus`, `pointer`, `typing`, `layout`, `reveal`, `anchor`, ...), `PreviewSurface`, and the
-   bridge's page calls. Remove every `if let preview` / `scrollHost.preview` / `AppConfig.webPreview` branch, not only the ones noticed first: `AnnotationController`
+   bridge's page calls. Also: the TypeScript halves of what `PreviewView` ports
+   (`frontend/src/frontmatter.ts`, the `plantuml-encoder` use in `diagrams.ts`, the highlight CSS) go with the editor, so the
+   Swift copies (`PreviewFrontmatter`, `PlantUML`, `SyntaxColors`) become the only ones; and `continue-on-error` stays only on
+   the pictures steps (the self-test itself gates the job through `scripts/verify.sh`).
+   Remove every `if let preview` / `scrollHost.preview` / `AppConfig.webPreview` branch, not only the ones noticed first: `AnnotationController`
    (4 places), `EditorScrollView`, `FolioWindowController` (the find, the mode switch and `textResponder`), `SetWindowController`
    and `SelfTest`.
    Update `macos/BRIDGE.md` and `CLAUDE.md` together with the code (CLAUDE.md says a bridge op
