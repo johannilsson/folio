@@ -238,6 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.keyWindow ?? NSApp.orderedWindows.first { $0.windowController is EditorWindowController }
     }
 
+    /// File ▸ Open Recent ▸ Clear Menu: the list in `recents.json`, AppKit's (the Dock menu) and the welcome window's.
+    @objc private func clearRecents(_ sender: Any?) {
+        welcome.clearRecents()
+    }
+
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         open(url)
@@ -260,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
-        let urls = NSDocumentController.shared.recentDocumentURLs
+        let urls = RecentFiles.list()
         for url in urls {
             let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecent(_:)), keyEquivalent: "")
             item.target = self
@@ -269,8 +274,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         if !urls.isEmpty { menu.addItem(.separator()) }
-        let clear = NSMenuItem(title: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        clear.target = NSDocumentController.shared
+        let clear = NSMenuItem(title: "Clear Menu", action: #selector(clearRecents(_:)), keyEquivalent: "")
+        clear.target = self
         clear.isEnabled = !urls.isEmpty
         menu.addItem(clear)
     }

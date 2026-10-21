@@ -50,6 +50,7 @@ final class FolioDocument: NSDocument {
     }
 
     override func makeWindowControllers() {
+        if let url = fileURL { RecentFiles.note(url) }
         addWindowController(FolioWindowController(document: self))
     }
 

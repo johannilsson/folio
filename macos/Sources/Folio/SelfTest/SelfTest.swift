@@ -72,8 +72,7 @@ final class SelfTest {
             self.controller.window?.title == self.name && self.controller.window?.representedURL == self.file
         }
         await check("the file is in Open Recent") {
-            // AppKit records the resolved path (/private/var for /var).
-            NSDocumentController.shared.recentDocumentURLs.contains { $0.resolvingSymlinksInPath() == self.file.resolvingSymlinksInPath() }
+            RecentFiles.list().contains { $0.resolvingSymlinksInPath() == self.file.resolvingSymlinksInPath() }
         }
         await check("bridge served info, getFile and getFolio") {
             ["info", "getFile", "getFolio"].allSatisfy { self.controller.bridge.count($0) > 0 }
