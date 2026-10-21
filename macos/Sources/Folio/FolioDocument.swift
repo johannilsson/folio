@@ -17,12 +17,10 @@ enum AppConfig {
     static var selfTest = false
     /// Where PlantUML diagrams are drawn (the web page and the preview both ask it).
     static let plantumlURL = "https://www.plantuml.com/plantuml"
-    /// Whether the preview is still the web page (Tiptap) rather than `PreviewView`: it is until the
-    /// new one has parity (`-WebPreview NO`, or the `WebPreview` default, shows `PreviewView`). The flag
-    /// and everything that checks it goes with the web page.
-    static var webPreview: Bool {
-        UserDefaults.standard.object(forKey: "WebPreview") == nil || UserDefaults.standard.bool(forKey: "WebPreview")
-    }
+    /// Whether the preview is the web page (Tiptap, `-WebPreview YES` or the `WebPreview` default) instead
+    /// of `PreviewView`, which is what shows by default. The flag and everything that checks it goes with
+    /// the web page.
+    static var webPreview: Bool { UserDefaults.standard.bool(forKey: "WebPreview") }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?

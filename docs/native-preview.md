@@ -7,7 +7,7 @@ changes using CI (the work does not need a Mac, but you can only judge looks fro
 
 > **Status:** phases 1–4 are in (PR #45). The new preview is `PreviewView` (`macos/Sources/Folio/Preview/`); the web
 > one is what the `Web`-prefixed names (`WebPreviewSurface`, `AnnotationController.webPreview`, `AppConfig.webPreview`)
-> and `frontend/` stand for. Run the new one with `-WebPreview NO`. Phase 5 deletes the `Web` names and flips the flag's default.
+> and `frontend/` stand for. `PreviewView` is the default; `-WebPreview YES` shows the web one. Phase 5 deletes the `Web` names and the flag.
 
 To start: read this file, `CLAUDE.md`, `macos/README.md` and `macos/BRIDGE.md`, then begin at
 "Phase 1".
