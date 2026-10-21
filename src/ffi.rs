@@ -256,6 +256,71 @@ pub unsafe extern "C" fn folio_set_delete(name: *const c_char) -> *mut c_char {
     finish((|| set_delete_json(arg(name)?))())
 }
 
+/// Runs the MCP server on stdin and stdout until the client closes them (`Folio --mcp`, started
+/// by Claude desktop). Returns the exit code.
+#[no_mangle]
+pub extern "C" fn folio_mcp_serve() -> i32 {
+    crate::mcp::serve_stdio()
+}
+
+/// Answers one request line from the MCP server, as the app sees it: a JSON string in, a JSON
+/// string out, both allocated by the caller of the callback side (Swift) and freed here with
+/// `free`. See `live.rs` for the protocol.
+pub type AppHandler = extern "C" fn(*const c_char) -> *mut c_char;
+
+extern "C" {
+    fn free(ptr: *mut std::ffi::c_void);
+}
+
+/// Starts answering the MCP server on the app's socket (`<config>/app.sock`). `handler` is called
+/// on a thread of the library's, once per request. Returns `{}` or `{"error": ...}` (another
+/// Folio already answers, or the path is too long). Free with `folio_free`.
+///
+/// # Safety
+/// `handler` must be safe to call from any thread, and its result a `malloc`ed NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_app_listen(handler: Option<AppHandler>) -> *mut c_char {
+    finish((|| {
+        let handler = handler.ok_or("null handler")?;
+        let path = crate::live::socket_path().map_err(|e| e.to_string())?;
+        crate::live::listen(&path, move |request| {
+            let Ok(request) = CString::new(request) else {
+                return json!({ "error": "bad request" }).to_string();
+            };
+            let answer = handler(request.as_ptr());
+            if answer.is_null() {
+                return json!({ "error": "the app gave no answer" }).to_string();
+            }
+            let text = CStr::from_ptr(answer).to_string_lossy().into_owned();
+            free(answer.cast());
+            text
+        })
+        .map_err(|e| e.to_string())?;
+        Ok("{}".to_string())
+    })())
+}
+
+/// Takes the app's socket away (the app is quitting).
+#[no_mangle]
+pub extern "C" fn folio_app_stop() {
+    crate::live::stop();
+}
+
+/// Registers `<exe> --mcp` as the `folio` server in Claude desktop's config. Returns
+/// `{"config": <path>, "change": "added" | "updated" | "unchanged"}`. Free with `folio_free`.
+///
+/// # Safety
+/// `exe` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_claude_connect(exe: *const c_char) -> *mut c_char {
+    finish((|| {
+        let config = crate::mcp::claude_config_path().map_err(|e| e.to_string())?;
+        let change = crate::mcp::connect_claude(Path::new(arg(exe)?), &config).map_err(|e| e.to_string())?;
+        let change = format!("{change:?}").to_lowercase();
+        Ok(json!({ "config": config, "change": change }).to_string())
+    })())
+}
+
 /// Frees a string returned by any `folio_*` function.
 ///
 /// # Safety
@@ -395,6 +460,57 @@ mod tests {
 
         std::env::remove_var("FOLIO_CONFIG_DIR");
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    extern "C" {
+        fn strdup(s: *const c_char) -> *mut c_char;
+    }
+
+    extern "C" fn pong(request: *const c_char) -> *mut c_char {
+        let request = unsafe { CStr::from_ptr(request) }.to_str().unwrap();
+        assert!(request.contains("\"op\":\"state\""), "{request}");
+        unsafe { strdup(c"{\"ok\":\"pong\"}".as_ptr()) }
+    }
+
+    fn take(p: *mut c_char) -> Value {
+        let text = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_string();
+        unsafe { folio_free(p) };
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn the_app_answers_the_mcp_server_through_a_callback() {
+        let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::path::PathBuf::from(format!("/tmp/folio-ffi-app-{}", std::process::id()));
+        std::env::set_var("FOLIO_CONFIG_DIR", &dir);
+
+        assert!(take(unsafe { folio_app_listen(None) }).get("error").is_some());
+        assert_eq!(take(unsafe { folio_app_listen(Some(pong)) }), json!({}));
+        assert_eq!(crate::live::request("state", json!({})), Ok(json!("pong")));
+        assert!(take(unsafe { folio_app_listen(Some(pong)) })["error"].as_str().unwrap().contains("already"));
+
+        folio_app_stop();
+        assert_eq!(crate::live::request("state", json!({})), Err(crate::live::LiveError::NotRunning));
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn connecting_claude_reports_what_it_changed() {
+        let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("folio-ffi-claude-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("claude_desktop_config.json");
+        std::env::set_var("FOLIO_CLAUDE_CONFIG", &config);
+
+        let exe = CString::new("/Applications/Folio.app/Contents/MacOS/Folio").unwrap();
+        let first = take(unsafe { folio_claude_connect(exe.as_ptr()) });
+        assert_eq!((first["change"].as_str(), first["config"].as_str()), (Some("added"), config.to_str()));
+        assert_eq!(take(unsafe { folio_claude_connect(exe.as_ptr()) })["change"], "unchanged");
+        assert!(take(unsafe { folio_claude_connect(std::ptr::null()) }).get("error").is_some());
+
+        std::env::remove_var("FOLIO_CLAUDE_CONFIG");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         default: break
         }
 
+        // Claude's MCP server asks this app what the reader has open. The self-test starts it on a socket of its own.
+        if !AppConfig.selfTest { MainActor.assumeIsolated { _ = AppServer.start() } }
+
         if AppConfig.selfTest {
             runSelfTest()
         } else if let name = AppConfig.openSet {
@@ -177,6 +180,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppServer.stop() }
+    }
+
+    // MARK: Claude
+
+    /// Folio ▸ Connect to Claude…: registers this app as an MCP server in Claude desktop's config, which
+    /// Claude reads when it starts.
+    @MainActor @objc func connectToClaude(_ sender: Any?) {
+        let alert = NSAlert()
+        do {
+            let result = try AppServer.connectClaude()
+            alert.messageText = result.change == "unchanged" ? "Folio is already connected to Claude" : "Folio is connected to Claude"
+            alert.informativeText = "Restart Claude to use it, then ask it to review a markdown file with Folio.\n\nThe setting is in \(result.config)."
+        } catch {
+            alert.alertStyle = .warning
+            alert.messageText = "Folio could not be connected to Claude"
+            alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
+        }
+        alert.runModal()
+    }
+
     // MARK: self-test
 
     private func runSelfTest() {
@@ -293,6 +318,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         _ = add("Folio") { m in
             m.addItem(withTitle: "About Folio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+            m.addItem(.separator())
+            m.addItem(withTitle: "Connect to Claude…", action: #selector(connectToClaude(_:)), keyEquivalent: "").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
             let others = m.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

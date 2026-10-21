@@ -229,6 +229,8 @@ extension SelfTest {
         await check("the annotations are anchored again in the new text") {
             await self.until { self.previewView.ranges.count == self.controller.currentStore.pending.count }
         }
+
+        await mcpChecks()
         finishPreview()
     }
 

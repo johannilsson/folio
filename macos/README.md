@@ -36,6 +36,29 @@ its files (grouped by repo, with a badge for unresolved annotations) beside the 
 - Changes made with `folio set` in a terminal appear in an open window within a second.
 - `folio open --set <name>` opens a set from the CLI (it sends `folio://set/<name>` to the app).
 
+## Claude (MCP)
+
+Folio is also an MCP server for Claude desktop, built into the app: Claude starts
+`Folio.app/Contents/MacOS/Folio --mcp`, which has no windows and speaks MCP over stdin and stdout
+(`src/mcp.rs`, the same engine as the CLI). Nothing else needs installing, and the `folio` CLI is not
+involved.
+
+**Folio ▸ Connect to Claude…** adds the server to Claude's config
+(`~/Library/Application Support/Claude/claude_desktop_config.json`, keeping everything else in it);
+restart Claude afterwards. Run it again after moving the app: it updates the path.
+
+The tools: `render`, `list_annotations`, `annotate` (all or nothing, checked against the text before
+anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files
+and need no running app. `current_document`, `selection`, `focused_annotation` and `reveal` ask the
+running app, over a socket (`<config>/app.sock`, mode 0600, `AppServer.swift`): they let you say
+"tighten this" about the selected text or "answer this one" about the focused card. Without the app
+they say that Folio is not running. Tools only take absolute paths to markdown files.
+
+The link is one line of JSON each way: `{"op": "state"}` is answered by `{"ok": {"windows": [...]}}`
+(per window: `front`, `file`, `sidecar`, `set`, `mode`, `pending`, `selection`, `focused`), and
+`{"op": "reveal", "file": ..., "id": ...}` by `{"ok": {"opened": bool}}`; a failure is `{"error": "..."}`.
+Change `AppServer.swift` and `src/mcp.rs` together.
+
 ## Test
 
 ```bash
@@ -47,7 +70,8 @@ macos/.build/debug/Folio --self-test macos/selftest.md       # exits 0 when ever
 The self-test works on throwaway copies: it types, undoes, copies and pastes through the
 Edit menu, annotates with the CLI, accepts in both editor modes (the native source editor
 included: typing, formatting, marks, undo, Find, drag-scroll), replaces the file from
-outside, and opens a second window. `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.png`,
+outside, and opens a second window. It also starts the app's binary with `--mcp` and talks to it over
+its pipes, as Claude desktop does (`SelfTest+MCP.swift`). `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.png`,
 `-menu.png`, `-floater.png` and `-form.png`: pictures of the whole window with annotation
 cards, the card menu, the Comment button and the comment form.
 `FOLIO_CLI` points it at a different `folio` binary.

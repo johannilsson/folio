@@ -34,6 +34,12 @@ Folio is a local markdown editor with an AI annotation system. Your job as an ag
 
 ---
 
+## If the Folio MCP server is connected
+
+When tools named `render`, `annotate`, `selection` and so on come from a `folio` MCP server (Folio ▸ Connect to Claude… in the app), use them instead of the CLI and of writing the sidecar by hand. The workflow is the same: `render`, then `annotate` with `context_before` and `target` copied from it, then `verify`. `annotate` refuses the whole batch, naming the ones that do not anchor, so fix those and send it again. `reply` answers a thread. `selection` gives the text the person has selected, and `focused_annotation` the comment they are on, so "tighten this" and "answer this one" can be done without asking where. Paths must be absolute.
+
+---
+
 ## Sidecar format
 
 The sidecar is a JSON file inside the `.folio/` directory at the project root, mirroring the `.md` file's path:

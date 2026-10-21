@@ -45,6 +45,33 @@ enum Rust {
         return (sidecar, out["id"] as? String)
     }
 
+    // MARK: Claude
+
+    /// Runs the MCP server on stdin and stdout until Claude closes them (`Folio --mcp`). The exit code.
+    static func mcpServe() -> Int32 {
+        folio_mcp_serve()
+    }
+
+    /// Starts answering the MCP server's questions about this app (src/live.rs). `handler` gets each
+    /// request as JSON and returns the response as a `malloc`ed JSON string; it runs on another thread.
+    static func appListen(_ handler: @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?) throws {
+        _ = try object(folio_app_listen(handler))
+    }
+
+    static func appStop() {
+        folio_app_stop()
+    }
+
+    /// Registers `executable --mcp` as the MCP server of Claude desktop. `change` is "added", "updated"
+    /// or "unchanged"; Claude has to be restarted to see it.
+    static func connectClaude(executable: String) throws -> (config: String, change: String) {
+        let out = try object(folio_claude_connect(executable))
+        guard let config = out["config"] as? String, let change = out["change"] as? String else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        return (config, change)
+    }
+
     // MARK: sets
 
     struct SetFile {
