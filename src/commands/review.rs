@@ -1,5 +1,20 @@
-use crate::sidecar::{AnnotationKind, Sidecar};
+use crate::sidecar::{Annotation, AnnotationKind, Sidecar};
 use std::path::Path;
+
+/// Unresolved annotations, narrowed by kind and source when given.
+fn pending<'a>(
+    sidecar: &'a Sidecar,
+    kind_filter: Option<&str>,
+    source_filter: Option<&str>,
+) -> Vec<&'a Annotation> {
+    sidecar
+        .annotations
+        .iter()
+        .filter(|a| !a.resolved)
+        .filter(|a| kind_filter.map(|k| a.kind.to_string() == k).unwrap_or(true))
+        .filter(|a| source_filter.map(|s| a.source.to_string() == s).unwrap_or(true))
+        .collect()
+}
 
 pub fn run(
     file: &Path,
@@ -10,21 +25,7 @@ pub fn run(
     let folio_path = super::folio_path(file);
     let sidecar = Sidecar::load(&folio_path)?;
 
-    let pending: Vec<_> = sidecar
-        .annotations
-        .iter()
-        .filter(|a| !a.resolved)
-        .filter(|a| {
-            kind_filter
-                .map(|k| a.kind.to_string() == k)
-                .unwrap_or(true)
-        })
-        .filter(|a| {
-            source_filter
-                .map(|s| a.source.to_string() == s)
-                .unwrap_or(true)
-        })
-        .collect();
+    let pending = pending(&sidecar, kind_filter, source_filter);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&pending)?);
@@ -75,4 +76,38 @@ pub fn run(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sidecar(tag: &str) -> Sidecar {
+        let dir = std::env::temp_dir().join(format!("folio-review-{}-{}", tag, std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let file = dir.join("a.md");
+        std::fs::write(&file, "Hello world.\n").unwrap();
+        let _ = std::fs::remove_file(super::super::folio_path(&file));
+        super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
+        super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
+        let mut s = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        s.annotations.push(s.annotations[0].clone());
+        s.annotations[2].resolved = true;
+        s
+    }
+
+    #[test]
+    fn resolved_annotations_are_never_listed() {
+        let s = sidecar("resolved");
+        assert_eq!(pending(&s, None, None).len(), 2);
+    }
+
+    #[test]
+    fn kind_and_source_filters_narrow_the_list() {
+        let s = sidecar("filters");
+        assert_eq!(pending(&s, Some("delete"), None).len(), 1);
+        assert_eq!(pending(&s, None, Some("local")).len(), 1);
+        assert!(pending(&s, Some("delete"), Some("local")).is_empty());
+        assert!(pending(&s, Some("bogus"), None).is_empty());
+    }
 }
