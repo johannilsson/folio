@@ -291,7 +291,7 @@ final class NativePreviewView: NSView, AnnotationSurface {
     /// Anchors the pending annotations in the file, puts the preview of suggestions into the text,
     /// and draws the marks. The text itself is only touched when a suggestion's preview changed.
     private func rebuild() {
-        sourceRanges = anchor()
+        sourceRanges = TextSurface.anchor(pending, in: markdown)
         var inserts: [(location: Int, id: String, text: NSAttributedString)] = []
         for annotation in pending {
             guard let range = sourceRanges[annotation.id], let replacement = annotation.replacement, !replacement.isEmpty else { continue }
@@ -353,83 +353,18 @@ final class NativePreviewView: NSView, AnnotationSurface {
         reportSelection()
     }
 
-    /// Anchors the pending annotations in the markdown with the same matcher the CLI uses.
-    private func anchor() -> [String: NSRange] {
-        let items: [[String: Any]] = pending.map { annotation in
-            var item: [String: Any] = ["id": annotation.id, "context_before": annotation.contextBefore]
-            if let target = annotation.target { item["target"] = target }
-            return item
-        }
-        var found: [String: NSRange] = [:]
-        if !items.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: items),
-           let answer = try? Rust.anchor(doc: markdown, itemsJSON: String(decoding: data, as: UTF8.self), raw: true),
-           let list = try? JSONSerialization.jsonObject(with: Data(answer.utf8)) as? [[String: Any]] {
-            for entry in list {
-                guard let id = entry["id"] as? String, let from = (entry["char_from"] as? NSNumber)?.intValue,
-                      let to = (entry["char_to"] as? NSNumber)?.intValue else { continue }
-                found[id] = NSRange(location: from, length: max(0, to - from))
-            }
-        }
-        return found
-    }
-
-    private static let purple = NSColor.systemPurple
-    private static let red = NSColor.systemRed
-
-    /// Draws each annotation over its text without touching the text: temporary attributes.
+    /// Draws each annotation over its text without touching the text.
     private func applyMarks() {
-        guard let layoutManager = textView.layoutManager else { return }
-        let whole = NSRange(location: 0, length: model.text.length)
-        for key in [NSAttributedString.Key.backgroundColor, .strikethroughStyle, .strikethroughColor, .underlineStyle, .underlineColor] {
-            layoutManager.removeTemporaryAttribute(key, forCharacterRange: whole)
-        }
-        func clamped(_ range: NSRange) -> NSRange? {
-            let clipped = NSIntersectionRange(range, whole)
-            return clipped.length > 0 ? clipped : nil
-        }
-        for annotation in pending {
-            guard let range = ranges[annotation.id], let shown = clamped(range) else { continue }
-            switch annotation.kind {
-            case .comment, .highlight:
-                layoutManager.addTemporaryAttribute(.backgroundColor, value: Self.purple.withAlphaComponent(0.22), forCharacterRange: shown)
-            case .replace, .delete:
-                layoutManager.addTemporaryAttributes([
-                    .backgroundColor: Self.red.withAlphaComponent(0.12),
-                    .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                    .strikethroughColor: Self.red,
-                ], forCharacterRange: shown)
-                if annotation.kind == .delete {
-                    layoutManager.addTemporaryAttributes([.underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: Self.red], forCharacterRange: shown)
-                }
-            default: break
-            }
-        }
-        if let pendingRange, let shown = model.displayRange(forSource: NSRange(location: pendingRange.from, length: pendingRange.to - pendingRange.from)),
-           let clipped = clamped(shown) {
-            layoutManager.addTemporaryAttribute(.backgroundColor, value: Self.purple.withAlphaComponent(0.4), forCharacterRange: clipped)
-        }
+        let pendingText = pendingRange.flatMap { model.displayRange(forSource: NSRange(location: $0.from, length: $0.to - $0.from)) }
+        TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText)
     }
 
     // MARK: reports
 
-    /// Where the character at `index` is, in this view's coordinates: the top and bottom of its
-    /// line, and how far along that line it is.
-    private func position(of index: Int) -> (top: Double, bottom: Double, left: Double)? {
-        guard let layoutManager = textView.layoutManager, let container = textView.textContainer, model.text.length > 0 else { return nil }
-        let length = model.text.length
-        let glyph = layoutManager.glyphIndexForCharacter(at: min(index, length - 1))
-        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-        let origin = textView.textContainerOrigin
-        var x = layoutManager.location(forGlyphAt: glyph).x + line.minX + origin.x
-        if index >= length { x = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container).maxX + origin.x }
-        return (Double(textView.frame.minY + line.minY + origin.y), Double(textView.frame.minY + line.maxY + origin.y), Double(textView.frame.minX + x))
-    }
-
     private func reportAnchors() {
         guard !rebuilding else { return }
         let anchors: [AnchorRect] = pending.compactMap { annotation in
-            guard let range = ranges[annotation.id], let spot = position(of: range.location) else { return nil }
+            guard let range = ranges[annotation.id], let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
             return AnchorRect(id: annotation.id, from: sourceRanges[annotation.id]?.location ?? range.location,
                               top: spot.top, bottom: spot.bottom, left: spot.left)
         }
@@ -439,35 +374,21 @@ final class NativePreviewView: NSView, AnnotationSurface {
     private func reportSelection() {
         guard !rebuilding else { return }
         let range = textView.selectedRange()
-        guard range.length > 0, let layoutManager = textView.layoutManager, let container = textView.textContainer,
-              let first = position(of: range.location), let inFile = model.sourceRange(forDisplay: range) else {
+        guard let inFile = model.sourceRange(forDisplay: range) else {
             onSelection?(nil)
             return
         }
-        let last = position(of: max(range.location, range.upperBound - 1)) ?? first
-        let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-        let box = layoutManager.boundingRect(forGlyphRange: glyphs, in: container)
-        let origin = textView.textContainerOrigin
-        // The words an annotation is anchored by are the rendered text of the selected part of the file.
-        var target = (markdown as NSString).substring(with: inFile)
-        var contextBefore = ""
-        if let rendered = try? Rust.renderedSelection(doc: markdown, range: inFile) { (target, contextBefore) = rendered }
-        onSelection?(SelectionInfo(
-            from: inFile.location, to: inFile.upperBound, top: first.top, bottom: first.bottom, endBottom: last.bottom,
-            left: Double(textView.frame.minX + box.minX + origin.x), right: Double(textView.frame.minX + box.maxX + origin.x),
-            target: target, contextBefore: contextBefore
-        ))
+        onSelection?(TextSurface.selection(in: textView, displayRange: range, fileRange: inFile, document: markdown))
     }
 
     /// A click on a character: the annotation there (or its suggested text) takes the focus, or none.
     private func clicked(at index: Int?) {
         guard let index else { onFocus?(nil); return }
-        let hit = pending.first { annotation in
-            if let range = ranges[annotation.id], index >= range.location && index <= range.upperBound { return true }
-            if let ghost = ghostRanges[annotation.id], index >= ghost.location && index < ghost.upperBound { return true }
-            return false
-        }
-        onFocus?(hit?.id)
+        let suggested = pending.first { annotation in
+            guard let ghost = ghostRanges[annotation.id] else { return false }
+            return index >= ghost.location && index < ghost.upperBound
+        }?.id
+        onFocus?(TextSurface.annotation(at: index, in: pending, ranges: ranges) ?? suggested)
     }
 
     // MARK: AnnotationSurface
@@ -497,50 +418,24 @@ final class NativePreviewView: NSView, AnnotationSurface {
 
     /// Briefly highlights the text an accepted suggestion put in.
     private func runFlash() {
-        guard let text = flash, let layoutManager = textView.layoutManager else { return }
+        guard let text = flash else { return }
         flash = nil
-        let found = (model.text.string as NSString).range(of: text)
-        guard found.location != NSNotFound else { return }
-        layoutManager.addTemporaryAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.5), forCharacterRange: found)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.applyMarks()
-        }
+        TextSurface.flash(text, in: textView) { [weak self] in self?.applyMarks() }
     }
 }
 
 extension NativePreviewView {
     /// Selects the next (or previous) match of `text` in what is on screen, wrapping round. Returns whether there is one.
+    /// A match in the preview of a suggestion is text that is not in the file: it is skipped.
     @discardableResult
     func find(_ text: String, backwards: Bool) -> Bool {
-        guard !text.isEmpty else { return false }
-        let all = textView.string as NSString
-        let selection = textView.selectedRange()
-        var options: NSString.CompareOptions = [.caseInsensitive]
-        if backwards { options.insert(.backwards) }
-        // A match in the preview of a suggestion is text that is not in the file: it is skipped.
-        func match(in range: NSRange) -> NSRange {
-            var rest = range
-            while rest.length > 0 {
-                let found = all.range(of: text, options: options, range: rest)
-                guard found.location != NSNotFound else { break }
-                var ghost = false
-                model.text.enumerateAttribute(.folioGhost, in: NSIntersectionRange(found, NSRange(location: 0, length: model.text.length))) { value, _, _ in
-                    if value != nil { ghost = true }
-                }
-                if !ghost { return found }
-                rest = backwards ? NSRange(location: range.location, length: found.location - range.location)
-                                 : NSRange(location: found.upperBound, length: range.upperBound - found.upperBound)
+        TextSurface.find(text, backwards: backwards, in: textView) { [model] range in
+            var ghost = false
+            model.text.enumerateAttribute(.folioGhost, in: NSIntersectionRange(range, NSRange(location: 0, length: model.text.length))) { value, _, _ in
+                if value != nil { ghost = true }
             }
-            return NSRange(location: NSNotFound, length: 0)
+            return ghost
         }
-        let ahead = backwards ? NSRange(location: 0, length: selection.location) : NSRange(location: selection.upperBound, length: all.length - selection.upperBound)
-        var found = match(in: ahead)
-        if found.location == NSNotFound { found = match(in: NSRange(location: 0, length: all.length)) }
-        guard found.location != NSNotFound else { return false }
-        textView.setSelectedRange(found)
-        textView.scrollRangeToVisible(found)
-        textView.showFindIndicator(for: found)
-        return true
     }
 }
 
