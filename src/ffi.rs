@@ -321,6 +321,22 @@ pub unsafe extern "C" fn folio_claude_connect(exe: *const c_char) -> *mut c_char
     })())
 }
 
+/// The ways to register `<exe> --mcp` by hand in tools other than Claude desktop (Codex and
+/// others): `{"snippets": [{"name", "hint", "text"}]}`. Free with `folio_free`.
+///
+/// # Safety
+/// `exe` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_mcp_snippets(exe: *const c_char) -> *mut c_char {
+    finish((|| {
+        let snippets: Vec<_> = crate::mcp::client_snippets(Path::new(arg(exe)?))
+            .into_iter()
+            .map(|s| json!({ "name": s.name, "hint": s.hint, "text": s.text }))
+            .collect();
+        Ok(json!({ "snippets": snippets }).to_string())
+    })())
+}
+
 /// Frees a string returned by any `folio_*` function.
 ///
 /// # Safety

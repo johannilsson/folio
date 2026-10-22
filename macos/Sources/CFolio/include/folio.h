@@ -60,6 +60,10 @@ char *folio_app_listen(folio_app_handler handler);
 /* Takes the socket away; the app is quitting. */
 void folio_app_stop(void);
 
+/* The ways to register `<exe> --mcp` by hand in tools other than Claude desktop (Codex and others):
+   {"snippets": [{"name", "hint", "text"}]} */
+char *folio_mcp_snippets(const char *exe);
+
 /* Registers `<exe> --mcp` as the "folio" server in Claude desktop's config.
    {"config": <path>, "change": "added" | "updated" | "unchanged"} */
 char *folio_claude_connect(const char *exe);

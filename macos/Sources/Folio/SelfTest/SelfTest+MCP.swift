@@ -2,8 +2,8 @@ import AppKit
 
 /// Claude's way into the app: the MCP server that the app's binary becomes with `--mcp`, started and
 /// spoken to over its pipes as Claude desktop does, against the app that is running this test. The tools
-/// that work on files are covered by `cargo test`; here it is that they reach this app: its windows, its
-/// selection, its annotations, and the menu item that connects Claude.
+/// that work on files are covered by `cargo test`; here it is that they reach this app: its windows, the
+/// annotation the reader has focused, its annotations, and the menu items that connect Claude and other tools.
 extension SelfTest {
     func mcpChecks() async {
         // A socket path has to be short (104 bytes), so not the temporary folder.
@@ -26,6 +26,13 @@ extension SelfTest {
         await check("Folio ▸ Connect to Claude… is in the app menu") {
             let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Claude…")
             return item?.action == #selector(AppDelegate.connectToClaude(_:)) && item?.target === self.app
+        }
+        await check("Folio ▸ Connect to Other Tools… is next to it, and offers Codex with this app's path") {
+            let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Other Tools…")
+            guard item?.action == #selector(AppDelegate.connectOtherTools(_:)), item?.target === self.app,
+                  let snippets = try? AppServer.clientSnippets(), let path = Bundle.main.executablePath else { return false }
+            let alert = ConnectToolsAlert(snippets: snippets)
+            return snippets.first?.name == "Codex" && alert.shownText.contains("codex mcp add folio") && alert.shownText.contains(path)
         }
         let first = try? AppServer.connectClaude()
         let second = try? AppServer.connectClaude()
@@ -61,7 +68,7 @@ extension SelfTest {
         await check("it offers the tools") {
             let listed = (await client.call("tools/list")?["result"] as? [String: Any])?["tools"] as? [[String: Any]]
             let names = Set(listed?.compactMap { $0["name"] as? String } ?? [])
-            return ["render", "annotate", "reply", "verify", "selection", "focused_annotation", "reveal", "current_document"].allSatisfy(names.contains)
+            return ["render", "annotate", "reply", "verify", "focused_annotation", "reveal", "current_document"].allSatisfy(names.contains)
         }
 
         // What the person has open.
@@ -105,27 +112,15 @@ extension SelfTest {
                 && self.controller.currentStore.pending.count == before + 1
         }
 
-        // What the person has selected, in the words annotate takes.
-        let textView = previewView.textView
-        controller.window?.makeFirstResponder(textView)
-        textView.setSelectedRange((previewText as NSString).range(of: "minimal intervention"))
-        await check("selection gives the selected words, ready for annotate") {
-            guard await self.until({ self.pane.selection?.target == "minimal intervention" }) else { return false }
-            let selected = client.json(await client.tool("selection", [:])?.text)
-            guard selected?["target"] as? String == "minimal intervention", let before = selected?["context_before"] as? String else { return false }
-            let highlighted = await client.tool("annotate", [
-                "file": path,
-                "annotations": [["kind": "highlight", "context_before": before, "target": "minimal intervention"]],
-            ])
-            return highlighted?.isError == false
-        }
-        textView.setSelectedRange(NSRange(location: 0, length: 0))
-        await check("with nothing selected it says so") {
-            _ = await self.until { self.pane.selection == nil }
-            return await client.tool("selection", [:])?.text.hasPrefix("Nothing is selected") == true
+        // The annotation the reader steps to (⌃J) is the one the server reports as focused.
+        pane.navigate(1)
+        await check("focused_annotation follows the annotation the reader stepped to, with its thread") {
+            guard let stepped = self.pane.focusedID else { return false }
+            let focused = client.json(await client.tool("focused_annotation", [:])?.text)?["annotation"] as? [String: Any]
+            return focused?["id"] as? String == stepped
         }
 
-        // Focusing an annotation, answering it.
+        // Showing an annotation, answering it.
         let revealed = await client.tool("reveal", ["file": path, "id": addedID])
         await check("reveal focuses the annotation in the window") {
             let focused = await self.until { self.pane.focusedID == addedID }
@@ -162,7 +157,7 @@ extension SelfTest {
         // Without the app the file tools still work and the live ones say why not.
         AppServer.stop()
         await check("when the app stops answering, the live tools say Folio is not running") {
-            let result = await client.tool("selection", [:])
+            let result = await client.tool("focused_annotation", [:])
             return result?.isError == true && result?.text.contains("not running") == true
         }
         await check("and the file tools still work") {

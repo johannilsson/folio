@@ -36,7 +36,7 @@ Folio is a local markdown editor with an AI annotation system. Your job as an ag
 
 ## If the Folio MCP server is connected
 
-When tools named `render`, `annotate`, `selection` and so on come from a `folio` MCP server (Folio ▸ Connect to Claude… in the app), use them instead of the CLI and of writing the sidecar by hand. The workflow is the same: `render`, then `annotate` with `context_before` and `target` copied from it, then `verify`. `annotate` refuses the whole batch, naming the ones that do not anchor, so fix those and send it again. `reply` answers a thread. `selection` gives the text the person has selected, and `focused_annotation` the comment they are on, so "tighten this" and "answer this one" can be done without asking where. Paths must be absolute.
+When tools named `render`, `annotate`, `focused_annotation` and so on come from a `folio` MCP server (Folio ▸ Connect to Claude… or Connect to Other Tools… in the app), use them instead of the CLI and of writing the sidecar by hand. The workflow is the same: `render`, then `annotate` with `context_before` and `target` copied from it, then `verify`. `annotate` refuses the whole batch, naming the ones that do not anchor, so fix those and send it again. `reply` answers a thread, and `list_annotations` shows the threads. `focused_annotation` gives the annotation the person has open, with its thread, so "answer this one" can be done without asking which. Paths must be absolute.
 
 ---
 

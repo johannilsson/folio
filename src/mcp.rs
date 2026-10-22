@@ -1,8 +1,8 @@
 //! The MCP server: the tools an assistant such as Claude desktop gets for reviewing markdown
 //! with Folio. Claude starts the app's own binary with `--mcp` and speaks JSON-RPC to it over
 //! stdin and stdout, one message per line. The file tools work on the markdown and its sidecar
-//! on disk, with the same engine as the CLI and the app; the `current_document`, `selection`,
-//! `focused_annotation` and `reveal` tools ask the running app through `live`.
+//! on disk, with the same engine as the CLI and the app; the `current_document`, `focused_annotation`
+//! and `reveal` tools ask the running app through `live`.
 
 use crate::commands::annotate::{parse_kind, validate_fields};
 use crate::edit::{self, Edit};
@@ -123,8 +123,9 @@ fn handle(message: &Value, app: &dyn App) -> Option<Value> {
 const INSTRUCTIONS: &str = "Folio is a markdown review tool. You review a document by annotating it: \
 replacements, deletions, insertions, highlights and comments, which the person accepts or rejects in \
 the Folio app. You never edit the markdown file itself. Call `render` first and copy every \
-`context_before` and `target` from its output, then `annotate`. Use `selection` and \
-`focused_annotation` to see what the person is looking at.";
+`context_before` and `target` from its output, then `annotate`. The annotations and their threads are \
+what the person works with: `list_annotations` shows them, `reply` answers one, and `focused_annotation` \
+is the one they have open right now.";
 
 fn tool(name: &str, description: &str, read_only: bool, properties: Value, required: &[&str]) -> Value {
     json!({
@@ -250,17 +251,9 @@ fn tools() -> Value {
             &[],
         ),
         tool(
-            "selection",
-            "The text the person has selected in the front Folio window, as `target` and `context_before` ready to \
-             pass to `annotate`. Use it for requests like \"tighten this\".",
-            true,
-            json!({}),
-            &[],
-        ),
-        tool(
             "focused_annotation",
-            "The annotation the person has focused (clicked, or stepped to) in the front Folio window, with its replies. \
-             Use it for requests like \"answer this one\".",
+            "The annotation the person has focused in the front Folio window (by clicking its card or its text, or \
+             stepping to it), with its whole thread. Use it for requests like \"answer this one\" or \"fix this\".",
             true,
             json!({}),
             &[],
@@ -287,7 +280,6 @@ fn call(name: &str, args: &Value, app: &dyn App) -> Result<String, String> {
         "set_remove" => set_remove(args),
         "open" => open(args),
         "current_document" => current_document(app),
-        "selection" => selection(app),
         "focused_annotation" => focused_annotation(app),
         "reveal" => reveal(args, app),
         _ => Err(format!("unknown tool: {name}")),
@@ -529,29 +521,11 @@ fn front_window(app: &dyn App) -> Result<Value, String> {
 }
 
 fn current_document(app: &dyn App) -> Result<Value, String> {
-    let mut windows = windows(app)?;
+    let windows = windows(app)?;
     if windows.is_empty() {
         return Err("No document is open in Folio.".to_string());
     }
-    // The text of a selection can be long; `selection` is the tool for it.
-    for window in &mut windows {
-        if let Some(object) = window.as_object_mut() {
-            object.remove("selection");
-        }
-    }
     Ok(json!({ "windows": windows }))
-}
-
-fn selection(app: &dyn App) -> Result<Value, String> {
-    let window = front_window(app)?;
-    match window.get("selection").filter(|s| !s.is_null()) {
-        None => Ok(Value::String(format!("Nothing is selected in {}.", window["file"].as_str().unwrap_or("the front window")))),
-        Some(selection) => Ok(json!({
-            "file": window["file"],
-            "target": selection["target"],
-            "context_before": selection["context_before"],
-        })),
-    }
 }
 
 fn focused_annotation(app: &dyn App) -> Result<Value, String> {
@@ -641,6 +615,59 @@ pub fn connect_claude(exe: &Path, config: &Path) -> anyhow::Result<Connected> {
         let _ = std::fs::remove_file(&tmp);
     })?;
     Ok(outcome)
+}
+
+// MARK: connecting other tools
+
+/// What to run or paste to register `exe --mcp` as the `folio` server in a tool other than Claude desktop.
+#[derive(Debug, PartialEq)]
+pub struct Snippet {
+    pub name: &'static str,
+    /// Where it goes.
+    pub hint: &'static str,
+    pub text: String,
+}
+
+/// A path as one word of a shell command.
+fn shell_word(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// A string as TOML and JSON both write it: quoted, with quotes, backslashes and control characters escaped.
+fn quoted(text: &str) -> String {
+    serde_json::to_string(text).unwrap_or_default()
+}
+
+pub fn client_snippets(exe: &Path) -> Vec<Snippet> {
+    let exe = exe.to_string_lossy();
+    let json = serde_json::to_string_pretty(&json!({ "mcpServers": { "folio": { "command": exe, "args": ["--mcp"] } } }))
+        .unwrap_or_default();
+    vec![
+        Snippet {
+            name: "Codex",
+            hint: "Run it in a terminal, or put the lines in ~/.codex/config.toml.",
+            text: format!(
+                "codex mcp add folio -- {word} --mcp\n\n[mcp_servers.folio]\ncommand = {path}\nargs = [\"--mcp\"]\n",
+                word = shell_word(&exe),
+                path = quoted(&exe)
+            ),
+        },
+        Snippet {
+            name: "Claude Code",
+            hint: "Run it in a terminal.",
+            text: format!("claude mcp add folio -- {} --mcp\n", shell_word(&exe)),
+        },
+        Snippet {
+            name: "Other tools (JSON)",
+            hint: "Cursor (~/.cursor/mcp.json), Gemini CLI, Windsurf and most others take this in their MCP settings.",
+            text: format!("{json}\n"),
+        },
+        Snippet {
+            name: "Any MCP client",
+            hint: "For a tool that asks for a command and its arguments. The server speaks MCP over stdio.",
+            text: format!("command:    {exe}\narguments: --mcp\n"),
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -737,7 +764,7 @@ mod tests {
         assert_eq!(
             names,
             ["render", "list_annotations", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "open",
-             "current_document", "selection", "focused_annotation", "reveal"]
+             "current_document", "focused_annotation", "reveal"]
         );
         for tool in replies[2]["result"]["tools"].as_array().unwrap() {
             assert_eq!(tool["inputSchema"]["type"], "object");
@@ -898,14 +925,13 @@ mod tests {
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
-    fn window(file: &Path, front: bool, selection: Value, focused: Value) -> Value {
+    fn window(file: &Path, front: bool, focused: Value) -> Value {
         json!({
             "front": front,
             "file": file,
             "sidecar": crate::commands::folio_path(file),
             "mode": "preview",
             "pending": 1,
-            "selection": selection,
             "focused": focused,
         })
     }
@@ -918,39 +944,34 @@ mod tests {
         let other = document("live-other", DOC);
 
         let app = FakeApp {
-            windows: json!([
-                window(&other, false, Value::Null, Value::Null),
-                window(&file, true, json!({ "target": "lazy dog", "context_before": "jumps over the " }), id.clone()),
-            ]),
+            windows: json!([window(&other, false, Value::Null), window(&file, true, id.clone())]),
             asked: Default::default(),
         };
         let current = ok(&app, "current_document", json!({}));
         assert_eq!(current["windows"].as_array().unwrap().len(), 2);
-        assert!(current["windows"][1].get("selection").is_none());
-
-        let selected = ok(&app, "selection", json!({}));
-        assert_eq!(selected, json!({ "file": file, "target": "lazy dog", "context_before": "jumps over the " }));
-        // What it returns is what `annotate` takes.
-        ok(&NoApp, "annotate", json!({ "file": file, "annotations": [{ "kind": "highlight", "context_before": selected["context_before"], "target": selected["target"] }] }));
+        assert_eq!(current["windows"][1]["front"], true);
 
         let focused = ok(&app, "focused_annotation", json!({}));
         assert_eq!(focused["annotation"]["id"], id);
         assert_eq!(focused["annotation"]["comment"], "why?");
 
+        // The thread comes with it, so an answer can build on what was said.
+        ok(&NoApp, "reply", json!({ "file": file, "id": id, "body": "Because." }));
+        assert_eq!(ok(&app, "focused_annotation", json!({}))["annotation"]["replies"][0]["body"], "Because.");
+
         ok(&app, "reveal", json!({ "file": file, "id": "ann_1" }));
         assert_eq!(app.asked.lock().unwrap().last().unwrap(), &("reveal".to_string(), json!({ "file": file, "id": "ann_1" })));
 
-        // Nothing selected or focused is an answer, not an error.
-        let idle = FakeApp { windows: json!([window(&file, true, Value::Null, Value::Null)]), asked: Default::default() };
-        assert!(ok(&idle, "selection", json!({})).as_str().unwrap().starts_with("Nothing is selected"));
+        // Nothing focused is an answer, not an error.
+        let idle = FakeApp { windows: json!([window(&file, true, Value::Null)]), asked: Default::default() };
         assert!(ok(&idle, "focused_annotation", json!({})).as_str().unwrap().starts_with("No annotation is focused"));
         let none = FakeApp { windows: json!([]), asked: Default::default() };
-        assert!(err(&none, "selection", json!({})).contains("No document is open"));
+        assert!(err(&none, "focused_annotation", json!({})).contains("No document is open"));
     }
 
     #[test]
     fn the_app_tools_say_so_when_folio_is_not_running() {
-        for name in ["current_document", "selection", "focused_annotation"] {
+        for name in ["current_document", "focused_annotation"] {
             assert!(err(&NoApp, name, json!({})).contains("Folio is not running"), "{name}");
         }
         assert!(err(&NoApp, "reveal", json!({ "file": "/a.md" })).contains("Folio is not running"));
@@ -962,6 +983,27 @@ mod tests {
         let expected = if cfg!(target_os = "macos") { "provide a file" } else { "macOS app" };
         assert!(err(&NoApp, "open", json!({})).contains(expected));
         assert!(err(&NoApp, "open", json!({ "file": "relative.md" })).contains("absolute"));
+    }
+
+    #[test]
+    fn other_tools_get_snippets_that_quote_the_path() {
+        let exe = Path::new("/Users/me/My \"Apps\"/it's/Folio.app/Contents/MacOS/Folio");
+        let snippets = client_snippets(exe);
+        let names: Vec<_> = snippets.iter().map(|s| s.name).collect();
+        assert_eq!(names, ["Codex", "Claude Code", "Other tools (JSON)", "Any MCP client"]);
+
+        let codex = &snippets[0].text;
+        assert!(codex.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"), "{codex}");
+        // The TOML half parses as a basic string holding the same path.
+        let command = codex.lines().find_map(|l| l.strip_prefix("command = ")).unwrap();
+        assert_eq!(serde_json::from_str::<String>(command).unwrap(), exe.to_string_lossy());
+        assert!(codex.contains("[mcp_servers.folio]") && codex.contains("args = [\"--mcp\"]"));
+
+        assert!(snippets[1].text.starts_with("claude mcp add folio -- '/Users"));
+        let json: Value = serde_json::from_str(&snippets[2].text).unwrap();
+        assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
+        assert!(snippets[3].text.contains(&*exe.to_string_lossy()) && snippets[3].text.contains("--mcp"));
+        assert!(snippets.iter().all(|s| !s.hint.is_empty()));
     }
 
     // MARK: connecting Claude

@@ -1,7 +1,7 @@
 import AppKit
 
-/// What the running app tells Folio's MCP server (src/mcp.rs): the windows with their selection and
-/// focused annotation (`state`), and `reveal`. The server is a separate process that Claude desktop
+/// What the running app tells Folio's MCP server (src/mcp.rs): the windows with the annotation the
+/// reader has focused (`state`), and `reveal`. The server is a separate process that Claude desktop
 /// starts (`Folio --mcp`); it connects to the socket in the config folder (src/live.rs), which libfolio
 /// serves on a thread of its own and which calls `answer` once per request. A request is one line of
 /// JSON, `{"op": ..., ...}`, and the answer `{"ok": ...}` or `{"error": "..."}`. Both are described in
@@ -29,10 +29,19 @@ enum AppServer {
         Rust.appStop()
     }
 
+    private static func executable() throws -> String {
+        guard let path = Bundle.main.executablePath else { throw RustError(description: "cannot find the app's executable") }
+        return path
+    }
+
     /// Folio ▸ Connect to Claude…: lets Claude desktop start this app's MCP server.
     static func connectClaude() throws -> (config: String, change: String) {
-        guard let executable = Bundle.main.executablePath else { throw RustError(description: "cannot find the app's executable") }
-        return try Rust.connectClaude(executable: executable)
+        try Rust.connectClaude(executable: executable())
+    }
+
+    /// Folio ▸ Connect to Other Tools…: what to paste into Codex and the like.
+    static func clientSnippets() throws -> [Rust.Snippet] {
+        try Rust.mcpSnippets(executable: executable())
     }
 
     // MARK: requests
@@ -76,8 +85,8 @@ enum AppServer {
         (NSApp.keyWindow?.windowController as? EditorWindowController) ?? editors.first
     }
 
-    /// Every window with what it shows. `selection` is the selected words as rendered text, the way an
-    /// annotation names them; `focused` the id of the annotation the reader is on.
+    /// Every window with what it shows. `focused` is the id of the annotation the reader is on: the one
+    /// they clicked, or stepped to.
     private static func state() -> [String: Any] {
         let current = front
         return ["windows": editors.map { editor -> [String: Any] in
@@ -90,9 +99,6 @@ enum AppServer {
                 "pending": editor.pendingCount,
             ]
             if let set = editor as? SetWindowController { window["set"] = set.setName }
-            if let selection = editor.annotations.selection {
-                window["selection"] = ["target": selection.target, "context_before": selection.contextBefore]
-            }
             if let focused = editor.annotations.focusedID { window["focused"] = focused }
             return window
         }]

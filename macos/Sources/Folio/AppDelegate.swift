@@ -202,6 +202,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.runModal()
     }
 
+    /// Folio ▸ Connect to Other Tools…: what to run or paste to register the app's MCP server in Codex and the like.
+    @MainActor @objc func connectOtherTools(_ sender: Any?) {
+        do {
+            ConnectToolsAlert(snippets: try AppServer.clientSnippets()).run()
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Folio could not prepare the settings"
+            alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     // MARK: self-test
 
     private func runSelfTest() {
@@ -320,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(withTitle: "About Folio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
             m.addItem(.separator())
             m.addItem(withTitle: "Connect to Claude…", action: #selector(connectToClaude(_:)), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Connect to Other Tools…", action: #selector(connectOtherTools(_:)), keyEquivalent: "").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
             let others = m.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

@@ -46,16 +46,18 @@ involved.
 **Folio ▸ Connect to Claude…** adds the server to Claude's config
 (`~/Library/Application Support/Claude/claude_desktop_config.json`, keeping everything else in it);
 restart Claude afterwards. Run it again after moving the app: it updates the path.
+**Folio ▸ Connect to Other Tools…** is for the rest (Codex, Claude Code, Cursor and other MCP clients):
+it shows what to run or paste for each, with this app's path in it, and Copy puts it on the pasteboard.
 
 The tools: `render`, `list_annotations`, `annotate` (all or nothing, checked against the text before
 anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files
-and need no running app. `current_document`, `selection`, `focused_annotation` and `reveal` ask the
-running app, over a socket (`<config>/app.sock`, mode 0600, `AppServer.swift`): they let you say
-"tighten this" about the selected text or "answer this one" about the focused card. Without the app
-they say that Folio is not running. Tools only take absolute paths to markdown files.
+and need no running app. `current_document`, `focused_annotation` and `reveal` ask the running app,
+over a socket (`<config>/app.sock`, mode 0600, `AppServer.swift`): `focused_annotation` is the
+annotation (and its thread) the reader has open, by clicking its card or text or stepping to it, so
+you can say "answer this one". Without the app they say that Folio is not running. Tools only take absolute paths to markdown files.
 
 The link is one line of JSON each way: `{"op": "state"}` is answered by `{"ok": {"windows": [...]}}`
-(per window: `front`, `file`, `sidecar`, `set`, `mode`, `pending`, `selection`, `focused`), and
+(per window: `front`, `file`, `sidecar`, `set`, `mode`, `pending`, `focused`), and
 `{"op": "reveal", "file": ..., "id": ...}` by `{"ok": {"opened": bool}}`; a failure is `{"error": "..."}`.
 Change `AppServer.swift` and `src/mcp.rs` together.
 
