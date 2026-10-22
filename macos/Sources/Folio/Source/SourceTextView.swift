@@ -23,6 +23,12 @@ final class SourceTextView: NSTextView {
         didSet { if insertPoints != oldValue { needsDisplay = true } }
     }
 
+    /// The text a replace or insert would put in, and where: drawn in green after that point, over
+    /// the text that follows on the line, without being part of the file.
+    var suggestions: [(at: Int, text: String)] = [] {
+        didSet { needsDisplay = true }
+    }
+
     init() {
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -144,6 +150,34 @@ final class SourceTextView: NSTextView {
             }
             NSColor.systemGreen.setFill()
             NSRect(x: x - 1, y: line.minY + origin.y + 3, width: 2, height: line.height - 6).fill()
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let layoutManager, let textContainer, string.utf16.count > 0 else { return }
+        let origin = textContainerOrigin
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+            .foregroundColor: NSColor.systemGreen,
+        ]
+        for suggestion in suggestions where suggestion.at <= string.utf16.count {
+            let text = suggestion.text.replacingOccurrences(of: "\n", with: " ")
+            let index = min(suggestion.at, string.utf16.count - 1)
+            let glyph = layoutManager.glyphIndexForCharacter(at: index)
+            let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            var x = layoutManager.location(forGlyphAt: glyph).x + line.minX + origin.x
+            if suggestion.at >= string.utf16.count {
+                x = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer).maxX + origin.x
+            }
+            let size = (text as NSString).size(withAttributes: attributes)
+            let box = NSRect(x: x, y: line.minY + origin.y, width: size.width + 4, height: line.height)
+            guard box.intersects(dirtyRect) else { continue }
+            NSColor.textBackgroundColor.setFill()
+            box.fill()
+            NSColor.systemGreen.withAlphaComponent(0.15).setFill()
+            box.fill()
+            (text as NSString).draw(at: NSPoint(x: x + 2, y: box.minY + (box.height - size.height) / 2), withAttributes: attributes)
         }
     }
 

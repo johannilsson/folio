@@ -45,6 +45,12 @@ extension SelfTest {
             guard let insert = range(of: "insert") else { return false }
             return textView.insertPoints == [insert.location]
         }
+        await check("the suggested text of a replacement and an insertion is shown at its place") {
+            guard let replace = range(of: "replace"), let insert = range(of: "insert") else { return false }
+            let shown = textView.suggestions.map { "\($0.at):\($0.text)" }
+            return shown.contains("\(replace.upperBound):vineyard") && shown.contains("\(insert.location): (end)")
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-source-suggestions.png") }
         await check("each range is the text the annotation is about") {
             let text = self.sourceText as NSString
             guard let comment = range(of: "comment"), let delete = range(of: "delete"), let highlight = range(of: "highlight") else { return false }

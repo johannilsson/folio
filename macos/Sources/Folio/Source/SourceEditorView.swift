@@ -248,6 +248,15 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     private func applyMarks() {
         let pendingText = pendingRange.map { NSRange(location: $0.from, length: $0.to - $0.from) }
         textView.insertPoints = TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText)
+        // The text a replace or insert would put in, shown after the struck text / at the marker.
+        textView.suggestions = pending.compactMap { annotation in
+            guard let range = ranges[annotation.id], let text = annotation.replacement, !text.isEmpty else { return nil }
+            switch annotation.kind {
+            case .replace: return (range.upperBound, text)
+            case .insert: return (range.location, text)
+            default: return nil
+            }
+        }
     }
 
     private func reportAnchors() {
