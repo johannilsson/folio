@@ -117,7 +117,7 @@ You can write Swift anywhere, but only CI's macOS runner builds and runs the app
   self-test, which gates the job.
 - **Pictures:** a separate non-gating step runs the self-test again with `FOLIO_SNAPSHOT`, which also runs the
   pictures tour (`tour()` in `macos/Sources/Folio/SelfTest/SelfTest+Pictures.swift`). The tour restores the fixture
-  (`macos/selftest.md`) and annotates it, so the pictures show real annotations. `scripts/ci-pictures.sh` puts
+  (`macos/selftest.md`) and annotates it, so the pictures show real annotations. `scripts/ci-pictures.sh` (CI runs it only for a PR with the `pictures` label) puts
   them on a `ci-pictures` branch and in one PR comment, updated in place.
   - To look at them yourself: take the commit sha from the image URLs in that comment, then
     `curl -o x.png https://raw.githubusercontent.com/johannilsson/folio/<sha>/pr-<number>/<name>.png` and open the PNG.
