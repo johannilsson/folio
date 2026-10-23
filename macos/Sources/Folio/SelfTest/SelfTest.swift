@@ -243,7 +243,7 @@ final class SelfTest {
         ])
         await check("second annotation added from the CLI") { secondCLI.status == 0 }
         await check("it appears in the comments pane of the preview, on screen") {
-            await self.until(seconds: 8) { self.visibleCards().count == 1 }
+            await self.until(seconds: 8) { self.visibleCards().count == 1 && self.pane.anchors.count == 1 }
         }
         press("accept", inCardOf: pane.cards.keys.first)
         await check("accepting patches the file") {
