@@ -19,6 +19,15 @@ fn warn_adjacent_sidecar(file: &Path, folio_path: &Path) {
     }
 }
 
+/// `(id, kind)` of every unresolved annotation that cannot be anchored in `content`.
+fn unanchorable(s: &Sidecar, content: &str) -> Vec<(String, String)> {
+    s.annotations
+        .iter()
+        .filter(|a| !a.resolved && a.anchor(content).is_none())
+        .map(|a| (a.id.clone(), a.kind.to_string()))
+        .collect()
+}
+
 pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
     let folio_path = super::folio_path(file);
     warn_adjacent_sidecar(file, &folio_path);
@@ -35,14 +44,9 @@ pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
     };
 
     // Check that every unresolved annotation can anchor in the source document.
-    let unanchorable: Vec<(String, String)> = if let Ok(content) = std::fs::read_to_string(file) {
-        s.annotations
-            .iter()
-            .filter(|a| !a.resolved && a.anchor(&content).is_none())
-            .map(|a| (a.id.clone(), a.kind.to_string()))
-            .collect()
-    } else {
-        vec![]
+    let unanchorable = match std::fs::read_to_string(file) {
+        Ok(content) => unanchorable(&s, &content),
+        Err(_) => vec![],
     };
 
     if unanchorable.is_empty() {
@@ -69,5 +73,40 @@ pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
             }
         }
         process::exit(3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sidecar(tag: &str) -> Sidecar {
+        let dir = std::env::temp_dir().join(format!("folio-check-{}-{}", tag, std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let file = dir.join("a.md");
+        std::fs::write(&file, "Hello world.\n").unwrap();
+        let _ = std::fs::remove_file(super::super::folio_path(&file));
+        super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
+        Sidecar::load(&super::super::folio_path(&file)).unwrap()
+    }
+
+    #[test]
+    fn anchorable_annotations_are_not_reported() {
+        let s = sidecar("ok");
+        assert!(unanchorable(&s, "Hello world.\n").is_empty());
+    }
+
+    #[test]
+    fn an_unresolved_annotation_missing_from_the_document_is_reported() {
+        let s = sidecar("missing");
+        let found = unanchorable(&s, "Something else entirely.\n");
+        assert_eq!(found, vec![(s.annotations[0].id.clone(), "delete".to_string())]);
+    }
+
+    #[test]
+    fn resolved_annotations_are_not_checked() {
+        let mut s = sidecar("resolved");
+        s.annotations[0].resolved = true;
+        assert!(unanchorable(&s, "Something else entirely.\n").is_empty());
     }
 }
