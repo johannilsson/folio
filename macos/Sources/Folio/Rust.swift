@@ -1,8 +1,9 @@
 import CFolio
 import Foundation
 
-struct RustError: Error, CustomStringConvertible {
+struct RustError: LocalizedError, CustomStringConvertible {
     let description: String
+    var errorDescription: String? { description }
 }
 
 /// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI uses.

@@ -344,6 +344,8 @@ final class AnnotationCardView: NSView {
             guard let self else { return }
             if annotation.isComment { handlers.resolve(annotation.id) } else { handlers.accept(annotation.id) }
         }
+        // A suggestion that is not in the text has nowhere to be applied.
+        accept.isEnabled = isComment || !isUnanchored
         let more = ClosureButton(symbol: "ellipsis", description: "More", identifier: "more")
         more.onClick = { [weak self, weak more] in
             guard let self, let more else { return }

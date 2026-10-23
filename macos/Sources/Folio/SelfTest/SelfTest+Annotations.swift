@@ -145,7 +145,19 @@ extension SelfTest {
                 return card.isUnanchored && card.alphaValue < 1
             }
         }
-        replaceSidecar([commentJSON("edit", before: "Natural wine is made with ", target: "no additives")])
+        var lostSuggestion = commentJSON("lost-replace", before: "no such text anywhere ", target: "nowhere")
+        lostSuggestion["kind"] = "replace"
+        lostSuggestion["replacement"] = "somewhere"
+        replaceSidecar([commentJSON("lost", before: "no such text anywhere ", target: "nowhere"), lostSuggestion])
+        await check("Accept is disabled on a suggestion that is not in the document, Resolve is not on a comment") {
+            await self.until(seconds: 8) {
+                guard let suggestion = self.pane.cards["lost-replace"], let comment = self.pane.cards["lost"] else { return false }
+                return suggestion.isUnanchored && comment.isUnanchored
+                    && (self.button("accept", in: suggestion) as? NSControl)?.isEnabled == false
+                    && (self.button("accept", in: comment) as? NSControl)?.isEnabled == true
+            }
+        }
+        replaceSidecar([commentJSON("edit", before:"Natural wine is made with ", target: "no additives")])
         _ = await until(seconds: 8) { self.pane.cards["edit"] != nil && self.pane.anchors["edit"] != nil }
         self.pane.cards["edit"]?.editComment()
         await check("Edit comment opens the text for editing, and Save keeps it") {
