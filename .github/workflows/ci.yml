@@ -2,11 +2,15 @@ name: CI
 
 on:
   pull_request:
+    # `labeled` so adding the `pictures` label takes the pictures without a new push.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
 
 jobs:
   verify:
+    # Adding some other label must not rerun CI.
+    if: github.event.action != 'labeled' || github.event.label.name == 'pictures'
     # Write access is for the pictures branch and comment, see scripts/ci-pictures.sh.
     permissions:
       contents: write
@@ -46,10 +50,13 @@ jobs:
       - name: Verify
         run: ./scripts/verify.sh
 
-      # The pictures tour only runs with FOLIO_SNAPSHOT set, as it does locally, so it is a separate
-      # run that does not gate the job; it is there to be looked at.
+      # The pictures are only taken for a pull request with the `pictures` label, for changes that
+      # touch what the app looks like. The tour only runs with FOLIO_SNAPSHOT set, as it does locally,
+      # so it is a separate run that does not gate the job; it is there to be looked at.
       - name: Self-test pictures
-        if: always() && runner.os == 'macOS'
+        if: >-
+          always() && runner.os == 'macOS'
+          && contains(github.event.pull_request.labels.*.name, 'pictures')
         continue-on-error: true
         env:
           FOLIO_SNAPSHOT: ${{ runner.temp }}/snapshots/folio
@@ -59,7 +66,9 @@ jobs:
 
       # The web preview's pictures, in a step of their own so a failure above does not skip them.
       - name: Web preview pictures
-        if: always() && runner.os == 'macOS'
+        if: >-
+          always() && runner.os == 'macOS'
+          && contains(github.event.pull_request.labels.*.name, 'pictures')
         continue-on-error: true
         env:
           FOLIO_SNAPSHOT: ${{ runner.temp }}/snapshots/web
@@ -69,6 +78,7 @@ jobs:
       - name: Show the pictures on the pull request
         if: >-
           always() && runner.os == 'macOS' && github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'pictures')
           && github.event.pull_request.head.repo.full_name == github.repository
           && github.actor != 'dependabot[bot]'
         continue-on-error: true
@@ -79,7 +89,9 @@ jobs:
         run: scripts/ci-pictures.sh
 
       - name: Upload self-test pictures
-        if: always() && runner.os == 'macOS'
+        if: >-
+          always() && runner.os == 'macOS'
+          && contains(github.event.pull_request.labels.*.name, 'pictures')
         uses: actions/upload-artifact@v4
         with:
           name: selftest-pictures
@@ -90,7 +102,7 @@ jobs:
   # `always()` matters: a skipped job counts as passing, so this must run and fail on its own.
   test:
     needs: verify
-    if: always()
+    if: always() && (github.event.action != 'labeled' || github.event.label.name == 'pictures')
     runs-on: ubuntu-24.04
     steps:
       - name: Every verify job passed
