@@ -49,6 +49,8 @@ Run `./scripts/verify.sh` after UI changes to confirm them in the real app. Add 
 
 Passing tests have not been enough here: source-mode typing "worked" while the editor was hidden, and a sidebar refresh bounced the page to the first file with every check green. For UI changes, assert what is visible, not just the DOM, and look at a picture of the result (the self-test saves window pictures with `FOLIO_SNAPSHOT=<base>`).
 
+CI takes the pictures only for a pull request labeled `pictures` and shows them on the PR. When you open a PR for a change that touches what the app looks like, add the `pictures` label.
+
 ## Architecture
 
 ### Backend (`src/`)
