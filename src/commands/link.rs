@@ -35,7 +35,12 @@ mod tests {
 
     #[test]
     fn the_path_is_percent_encoded() {
-        let link = url(Path::new("/definitely/not here/a&b.md"), "ann_k7mxpq2r");
-        assert_eq!(link, "folio://annotation/ann_k7mxpq2r?file=/definitely/not%20here/a%26b.md");
+        if cfg!(windows) {
+            let link = url(Path::new(r"C:\definitely\not here\a&b.md"), "ann_k7mxpq2r");
+            assert_eq!(link, "folio://annotation/ann_k7mxpq2r?file=C%3A%5Cdefinitely%5Cnot%20here%5Ca%26b.md");
+        } else {
+            let link = url(Path::new("/definitely/not here/a&b.md"), "ann_k7mxpq2r");
+            assert_eq!(link, "folio://annotation/ann_k7mxpq2r?file=/definitely/not%20here/a%26b.md");
+        }
     }
 }

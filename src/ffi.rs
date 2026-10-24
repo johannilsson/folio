@@ -426,7 +426,7 @@ mod tests {
         let file = dir.join("docs/a.md");
         assert_eq!(
             sidecar_path(file.to_str().unwrap()),
-            dir.join(".folio/docs/a.md.folio").to_string_lossy()
+            dir.join(".folio").join("docs").join("a.md.folio").to_string_lossy()
         );
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -462,8 +462,8 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert_eq!(files[0]["name"], "alpha.md");
         assert_eq!(files[0]["group"], "a");
-        assert!(files[0]["folio_path"].as_str().unwrap().ends_with("a/.folio/alpha.md.folio"));
-        assert!(loaded["manifest"].as_str().unwrap().ends_with("cfg/sets/demo.json"));
+        assert!(std::path::Path::new(files[0]["folio_path"].as_str().unwrap()).ends_with("a/.folio/alpha.md.folio"));
+        assert!(std::path::Path::new(loaded["manifest"].as_str().unwrap()).ends_with("cfg/sets/demo.json"));
 
         let removed: Value = serde_json::from_str(&set_remove_json("demo", &a_json).unwrap()).unwrap();
         assert_eq!(removed["removed"].as_array().unwrap().len(), 1);
@@ -478,10 +478,12 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
+    #[cfg(unix)]
     extern "C" {
         fn strdup(s: *const c_char) -> *mut c_char;
     }
 
+    #[cfg(unix)]
     extern "C" fn pong(request: *const c_char) -> *mut c_char {
         let request = unsafe { CStr::from_ptr(request) }.to_str().unwrap();
         assert!(request.contains("\"op\":\"state\""), "{request}");
@@ -494,6 +496,8 @@ mod tests {
         serde_json::from_str(&text).unwrap()
     }
 
+    // The app link is a Unix socket (src/live.rs).
+    #[cfg(unix)]
     #[test]
     fn the_app_answers_the_mcp_server_through_a_callback() {
         let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
