@@ -156,7 +156,7 @@ final class PassthroughLabel: NSTextField {
         let y = isFlipped ? local.y : bounds.height - local.y
         let at = NSPoint(x: local.x, y: y)
         guard layout.usedRect(for: container).contains(at) else { return nil }
-        let index = layout.characterIndex(for: at, in: container, fractionOfDistanceBetweenInsertionPointsOfGlyphAtIndex: nil)
+        let index = layout.characterIndex(for: at, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         return storage.attribute(.link, at: index, effectiveRange: nil) as? URL
     }
 }
