@@ -183,7 +183,7 @@ extension SelfTest {
         AnnotationCardView.openLink = { opened.append($0) }
         defer { AnnotationCardView.openLink = { NSWorkspace.shared.open($0) } }
         func mouseDown(on card: AnnotationCardView, label: NSView) {
-            let point = label.convert(NSPoint(x: 3, y: label.bounds.height - 3), to: nil)
+            let point = label.convert(NSPoint(x: 3, y: label.bounds.midY), to: nil)
             let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                           windowNumber: card.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
             card.mouseDown(with: down)
@@ -199,7 +199,7 @@ extension SelfTest {
             let ok = opensLink && opened.count == 1 && self.pane.focusedID == "links"
             if !ok {
                 let attribute = label.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil)
-                let direct = label.link(at: label.convert(NSPoint(x: 3, y: label.bounds.height - 3), to: card), in: card)
+                let direct = label.link(at: label.convert(NSPoint(x: 3, y: label.bounds.midY), to: card), in: card)
                 print("    link attribute \(String(describing: attribute)), direct lookup \(String(describing: direct)), flipped \(label.isFlipped), bounds \(label.bounds)")
             }
             if !ok { print("    opened \(opened), focused \(self.pane.focusedID ?? "nil") (before \(before ?? "nil")), label \(label.frame) in card \(card.frame)") }
