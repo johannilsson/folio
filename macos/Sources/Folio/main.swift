@@ -1,5 +1,8 @@
 import AppKit
 
+// Folio --mcp: the MCP server Claude desktop starts (src/mcp.rs). No windows, and nothing on stdout but the protocol.
+if CommandLine.arguments.dropFirst().first == "--mcp" { exit(Rust.mcpServe()) }
+
 // Folio [--dist <dir>] [--self-test] [--set <name> [--screenshot <png> [--appearance light|dark]]] [file.md ...]
 // Finder and `open -a Folio file.md` open files through AppKit; naming them here is
 // for running from a terminal.

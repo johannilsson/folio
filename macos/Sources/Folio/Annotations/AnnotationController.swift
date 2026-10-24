@@ -420,13 +420,19 @@ final class AnnotationController {
         let current = ordered.firstIndex { $0.0.id == focusedID }
         let next = current.map { (($0 + direction) % ordered.count + ordered.count) % ordered.count }
             ?? (direction > 0 ? 0 : ordered.count - 1)
-        let (annotation, anchor) = ordered[next]
-        focusedID = annotation.id
+        return reveal(annotation: ordered[next].0.id)
+    }
+
+    /// Focuses an annotation and brings it into view. False when it is not pending or not placed in the text yet.
+    @discardableResult
+    func reveal(annotation id: String) -> Bool {
+        guard store.pending.contains(where: { $0.id == id }), let anchor = anchors[id] else { return false }
+        focusedID = id
         refresh()
-        surface.select(annotation: annotation.id)
+        surface.select(annotation: id)
         host.reveal(top: CGFloat(anchor.top), bottom: CGFloat(anchor.bottom))
         // The open card sits below its text: bring it into view too.
-        if let card = cards[annotation.id], card.isFloating { host.reveal(top: card.frame.minY, bottom: card.frame.maxY) }
+        if let card = cards[id], card.isFloating { host.reveal(top: card.frame.minY, bottom: card.frame.maxY) }
         return true
     }
 

@@ -66,7 +66,7 @@ pub fn run(
     Ok(())
 }
 
-fn parse_kind(s: &str) -> anyhow::Result<AnnotationKind> {
+pub(crate) fn parse_kind(s: &str) -> anyhow::Result<AnnotationKind> {
     match s {
         "replace" => Ok(AnnotationKind::Replace),
         "delete" => Ok(AnnotationKind::Delete),
@@ -87,7 +87,7 @@ fn parse_source(s: &str) -> anyhow::Result<AnnotationSource> {
     }
 }
 
-fn validate_fields(
+pub(crate) fn validate_fields(
     kind: &AnnotationKind,
     target: Option<&str>,
     replacement: Option<&str>,

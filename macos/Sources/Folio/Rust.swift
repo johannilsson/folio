@@ -46,6 +46,51 @@ enum Rust {
         return (sidecar, out["id"] as? String)
     }
 
+    // MARK: Claude
+
+    /// Runs the MCP server on stdin and stdout until Claude closes them (`Folio --mcp`). The exit code.
+    static func mcpServe() -> Int32 {
+        folio_mcp_serve()
+    }
+
+    /// Starts answering the MCP server's questions about this app (src/live.rs). `handler` gets each
+    /// request as JSON and returns the response as a `malloc`ed JSON string; it runs on another thread.
+    static func appListen(_ handler: @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?) throws {
+        _ = try object(folio_app_listen(handler))
+    }
+
+    static func appStop() {
+        folio_app_stop()
+    }
+
+    /// What to run or paste to register `executable --mcp` in a tool other than Claude desktop.
+    struct Snippet {
+        let name: String
+        /// Where it goes.
+        let hint: String
+        let text: String
+    }
+
+    static func mcpSnippets(executable: String) throws -> [Snippet] {
+        guard let list = try object(folio_mcp_snippets(executable))["snippets"] as? [[String: Any]] else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        return list.compactMap { item in
+            guard let name = item["name"] as? String, let hint = item["hint"] as? String, let text = item["text"] as? String else { return nil }
+            return Snippet(name: name, hint: hint, text: text)
+        }
+    }
+
+    /// Registers `executable --mcp` as the MCP server of Claude desktop. `change` is "added", "updated"
+    /// or "unchanged"; Claude has to be restarted to see it.
+    static func connectClaude(executable: String) throws -> (config: String, change: String) {
+        let out = try object(folio_claude_connect(executable))
+        guard let config = out["config"] as? String, let change = out["change"] as? String else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        return (config, change)
+    }
+
     // MARK: sets
 
     struct SetFile {

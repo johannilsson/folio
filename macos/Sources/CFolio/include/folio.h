@@ -44,6 +44,30 @@ char *folio_set_remove(const char *name, const char *files_json);
 /* Deletes the set's manifest, never the files. {} */
 char *folio_set_delete(const char *name);
 
+/* The MCP server and the link between it and the running app (src/mcp.rs, src/live.rs). */
+
+/* Runs the MCP server on stdin and stdout until the client closes them (`Folio --mcp`, started by Claude
+   desktop). Returns the exit code. */
+int folio_mcp_serve(void);
+
+/* Answers one request of the MCP server about the running app: JSON in, JSON out. The result is malloc'ed;
+   the library frees it. Called on a thread of the library's. */
+typedef char *(*folio_app_handler)(const char *request_json);
+
+/* Starts answering the MCP server on <config>/app.sock. {} or {"error": "..."} (another Folio already answers). */
+char *folio_app_listen(folio_app_handler handler);
+
+/* Takes the socket away; the app is quitting. */
+void folio_app_stop(void);
+
+/* The ways to register `<exe> --mcp` by hand in tools other than Claude desktop (Codex and others):
+   {"snippets": [{"name", "hint", "text"}]} */
+char *folio_mcp_snippets(const char *exe);
+
+/* Registers `<exe> --mcp` as the "folio" server in Claude desktop's config.
+   {"config": <path>, "change": "added" | "updated" | "unchanged"} */
+char *folio_claude_connect(const char *exe);
+
 void folio_free(char *ptr);
 
 #endif
