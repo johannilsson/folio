@@ -142,6 +142,28 @@ final class PassthroughLabel: NSTextField {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The link under `point` (in `view`'s coordinates), laid out the way the cell lays out the text.
+    func link(at point: NSPoint, in view: NSView) -> URL? {
+        let local = convert(point, from: view)
+        guard bounds.contains(local), attributedStringValue.length > 0 else { return nil }
+        let storage = NSTextStorage(attributedString: attributedStringValue)
+        let container = NSTextContainer(size: NSSize(width: bounds.width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        let layout = NSLayoutManager()
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        let y = isFlipped ? local.y : bounds.height - local.y
+        let at = NSPoint(x: local.x, y: y)
+        layout.ensureLayout(for: container)
+        guard layout.usedRect(for: container).contains(at) else { return nil }
+        let index = layout.characterIndex(for: at, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+        switch storage.attribute(.link, at: index, effectiveRange: nil) {
+        case let url as URL: return url
+        case let text as String: return URL(string: text)
+        default: return nil
+        }
+    }
 }
 
 /// The round badge with a person's initials.
