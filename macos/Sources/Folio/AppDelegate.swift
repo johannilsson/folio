@@ -125,14 +125,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let name = sender.representedObject as? String { openSet(name) }
     }
 
-    // `folio open --set <name>` arrives as folio://set/<name>; files as file URLs, which
-    // the document controller handles.
+    // `folio open --set <name>` arrives as folio://set/<name>, `folio link` URLs as
+    // folio://annotation/<id>?file=<path>; files as file URLs, which the document controller handles.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.scheme == "folio", url.host == "set" {
                 openSet(url.lastPathComponent)
+            } else if url.scheme == "folio", url.host == "annotation" {
+                openAnnotation(url)
             } else if url.isFileURL {
                 open(url)
+            }
+        }
+    }
+
+    /// Opens the file of a folio://annotation/<id>?file=<path> link and brings the annotation into view.
+    /// A link to an annotation that is resolved, or gone, just opens the file.
+    func openAnnotation(_ link: URL) {
+        let id = link.lastPathComponent
+        guard let path = URLComponents(url: link, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "file" })?.value, !id.isEmpty, id != "/" else { return }
+        open(URL(fileURLWithPath: path)) { document in
+            MainActor.assumeIsolated {
+                if let editor = document?.windowControllers.first as? EditorWindowController { AppServer.focus(id, in: editor) }
             }
         }
     }

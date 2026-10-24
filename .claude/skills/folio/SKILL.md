@@ -262,3 +262,11 @@ Backslashes in text (e.g., in inline code or LaTeX) must be doubled inside JSON 
 
 **Short `context_before` on repeated phrases**
 If "the" appears 50 times in the document, `context_before: "the"` will anchor to the first one. Use a long, unique slice of text.
+
+## Linking to an annotation
+
+```bash
+folio link <file.md> <annotation-id>   # prints folio://annotation/<id>?file=<absolute path>
+```
+
+Put the URL in another document to link to an annotation. Opening it in macOS opens the file in Folio with that annotation in focus; if the annotation is resolved (or gone), the file just opens. The link holds an absolute path, so it works on the machine that made it.

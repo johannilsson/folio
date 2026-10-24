@@ -129,7 +129,7 @@ enum AppServer {
     }
 
     /// Focuses the annotation once the window has placed it: a file that opens now takes a moment.
-    private static func focus(_ id: String, in editor: EditorWindowController) {
+    static func focus(_ id: String, in editor: EditorWindowController) {
         Task { @MainActor in
             for _ in 0..<50 {
                 if editor.annotations.reveal(annotation: id) { return }

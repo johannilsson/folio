@@ -151,6 +151,12 @@ extension SelfTest {
             return used && first != nil && textView.selectedRange().location == first?.location
         }
         textView.onClick?(0)
+        // A folio://annotation link brings an annotation into focus.
+        await check("a folio://annotation link focuses its annotation") {
+            AppServer.focus(commentID, in: self.controller)
+            return await self.until { self.pane.focusedID == commentID }
+        }
+        textView.onClick?(0)
 
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             controller.scrollHost.contentView.scroll(to: .zero)

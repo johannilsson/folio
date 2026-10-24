@@ -84,6 +84,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Print the folio:// link to an annotation
+    Link {
+        file: PathBuf,
+        id: String,
+    },
     /// Print the plain-text view used by the anchoring engine
     Render {
         file: PathBuf,
@@ -145,6 +150,7 @@ fn main() {
         }
         Commands::Init { file } => commands::init::run(&file),
         Commands::Check { file, json } => commands::check::run(&file, json),
+        Commands::Link { file, id } => commands::link::run(&file, &id),
         Commands::Render { file } => commands::render::run(&file),
     };
 
