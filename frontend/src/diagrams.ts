@@ -22,10 +22,9 @@ async function renderMermaid(code: string): Promise<string> {
   return svg
 }
 
-// Off for now: a `plantuml` block stays a code block. Flip this (and `AppConfig.renderPlantUML`) to bring it back.
-const renderPlantUML = false
-
-let plantumlBase = 'https://www.plantuml.com/plantuml'
+// The PlantUML server is the app's `PlantUMLServer` default; none is bundled. Without one a `plantuml`
+// block stays a code block.
+let plantumlBase = ''
 
 export function setPlantumlUrl(url: string): void {
   plantumlBase = url.replace(/\/$/, '')
@@ -42,7 +41,7 @@ export const DiagramCodeBlock = CodeBlockLowlight.configure({ lowlight }).extend
       const lang: string = node.attrs.language ?? ''
 
       // Non-diagram blocks: replicate default <pre><code> rendering with editable content
-      if (lang !== 'mermaid' && !(renderPlantUML && lang === 'plantuml')) {
+      if (lang !== 'mermaid' && !(plantumlBase && lang === 'plantuml')) {
         const pre = document.createElement('pre')
         const code = document.createElement('code')
         if (lang) code.className = `language-${lang}`

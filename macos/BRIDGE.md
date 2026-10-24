@@ -11,7 +11,7 @@ promise on the JS side.
 
 | op | payload | reply |
 |---|---|---|
-| `info` | | `{ id, filename, set: string\|null, plantumlUrl }` |
+| `info` | | `{ id, filename, set: string\|null, plantumlUrl }` (`plantumlUrl` is `""` unless the `PlantUMLServer` default is set) |
 | `getFile` | | the markdown, as a string |
 | `putFile` | `content: string` | `null` |
 | `getFolio` | | the sidecar object; `{ version: 1, annotations: [] }` if none exists |

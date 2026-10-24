@@ -15,11 +15,22 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
-    /// Where PlantUML diagrams are drawn (the web page and the preview both ask it).
-    static let plantumlURL = "https://www.plantuml.com/plantuml"
-    /// Off for now: a `plantuml` block shows as a fenced code block. The rendering stays; flip this (and
-    /// `renderPlantUML` in `frontend/src/diagrams.ts`) to bring it back.
-    static let renderPlantUML = false
+    /// How PlantUML diagrams are drawn is the reader's choice; nothing is bundled. The `PlantUMLCommand`
+    /// default (`defaults write dev.folio.Folio PlantUMLCommand plantuml`, or `-PlantUMLCommand …`) is a
+    /// command that reads the diagram on stdin and writes a PNG, run as `<command> -pipe -tpng`; it wins
+    /// over `PlantUMLServer`, a server that is sent the diagram's text. Neither set, a `plantuml` block
+    /// shows as a fenced code block.
+    static var plantumlCommand: [String]? {
+        let words = UserDefaults.standard.string(forKey: "PlantUMLCommand")?
+            .split(whereSeparator: \.isWhitespace).map(String.init) ?? []
+        return words.isEmpty ? nil : words
+    }
+    static var plantumlURL: String? {
+        guard let url = UserDefaults.standard.string(forKey: "PlantUMLServer")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else { return nil }
+        return url.hasSuffix("/") ? String(url.dropLast()) : url
+    }
+    static var renderPlantUML: Bool { plantumlCommand != nil || plantumlURL != nil }
     /// Whether the preview is the web page (Tiptap, `-WebPreview YES` or the `WebPreview` default) instead
     /// of `PreviewView`, which is what shows by default. The flag and everything that checks it goes with
     /// the web page.

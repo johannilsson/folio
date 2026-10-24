@@ -93,7 +93,8 @@ final class PreviewAsset: NSObject {
         case .image(let url):
             return await Self.fetch(url)
         case .plantuml(let code):
-            guard let url = URL(string: "\(AppConfig.plantumlURL)/png/\(PlantUML.encode(code))") else { return nil }
+            if let command = AppConfig.plantumlCommand { return await Self.run(command, input: code) }
+            guard let server = AppConfig.plantumlURL, let url = URL(string: "\(server)/png/\(PlantUML.encode(code))") else { return nil }
             return await Self.fetch(url)
         case .mermaid(let code):
             return await DiagramPage.shared.render(code, dark: dark)
@@ -118,6 +119,31 @@ final class PreviewAsset: NSObject {
             text.draw(at: NSPoint(x: 12, y: 12))
             return true
         }
+    }
+
+    /// Runs `command -pipe -tpng` with the diagram on stdin and reads the PNG it writes. An app started
+    /// from the Finder has a short PATH, so Homebrew's folders are added for the command (and the
+    /// Graphviz it calls). A command that hangs is stopped after 30 seconds.
+    private static func run(_ command: [String], input: String) async -> NSImage? {
+        await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = command + ["-pipe", "-tpng"]
+            var environment = ProcessInfo.processInfo.environment
+            environment["PATH"] = ["/opt/homebrew/bin", "/usr/local/bin", environment["PATH"] ?? "/usr/bin:/bin"].joined(separator: ":")
+            process.environment = environment
+            let stdin = Pipe(), stdout = Pipe()
+            process.standardInput = stdin
+            process.standardOutput = stdout
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return nil }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 30) { if process.isRunning { process.terminate() } }
+            try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
+            try? stdin.fileHandleForWriting.close()
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? NSImage(data: data) : nil
+        }.value
     }
 
     @MainActor

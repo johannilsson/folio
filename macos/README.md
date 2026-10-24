@@ -23,6 +23,23 @@ folio open notes.md            # from the CLI; FOLIO_APP=<path to .app> for an u
 
 `FOLIO_SIGN_IDENTITY` selects a signing identity other than ad hoc.
 
+## PlantUML
+
+Nothing is bundled to draw a `plantuml` block: without a setting it stays a code block. Choose one:
+
+```bash
+# A local PlantUML (brew install plantuml): the diagram stays on this Mac.
+# Run as `<command> -pipe -tpng`; Homebrew's folders are on its PATH.
+defaults write dev.folio.Folio PlantUMLCommand plantuml          # or: "java -jar /path/plantuml.jar"
+
+# A server, which is sent the diagram's text.
+defaults write dev.folio.Folio PlantUMLServer https://plantuml.example.com/plantuml
+```
+
+(or `-PlantUMLCommand …` / `-PlantUMLServer …` on the command line). The command wins when both are set;
+`defaults delete dev.folio.Folio <key>` turns one off. The command is drawn in the native preview only;
+the web preview uses the server.
+
 ## Sets
 
 A set is a named list of markdown files from any folders, kept in `~/.config/folio/sets`

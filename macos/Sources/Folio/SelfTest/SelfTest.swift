@@ -227,7 +227,7 @@ final class SelfTest {
             await self.waitFor("!!document.querySelector('#editor-tiptap .diagram-block svg')", seconds: 15)
         }
         // Needs the network; a failure here says where, not that the scheme is broken.
-        if AppConfig.renderPlantUML {
+        if AppConfig.plantumlCommand == nil, AppConfig.plantumlURL != nil {
             let plantuml = await waitFor(
                 "(() => { const i = document.querySelector('#editor-tiptap .diagram-block img'); return !!i && i.complete && i.naturalWidth > 0 })()",
                 seconds: 15

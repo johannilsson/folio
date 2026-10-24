@@ -376,9 +376,24 @@ extension SelfTest {
         }
         // Needs the network, like the page's check: a failure says where.
         if AppConfig.renderPlantUML {
-            report("a PlantUML block is drawn from the server", await until(seconds: 20) { self.previewView.picture("plantuml:") != nil })
+            report("a PlantUML block is drawn", await until(seconds: 20) { self.previewView.picture("plantuml:") != nil })
         } else {
             report("a PlantUML block stays a code block", self.previewView.picture("plantuml:") == nil)
+            // A command that writes a PNG (here a script that cats one) draws it, given the diagram on stdin.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("folio-plantuml-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let png = folder.appendingPathComponent("out.png"), script = folder.appendingPathComponent("plantuml.sh")
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 20, bitsPerSample: 8, samplesPerPixel: 4,
+                                          hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: png)
+            try? "#!/bin/sh\ncat '\(png.path)'\n".write(to: script, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            UserDefaults.standard.set(script.path, forKey: "PlantUMLCommand")
+            defer { UserDefaults.standard.removeObject(forKey: "PlantUMLCommand") }
+            replaceFile(md + "\nMore.\n")
+            report("a PlantUML block is drawn by the configured command",
+                   await until(seconds: 20) { self.previewView.picture("plantuml:")?.size.width == 40 })
         }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             controller.scrollHost.contentView.scroll(to: .zero)
