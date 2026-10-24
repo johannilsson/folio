@@ -174,6 +174,31 @@ extension SelfTest {
             return await self.until { self.controller.currentStore.annotation("edit")?.comment == "Reworded comment" }
         }
 
+        // A link in a card's text opens in the browser; the rest of the card still focuses it.
+        var linked = commentJSON("links", before: "Natural wine is made with ", target: "no additives")
+        linked["comment"] = "[the docs](https://example.com/docs) and more"
+        replaceSidecar([linked])
+        _ = await until(seconds: 8) { self.pane.cards["links"] != nil && self.pane.anchors["links"] != nil }
+        var opened: [URL] = []
+        AnnotationCardView.openLink = { opened.append($0) }
+        defer { AnnotationCardView.openLink = { NSWorkspace.shared.open($0) } }
+        func mouseDown(on card: AnnotationCardView, label: NSView) {
+            let point = label.convert(NSPoint(x: 3, y: label.bounds.height - 3), to: nil)
+            let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: card.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            card.mouseDown(with: down)
+        }
+        await check("clicking a link in a card opens it and does not focus the annotation") {
+            guard let card = self.pane.cards["links"],
+                  let label = card.subviews.compactMap({ $0 as? PassthroughLabel }).first(where: { $0.stringValue.contains("the docs") })
+            else { return false }
+            let before = self.pane.focusedID
+            mouseDown(on: card, label: label)
+            let opensLink = opened == [URL(string: "https://example.com/docs")!] && self.pane.focusedID == before
+            self.click(card)
+            return opensLink && opened.count == 1 && self.pane.focusedID == "links"
+        }
+
         // Agents write the ids: one with quotes and a backslash reaches the page as it is.
         let quotedID = #"it's \"quoted\" \ ')"#
         replaceSidecar([commentJSON(quotedID, before: "Natural wine is made with ", target: "no additives")])

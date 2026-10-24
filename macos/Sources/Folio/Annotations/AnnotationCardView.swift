@@ -493,7 +493,19 @@ final class AnnotationCardView: NSView {
         for rule in rules { rule.fill() }
     }
 
+    /// What opens a link clicked in a card; the self-test swaps it.
+    static var openLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    /// Only these schemes open: an agent wrote the text.
+    private static let linkSchemes: Set<String> = ["http", "https", "mailto"]
+
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let bodies = entries.flatMap(\.bodies)
+        if let url = bodies.lazy.compactMap({ $0.link(at: point, in: self) }).first {
+            if let scheme = url.scheme?.lowercased(), Self.linkSchemes.contains(scheme) { Self.openLink(url) }
+            return
+        }
         handlers.focus(annotation.id)
         if isFocused { window?.makeFirstResponder(replyBox.textView) }
     }
