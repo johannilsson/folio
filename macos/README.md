@@ -52,18 +52,19 @@ its files (grouped by repo, with a badge for unresolved annotations) beside the 
 - Changes made with `folio set` in a terminal appear in an open window within a second.
 - `folio open --set <name>` opens a set from the CLI (it sends `folio://set/<name>` to the app).
 
-## Claude (MCP)
+## MCP
 
-Folio is also an MCP server for Claude desktop, built into the app: Claude starts
+Folio is also an MCP server, built into the app, for Claude Desktop, Codex and other MCP clients: the tool starts
 `Folio.app/Contents/MacOS/Folio --mcp`, which has no windows and speaks MCP over stdin and stdout
 (`src/mcp.rs`, the same engine as the CLI). Nothing else needs installing, and the `folio` CLI is not
 involved.
 
-**Folio ▸ Connect to Claude…** adds the server to Claude's config
-(`~/Library/Application Support/Claude/claude_desktop_config.json`, keeping everything else in it);
-restart Claude afterwards. Run it again after moving the app: it updates the path.
-**Folio ▸ Connect to Other Tools…** is for the rest (Codex, Claude Code, Cursor and other MCP clients):
-it shows what to run or paste for each, with this app's path in it, and Copy puts it on the pasteboard.
+**Folio ▸ MCP** connects tools to it, none ahead of the others. **Add to Claude Desktop** adds the server
+to Claude's config (`~/Library/Application Support/Claude/claude_desktop_config.json`) and **Add to Codex**
+to Codex's (`~/.codex/config.toml`, or `$CODEX_HOME/config.toml`), keeping everything else in the file;
+restart the tool afterwards. Run it again after moving the app: it updates the path.
+**Other Tools…** is for the rest (Claude Code, Cursor and other MCP clients): it shows what to run or
+paste for each, with this app's path in it, and Copy puts it on the pasteboard.
 
 The tools: `render`, `list_annotations`, `annotate` (all or nothing, checked against the text before
 anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files

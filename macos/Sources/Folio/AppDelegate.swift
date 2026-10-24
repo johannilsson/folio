@@ -196,25 +196,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         MainActor.assumeIsolated { AppServer.stop() }
     }
 
-    // MARK: Claude
+    // MARK: MCP
 
-    /// Folio ▸ Connect to Claude…: registers this app as an MCP server in Claude desktop's config, which
-    /// Claude reads when it starts.
-    @MainActor @objc func connectToClaude(_ sender: Any?) {
+    /// The tools Folio ▸ MCP adds the app to itself: the id libfolio knows them by, and their name.
+    static let mcpClients = [("claude", "Claude Desktop"), ("codex", "Codex")]
+
+    /// Folio ▸ MCP ▸ Add to <tool>: registers this app as an MCP server in that tool's config, which the
+    /// tool reads when it starts. The menu item's `representedObject` is the tool's id.
+    @MainActor @objc func connectMCPClient(_ sender: Any?) {
+        guard let id = (sender as? NSMenuItem)?.representedObject as? String,
+              let name = Self.mcpClients.first(where: { $0.0 == id })?.1 else { return }
         let alert = NSAlert()
         do {
-            let result = try AppServer.connectClaude()
-            alert.messageText = result.change == "unchanged" ? "Folio is already connected to Claude" : "Folio is connected to Claude"
-            alert.informativeText = "Restart Claude to use it, then ask it to review a markdown file with Folio.\n\nThe setting is in \(result.config)."
+            let result = try AppServer.connect(client: id)
+            alert.messageText = result.change == "unchanged" ? "Folio is already connected to \(name)" : "Folio is connected to \(name)"
+            alert.informativeText = "Restart \(name) to use it, then ask it to review a markdown file with Folio.\n\nThe setting is in \(result.config)."
         } catch {
             alert.alertStyle = .warning
-            alert.messageText = "Folio could not be connected to Claude"
+            alert.messageText = "Folio could not be connected to \(name)"
             alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
         }
         alert.runModal()
     }
 
-    /// Folio ▸ Connect to Other Tools…: what to run or paste to register the app's MCP server in Codex and the like.
+    /// Folio ▸ MCP ▸ Other Tools…: what to run or paste to register the app's MCP server in the tools above
+    /// and the rest.
     @MainActor @objc func connectOtherTools(_ sender: Any?) {
         do {
             ConnectToolsAlert(snippets: try AppServer.clientSnippets()).run()
@@ -342,8 +348,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = add("Folio") { m in
             m.addItem(withTitle: "About Folio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
             m.addItem(.separator())
-            m.addItem(withTitle: "Connect to Claude…", action: #selector(connectToClaude(_:)), keyEquivalent: "").target = self
-            m.addItem(withTitle: "Connect to Other Tools…", action: #selector(connectOtherTools(_:)), keyEquivalent: "").target = self
+            let mcp = NSMenu(title: "MCP")
+            for (id, name) in Self.mcpClients {
+                let item = mcp.addItem(withTitle: "Add to \(name)", action: #selector(connectMCPClient(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = id
+            }
+            mcp.addItem(.separator())
+            mcp.addItem(withTitle: "Other Tools…", action: #selector(connectOtherTools(_:)), keyEquivalent: "").target = self
+            m.addItem(withTitle: "MCP", action: nil, keyEquivalent: "").submenu = mcp
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
             let others = m.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

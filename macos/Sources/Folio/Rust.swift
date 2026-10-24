@@ -81,10 +81,10 @@ enum Rust {
         }
     }
 
-    /// Registers `executable --mcp` as the MCP server of Claude desktop. `change` is "added", "updated"
-    /// or "unchanged"; Claude has to be restarted to see it.
-    static func connectClaude(executable: String) throws -> (config: String, change: String) {
-        let out = try object(folio_claude_connect(executable))
+    /// Registers `executable --mcp` as the MCP server of `client` ("claude" for Claude desktop, or "codex").
+    /// `change` is "added", "updated" or "unchanged"; the tool has to be restarted to see it.
+    static func connectMCP(client: String, executable: String) throws -> (config: String, change: String) {
+        let out = try object(folio_mcp_connect(client, executable))
         guard let config = out["config"] as? String, let change = out["change"] as? String else {
             throw RustError(description: "unexpected result from libfolio")
         }

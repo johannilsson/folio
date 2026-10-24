@@ -13,7 +13,7 @@ Folio is a local markdown editor built for review. An agent reads a document and
 ## Ways to use it
 
 - **macOS app.** A native window for each document, or for a whole set of files with a sidebar. It opens in a WYSIWYG preview, with a source view one click away. `folio open <file>` launches it from the terminal. See [macos/README.md](macos/README.md).
-- **Claude desktop.** The app is also an MCP server: **Folio ▸ Connect to Claude…**, restart Claude, and ask it to review a markdown file. It can see which annotation you are on, and Codex and other MCP clients can be connected too. See [macos/README.md](macos/README.md#claude-mcp).
+- **MCP.** The app is also an MCP server: **Folio ▸ MCP ▸ Add to Claude Desktop** or **Add to Codex**, restart the tool, and ask it to review a markdown file. It can see which annotation you are on; **Other Tools…** shows how to connect Claude Code, Cursor and other MCP clients. See [macos/README.md](macos/README.md#mcp).
 - **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
 - **Sets.** Group files from different folders or repositories under a name (`folio set`) and review them together, with a pending count per file.
 

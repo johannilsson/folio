@@ -1,7 +1,7 @@
 import AppKit
 
-/// Folio ▸ Connect to Other Tools…: the MCP server is the app's own binary, so a tool that is not Claude
-/// desktop needs to be told its path. A pop-up picks the tool and shows what to run or paste for it
+/// Folio ▸ MCP ▸ Other Tools…: the MCP server is the app's own binary, so a tool Folio does not connect
+/// itself needs to be told its path. A pop-up picks the tool and shows what to run or paste for it
 /// (`Rust.mcpSnippets`); Copy puts the shown text on the pasteboard.
 @MainActor
 final class ConnectToolsAlert: NSObject {

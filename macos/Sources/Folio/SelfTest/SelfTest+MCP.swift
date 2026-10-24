@@ -3,7 +3,7 @@ import AppKit
 /// Claude's way into the app: the MCP server that the app's binary becomes with `--mcp`, started and
 /// spoken to over its pipes as Claude desktop does, against the app that is running this test. The tools
 /// that work on files are covered by `cargo test`; here it is that they reach this app: its windows, the
-/// annotation the reader has focused, its annotations, and the menu items that connect Claude and other tools.
+/// annotation the reader has focused, its annotations, and the Folio ▸ MCP menu that connects tools to it.
 extension SelfTest {
     func mcpChecks() async {
         // A socket path has to be short (104 bytes), so not the temporary folder.
@@ -16,27 +16,42 @@ extension SelfTest {
         let claudeConfig = config.appendingPathComponent("claude_desktop_config.json")
         setenv("FOLIO_CONFIG_DIR", config.path, 1)
         setenv("FOLIO_CLAUDE_CONFIG", claudeConfig.path, 1)
+        setenv("CODEX_HOME", config.path, 1)
         defer {
             AppServer.stop()
             unsetenv("FOLIO_CONFIG_DIR")
             unsetenv("FOLIO_CLAUDE_CONFIG")
+            unsetenv("CODEX_HOME")
         }
 
-        // Connecting Claude: the menu item, and what it writes.
-        await check("Folio ▸ Connect to Claude… is in the app menu") {
-            let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Claude…")
-            return item?.action == #selector(AppDelegate.connectToClaude(_:)) && item?.target === self.app
+        // Folio ▸ MCP: no tool has an item of its own in the app menu; each one Folio can add itself to is
+        // in the submenu, then Other Tools….
+        let appMenu = NSApp.mainMenu?.items.first?.submenu
+        let mcpMenu = appMenu?.item(withTitle: "MCP")?.submenu
+        await check("Folio ▸ MCP holds Add to Claude Desktop, Add to Codex and Other Tools…, and the app menu no tool") {
+            let titles = mcpMenu?.items.filter { !$0.isSeparatorItem }.map(\.title)
+            let added = mcpMenu?.items.filter { $0.action == #selector(AppDelegate.connectMCPClient(_:)) && $0.target === self.app }
+            return titles == ["Add to Claude Desktop", "Add to Codex", "Other Tools…"]
+                && added?.compactMap { $0.representedObject as? String } == ["claude", "codex"]
+                && appMenu?.items.contains { $0.title.hasPrefix("Connect to") } == false
         }
-        await check("Folio ▸ Connect to Other Tools… is next to it, and offers Codex with this app's path") {
-            let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Other Tools…")
+        await check("Folio ▸ MCP ▸ Other Tools… offers Codex with this app's path") {
+            let item = mcpMenu?.item(withTitle: "Other Tools…")
             guard item?.action == #selector(AppDelegate.connectOtherTools(_:)), item?.target === self.app,
                   let snippets = try? AppServer.clientSnippets(), let path = Bundle.main.executablePath else { return false }
             let alert = ConnectToolsAlert(snippets: snippets)
             return snippets.first?.name == "Codex" && alert.shownText.contains("codex mcp add folio") && alert.shownText.contains(path)
         }
-        let first = try? AppServer.connectClaude()
-        let second = try? AppServer.connectClaude()
-        await check("connecting adds the app to Claude's config, and doing it again changes nothing") {
+        let codexFirst = try? AppServer.connect(client: "codex")
+        let codexSecond = try? AppServer.connect(client: "codex")
+        await check("adding to Codex writes [mcp_servers.folio] with this app's binary, and doing it again changes nothing") {
+            guard let path = Bundle.main.executablePath, let text = try? String(contentsOf: config.appendingPathComponent("config.toml"), encoding: .utf8) else { return false }
+            return codexFirst?.change == "added" && codexSecond?.change == "unchanged"
+                && text.contains("[mcp_servers.folio]") && text.contains(path) && text.contains("\"--mcp\"")
+        }
+        let first = try? AppServer.connect(client: "claude")
+        let second = try? AppServer.connect(client: "claude")
+        await check("adding to Claude Desktop writes its config, and doing it again changes nothing") {
             first?.change == "added" && second?.change == "unchanged" && first?.config == claudeConfig.path
         }
         guard let data = try? Data(contentsOf: claudeConfig),
