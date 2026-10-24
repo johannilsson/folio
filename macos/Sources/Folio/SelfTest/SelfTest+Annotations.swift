@@ -202,6 +202,19 @@ extension SelfTest {
                 let direct = label.link(at: label.convert(NSPoint(x: 3, y: label.bounds.midY), to: card), in: card)
                 print("    link attribute \(String(describing: attribute)), direct lookup \(String(describing: direct)), flipped \(label.isFlipped), bounds \(label.bounds)")
             }
+            if !ok {
+                let local = label.convert(NSPoint(x: 3, y: label.bounds.midY), to: card)
+                let back = label.convert(local, from: card)
+                let storage = NSTextStorage(attributedString: label.attributedStringValue)
+                let container = NSTextContainer(size: NSSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
+                container.lineFragmentPadding = 0
+                let layout = NSLayoutManager()
+                layout.addTextContainer(container)
+                storage.addLayoutManager(layout)
+                let used = layout.usedRect(for: container)
+                let index = layout.characterIndex(for: back, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+                print("    back \(back) in bounds \(label.bounds.contains(back)), length \(storage.length), used \(used), index \(index)")
+            }
             if !ok { print("    opened \(opened), focused \(self.pane.focusedID ?? "nil") (before \(before ?? "nil")), label \(label.frame) in card \(card.frame)") }
             return ok
         }
