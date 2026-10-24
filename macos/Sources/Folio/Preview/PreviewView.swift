@@ -240,7 +240,7 @@ final class PreviewView: NSView, AnnotationSurface {
             let wide = storage.attribute(.folioWide, at: range.location, effectiveRange: nil) != nil
             let centered = storage.attribute(.folioCentered, at: range.location, effectiveRange: nil) != nil
             let available = centered ? whole : (wide ? whole - side : min(whole, Self.column))
-            // A diagram fills the window as it did in the web preview: up to twice its size and 800 points tall
+            // A diagram fills the window: up to twice its size and 800 points tall
             // when it is smaller, and the width of the window when it is larger. Images are never enlarged.
             let grow = centered && !asset.key.hasPrefix("image:") ? max(1, min(2, 800 / max(1, image.size.height))) : 1
             let scale = min(grow, available / image.size.width)

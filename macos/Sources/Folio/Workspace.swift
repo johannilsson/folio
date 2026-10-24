@@ -1,7 +1,7 @@
 import Foundation
 
 /// The files one window works on: a single document, or the files of a set. It resolves
-/// the page's `file` ids for the bridge and relays each file's change events; for a set it
+/// file ids and relays each file's change events; for a set it
 /// also watches the manifest, so `folio set add` in a terminal shows up in the window.
 final class Workspace {
     struct Entry {
@@ -41,7 +41,7 @@ final class Workspace {
 
     var documents: [Document] { entries.map(\.document) }
 
-    /// The file for a page's `file` id; no id means the first.
+    /// The file for an id; no id means the first.
     func document(id: String?) -> Document? {
         guard let id else { return entries.first?.document }
         return entries.first { $0.document.id == id }?.document
@@ -60,7 +60,7 @@ final class Workspace {
     }
 
     /// Reads the manifest again. Files that are still in the set keep their Document, so
-    /// their watchers and the page's state carry on.
+    /// their watchers and the window's state carry on.
     func reload() {
         guard let setName, let info = try? Rust.setLoad(setName) else { return }
         manifestStamp = Self.modified(info.manifest)

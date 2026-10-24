@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds everything and runs all checks: Rust tests, frontend unit tests, and on macOS
+# Builds everything and runs all checks: the frontend build, Rust tests, and on macOS
 # the native app's self-test.
 # Runs every step even if one fails, then reports a summary.
 # Usage: scripts/verify.sh [--skip-macos]
@@ -15,12 +15,10 @@ step() {
 step "frontend build" bash -c 'cd frontend && pnpm build'
 step "rust build" cargo build
 step "rust tests" cargo test
-step "frontend unit tests" bash -c 'cd frontend && pnpm test'
 # The macOS app opens real windows, so it needs a logged-in desktop session.
 if [[ "$(uname)" == "Darwin" && " $* " != *" --skip-macos "* ]]; then
   step "macos build" bash -c 'cargo build --release && swift build --package-path macos'
   step "macos self-test" macos/.build/debug/Folio --self-test macos/selftest.md
-  step "macos web preview self-test" macos/.build/debug/Folio -WebPreview YES --self-test macos/selftest.md
 fi
 
 if ((${#failed[@]})); then

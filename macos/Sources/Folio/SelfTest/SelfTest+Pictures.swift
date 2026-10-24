@@ -1,17 +1,17 @@
 import AppKit
-import WebKit
 
 /// Window pictures, for judging how things look (`FOLIO_SNAPSHOT`).
 extension SelfTest {
     // MARK: pictures
 
-    /// Pictures of the in-page controls, for judging how they look: annotation cards in
+    /// Pictures of the annotation controls, for judging how they look: annotation cards in
     /// the comments pane (one focused) and the floating comment button over a selection.
     func tour(_ base: String) async {
-        controller.window?.makeFirstResponder(controller.webView)
+        let textView = previewView.textView
+        controller.window?.makeFirstResponder(textView)
         // The checks before this one left the document as they needed it; the pictures are of the fixture.
-        replaceFile((try? String(contentsOf: source, encoding: .utf8)) ?? "")
-        _ = await waitFor("document.querySelector('#editor-tiptap').innerText.includes('The last paragraph.')", seconds: 8)
+        replaceFile(fixture)
+        _ = await until(seconds: 8) { self.previewText.contains("The last paragraph.") }
         replaceSidecar([])
         _ = await until { self.controller.currentStore.annotations.isEmpty }
         for args in [
@@ -55,19 +55,13 @@ extension SelfTest {
         // With the pane closed, clicking annotated text opens its card next to it.
         send("toggleComments:")
         _ = await until { !self.pane.commentsOn && self.controller.scrollHost.paneWidth == 0 }
-        let clicked = await js("""
-            (() => {
-              const el = document.querySelector('#editor-tiptap .ann-comment-target')
-              if (!el) return 0
-              const r = el.getBoundingClientRect()
-              const o = {bubbles: true, cancelable: true, clientX: r.left + 5, clientY: r.top + 5, button: 0}
-              for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, o))
-              return 1
-            })()
-            """)
+        let target = pane.cards.values
+            .compactMap { previewView.ranges[$0.annotation.id] }
+            .min { $0.location < $1.location }
+        if let target { textView.onClick?(target.location + 2) }
         let opened = await until { self.pane.focusedID != nil }
         if !opened {
-            print("    the click on annotated text did not focus its annotation (page answered \(String(describing: clicked)), pane open \(pane.commentsOn))")
+            print("    the click on annotated text did not focus its annotation (a target \(target != nil), pane open \(pane.commentsOn))")
         }
         toTop()
         try? await Task.sleep(nanoseconds: 500_000_000)
@@ -75,9 +69,9 @@ extension SelfTest {
         send("toggleComments:")
         _ = await until { self.pane.commentsOn }
 
-        // Find: the Edit menu focuses the toolbar's search field, Return selects the match in the page.
-        _ = await js("document.activeElement?.blur(); getSelection().removeAllRanges()")
-        controller.window?.makeFirstResponder(controller.webView)
+        // Find: the Edit menu focuses the toolbar's search field, Return selects the match in the text.
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        controller.window?.makeFirstResponder(textView)
         let find = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }?.item(withTitle: "Find…")
         await check("Edit has Find with ⌘F") { find?.keyEquivalent == "f" && find?.keyEquivalentModifierMask == .command }
         if let find, let action = find.action { send(NSStringFromSelector(action)) }
@@ -86,13 +80,10 @@ extension SelfTest {
         }
         controller.findItem.searchField.stringValue = "last paragraph"
         controller.findNext(nil)
-        await check("Find selects the match in the page") {
-            let found = await self.until { (await self.js("getSelection().toString()") as? String) == "last paragraph" }
-            if !found {
-                let selected = await self.js("getSelection().toString()") as? String
-                let onPage = await self.js("document.body.innerText.includes('last paragraph')") as? Bool
-                print("    selection \(String(describing: selected)), the text is on the page: \(String(describing: onPage))")
-            }
+        await check("Find selects the match in the text") {
+            let selected: () -> String = { (self.previewText as NSString).substring(with: textView.selectedRange()) }
+            let found = await self.until { selected() == "last paragraph" }
+            if !found { print("    selection \(selected()), the text has it: \(self.previewText.contains("last paragraph"))") }
             return found
         }
         await snapshot("\(base)-find.png")

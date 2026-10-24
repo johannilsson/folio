@@ -2,17 +2,9 @@ import Foundation
 import UniformTypeIdentifiers
 import WebKit
 
-/// Serves the built frontend (`frontend/dist`) under `folio://app/`.
+/// Serves the built frontend (`frontend/dist`: the diagram page) under `folio://app/`.
 final class SchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "folio"
-    static let entryURL = URL(string: "folio://app/index.html")!
-
-    /// The page opened on a given file of a set (`?file=<id>`).
-    static func entryURL(file id: String) -> URL {
-        var components = URLComponents(url: entryURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "file", value: id)]
-        return components.url!
-    }
 
     private let root: URL
 
@@ -23,7 +15,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         guard let url = task.request.url else { return }
         var path = url.path
-        if path.isEmpty || path == "/" { path = "/index.html" }
+        if path.isEmpty || path == "/" { path = "/diagram.html" }
         let file = root.appendingPathComponent(path).standardizedFileURL
 
         // Never serve anything outside the bundle directory.
@@ -32,16 +24,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
             respond(task, url: url, status: 404, mime: "text/plain", data: Data("not found".utf8))
             return
         }
-        respond(task, url: url, status: 200, mime: Self.mimeType(for: file), data: Self.nativeChrome(data, file))
-    }
-
-    /// The app, not the page, supplies the title and toolbar: tell the page's CSS so
-    /// from the first paint (see "Native app" in index.html).
-    private static func nativeChrome(_ data: Data, _ file: URL) -> Data {
-        guard file.lastPathComponent == "index.html",
-              let html = String(data: data, encoding: .utf8),
-              let range = html.range(of: "<html") else { return data }
-        return Data(html.replacingCharacters(in: range, with: "<html class=\"native-chrome\"").utf8)
+        respond(task, url: url, status: 200, mime: Self.mimeType(for: file), data: data)
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}

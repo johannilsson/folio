@@ -1,18 +1,18 @@
 import Foundation
 
-/// One markdown file and its `.folio` sidecar: the file IO behind the bridge, and the
+/// One markdown file and its `.folio` sidecar: the file IO, and the
 /// change detection.
 final class Document {
     /// The id a window with a single file uses.
     static let singleID = "main"
     static let emptySidecar = #"{"version":1,"annotations":[]}"#
 
-    /// What the page calls this file (`?file=<id>`); set files carry the set's id.
+    /// What the window calls this file; set files carry the set's id.
     let id: String
     let file: URL
     let sidecar: URL
 
-    /// Called with "md:changed" or "folio:changed" for the page's `__folioEmit`.
+    /// Called with "md:changed" or "folio:changed" when the file or its sidecar changed on disk.
     var onEvent: ((String) -> Void)?
 
     private struct Stamp: Equatable {
@@ -50,8 +50,7 @@ final class Document {
         return try String(contentsOf: sidecar, encoding: .utf8)
     }
 
-    /// Our own writes are noted as seen, so the poller does not report them back. The
-    /// page already has the text it just saved.
+    /// Our own writes are noted as seen, so the poller does not report them back.
     func writeFile(_ content: String) throws {
         try Data(content.utf8).write(to: file)
         fileStamp = Self.stamp(file)
@@ -65,7 +64,7 @@ final class Document {
     }
 
     /// Applies one annotation to the markdown and marks it resolved, as `folio accept` does:
-    /// the patched file and the sidecar are written, and the page is told, in that order.
+    /// the patched file and the sidecar are written, in that order.
     func accept(id: String) throws {
         let result = try Rust.accept(doc: readFile(), sidecarJSON: readSidecar(), id: id)
         if let patched = result.doc {

@@ -1,5 +1,4 @@
 import AppKit
-import WebKit
 
 /// A set of files in its own window.
 extension SelfTest {
@@ -34,8 +33,8 @@ extension SelfTest {
         }
         let alphaID = win.sidebar.fileIDs[0], betaID = win.sidebar.fileIDs[1]
         let betaDir = beta.deletingLastPathComponent()
-        func page(_ source: String) async -> Any? { await js(source, in: win.webView) }
-        func filename() async -> String? { await page("document.title") as? String }
+        // The window's subtitle is the name of the file it shows.
+        func filename() async -> String? { win.window?.subtitle }
         let sv = win.scrollHost.source
 
         await check("the set opens in a window titled by the set, with its files in a sidebar") {
@@ -45,7 +44,7 @@ extension SelfTest {
         await check("the sidebar runs to the top of the window, with the editor below the toolbar") {
             guard let window = win.window, let frame = window.contentView?.superview else { return false }
             let sidebarTop = win.sidebar.view.convert(win.sidebar.view.bounds, to: nil).maxY
-            let editorTop = win.webView.convert(win.webView.bounds, to: nil).maxY
+            let editorTop = win.scrollHost.convert(win.scrollHost.bounds, to: nil).maxY
             let windowTop = frame.bounds.maxY
             let titlebarOnTop = frame.subviews.last.map { String(describing: type(of: $0)) == "NSTitlebarContainerView" } ?? false
             // The sidebar panel is inset a few points; the editor stops where the toolbar ends.
@@ -54,14 +53,13 @@ extension SelfTest {
         await check("the selected file has the soft grey selection, as in Finder") {
             await self.until { win.sidebar.selectedRowIsSoft }
         }
-        await check("the page opens on the first file") { await self.until { await filename() == "alpha.md" } }
-        // The set's window also opens in the preview; the typing checks below use the source editor.
+        await check("the window opens on the first file, in the preview") {
+            await self.until { await filename() == "alpha.md" && win.scrollHost.preview.textView.string.contains("The last paragraph.") }
+        }
+        // The typing checks below use the source editor.
         win.toggleSource(nil)
         await check("the source editor shows for the set, on the first file") {
             await self.until { win.sourceOn && !sv.isHidden && sv.textView.string.contains("The last paragraph.") }
-        }
-        await check("the bridge answers for the set's files") {
-            await self.until { win.bridge.count("info") > 0 && win.bridge.count("getFile") > 0 }
         }
 
         // Picking a file in the sidebar swaps the document in place.
@@ -108,7 +106,7 @@ extension SelfTest {
         host.contentView.scroll(to: .zero)
         host.reflectScrolledClipView(host.contentView)
 
-        await scrollingChecks(win, page: page)
+        await scrollingChecks(win)
 
         // An edit made just before switching is saved, and undo in the next file stays in that file.
         win.window?.makeFirstResponder(sv.textView)
@@ -187,17 +185,15 @@ extension SelfTest {
             await self.until(seconds: 8) { self.visibleCards(in: win).count == 1 }
         }
         // The preview scrolls with the wheel, Find, typing and dragging as the source does.
-        _ = await until { await page("document.title") as? String == "beta.md" }
-        await scrollingChecks(win, page: page)
+        _ = await until { await filename() == "beta.md" }
+        await scrollingChecks(win)
         win.toggleSource(nil)
         _ = await until { win.sourceOn }
         win.toggleComments(nil)
-        // Refreshing the badges must not move the page or the selection off the open file.
+        // Refreshing the badges must not move the window or the selection off the open file.
         try? await Task.sleep(nanoseconds: 700_000_000)
         await check("a sidebar refresh keeps the open file open") {
-            let shown = await filename()
-            return win.currentID == betaID && win.sidebar.selectedID == betaID
-                && win.window?.subtitle == "beta.md" && shown == "beta.md"
+            win.currentID == betaID && win.sidebar.selectedID == betaID && win.window?.subtitle == "beta.md"
         }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             try? await Task.sleep(nanoseconds: 800_000_000)
@@ -218,7 +214,7 @@ extension SelfTest {
         await check("the file itself stays") { FileManager.default.fileExists(atPath: gamma.path) }
         await check("the sidebar drops it") { win.sidebar.fileIDs.count == 2 }
 
-        // Removing the file on screen moves the page to another file first, saving it.
+        // Removing the file on screen moves the window to another file first, saving it.
         await withCheckedContinuation { continuation in win.remove(betaID) { continuation.resume() } }
         await check("removing the open file switches to another") {
             await self.until { await filename() == "alpha.md" && win.currentID == alphaID }

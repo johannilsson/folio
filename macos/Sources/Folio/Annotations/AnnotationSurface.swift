@@ -1,8 +1,7 @@
 import AppKit
-import WebKit
 
 /// Where a surface drew an annotation: its top-left and line height, in the scrolling canvas's
-/// coordinates (the page's, for the preview), and its place in the document, which orders the cards.
+/// coordinates, and its place in the document, which orders the cards.
 struct AnchorRect: Equatable {
     var id: String
     var from: Int
@@ -26,8 +25,8 @@ struct SelectionInfo: Equatable {
     var contextBefore: String
 }
 
-/// What the annotation UI needs from whatever shows the text: the rendered preview (a web page) or
-/// the markdown source (a native text view). The cards, pane, open card, Comment button, form
+/// What the annotation UI needs from whatever shows the text: the rendered preview or
+/// the markdown source (both native text views). The cards, pane, open card, Comment button, form
 /// and toast are the same for both (`AnnotationController`); a surface draws the highlights and
 /// reports where annotations are, what is selected and what was clicked.
 @MainActor
@@ -56,53 +55,4 @@ protocol AnnotationSurface: AnyObject {
     func flush() async
     /// The text changes only once the reloaded document arrives; flash it then.
     func flashAfterReload(_ text: String)
-}
-
-/// The rendered preview: a web page that draws the highlights, and tells the app what it needs
-/// through the bridge (the `anchors`, `selection`, `focus` and `pointer` ops).
-@MainActor
-final class WebPreviewSurface: AnnotationSurface {
-    private unowned let webView: WKWebView
-    var onAnchors: (([AnchorRect]) -> Void)?
-    var onSelection: ((SelectionInfo?) -> Void)?
-    var onFocus: ((String?) -> Void)?
-    var onPointer: (() -> Void)?
-    /// The reader typed in the page: Undo is the page's for a moment.
-    var onTyping: (() -> Void)?
-
-    init(webView: WKWebView, bridge: Bridge) {
-        self.webView = webView
-        bridge.onAnchors = { [weak self] list in self?.onAnchors?(list) }
-        bridge.onSelection = { [weak self] selection in self?.onSelection?(selection) }
-        bridge.onFocus = { [weak self] id in self?.onFocus?(id) }
-        bridge.onPointer = { [weak self] in self?.onPointer?() }
-        bridge.onTyping = { [weak self] in self?.onTyping?() }
-    }
-
-    var hasKeyboardFocus: Bool {
-        ((webView.window?.firstResponder as? NSView)?.isDescendant(of: webView)) ?? false
-    }
-
-    func focusText() {
-        webView.window?.makeFirstResponder(webView)
-    }
-
-    func annotationsChanged(_ pending: [Annotation]) {}
-
-    func setPending(_ range: (from: Int, to: Int)?) {
-        let argument = range.map { "{from: \($0.from), to: \($0.to)}" } ?? "null"
-        webView.evaluateJavaScript("window.__folioSetPending?.(\(argument))")
-    }
-
-    func select(annotation id: String) {
-        webView.callAsyncJavaScript("window.__folioSelectAnnotation?.(id)", arguments: ["id": id], in: nil, in: .page) { _ in }
-    }
-
-    func flush() async {
-        _ = try? await webView.callAsyncJavaScript("await window.__folioFlush?.()", in: nil, contentWorld: .page)
-    }
-
-    func flashAfterReload(_ text: String) {
-        webView.callAsyncJavaScript("window.__folioFlashAfterReload?.(text)", arguments: ["text": text], in: nil, in: .page) { _ in }
-    }
 }

@@ -1,9 +1,9 @@
 # Folio for macOS
 
-A native shell around the editor bundle: AppKit windows (one per
-markdown file, via `NSDocument`) hosting `frontend/dist` in a `WKWebView` at `folio://app/`.
-The Rust core (anchoring, accept) is linked as `libfolio.a`. The bridge between page and
-Swift is in [BRIDGE.md](BRIDGE.md).
+A native markdown editor and review tool: AppKit windows (one per markdown file, via `NSDocument`)
+whose preview and source editor are `NSTextView`s. `frontend/dist` holds one page, which a hidden
+`WKWebView` loads at `folio://app/` to draw mermaid diagrams and colour code.
+The Rust core (anchoring, accept) is linked as `libfolio.a`.
 
 ## Run
 
@@ -37,8 +37,7 @@ defaults write dev.folio.Folio PlantUMLServer https://plantuml.example.com/plant
 ```
 
 (or `-PlantUMLCommand …` / `-PlantUMLServer …` on the command line). The command wins when both are set;
-`defaults delete dev.folio.Folio <key>` turns one off. The command is drawn in the native preview only;
-the web preview uses the server.
+`defaults delete dev.folio.Folio <key>` turns one off.
 
 ## Sets
 
@@ -86,8 +85,8 @@ swift build --package-path macos
 macos/.build/debug/Folio --self-test macos/selftest.md       # exits 0 when every check passes
 ```
 
-The self-test works on throwaway copies: it types, undoes, copies and pastes through the
-Edit menu, annotates with the CLI, accepts in both editor modes (the native source editor
+The self-test works on throwaway copies: it types in the source, undoes, copies and pastes through the
+Edit menu, annotates with the CLI, accepts in both modes (the source editor
 included: typing, formatting, marks, undo, Find, drag-scroll), replaces the file from
 outside, and opens a second window. It also starts the app's binary with `--mcp` and talks to it over
 its pipes, as Claude desktop does (`SelfTest+MCP.swift`). `FOLIO_SNAPSHOT=<base>` saves `<base>-cards.png`,

@@ -28,16 +28,13 @@ final class AnnotationStore {
     /// An undo or redo failed: nothing else can tell the reader, as no action of theirs is waiting for an answer.
     var onError: ((Error) -> Void)?
 
-    /// Undo and redo of the actions below. In the preview the editor's own undo is the page's, so
-    /// these have a history of their own, and Undo goes to it while an action here is the latest
-    /// thing the reader did. In the source it is the text view's history, so Undo goes back
-    /// through typing and these actions in order.
+    /// Undo and redo of the actions below. The preview is read-only, so these have a history of their
+    /// own there. In the source it is the text view's history, so Undo goes back through typing and
+    /// these actions in order.
     var undoManagerSource: () -> UndoManager? = { nil }
     private let ownManager = UndoManager()
     var undoManager: UndoManager { undoManagerSource() ?? ownManager }
     private(set) var lastEntry: Entry?
-    /// When the last action, undo or redo happened, so Undo can tell it from a text edit.
-    private(set) var lastActionAt = Date.distantPast
 
     var canUndo: Bool { undoManager.canUndo }
     var canRedo: Bool { undoManager.canRedo }
@@ -113,7 +110,7 @@ final class AnnotationStore {
         return record(id: id, before: before)
     }
 
-    /// Applies the annotation to the markdown, like `folio accept`. The document tells the page.
+    /// Applies the annotation to the markdown, like `folio accept`.
     func accept(_ id: String) throws {
         try document.accept(id: id)
         reload()
@@ -144,7 +141,6 @@ final class AnnotationStore {
         if let entry, entry != lastEntry { return false }
         guard undoManager.canUndo else { return false }
         undoManager.undo()
-        lastActionAt = Date()
         return true
     }
 
@@ -152,7 +148,6 @@ final class AnnotationStore {
     func redo() -> Bool {
         guard undoManager.canRedo else { return false }
         undoManager.redo()
-        lastActionAt = Date()
         return true
     }
 
@@ -193,7 +188,6 @@ final class AnnotationStore {
         register(entry, undoing: true)
         if grouped { manager.endUndoGrouping() }
         lastEntry = entry
-        lastActionAt = Date()
         return entry
     }
 

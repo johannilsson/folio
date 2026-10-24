@@ -1,5 +1,4 @@
 import AppKit
-import WebKit
 
 /// The window's annotation UI: the cards in the comments pane (or the one card that opens next to
 /// the text when the pane is closed), the Comment button over a selection, the form for a new
@@ -14,10 +13,8 @@ final class AnnotationController {
 
     /// The surface that is showing: the preview or the source.
     private(set) var surface: AnnotationSurface
-    let webPreview: WebPreviewSurface
     let source: SourceEditorView
-    /// Shows the preview instead of the web page when `AppConfig.webPreview` is off.
-    let preview: PreviewView?
+    let preview: PreviewView
     /// The pending annotations may have changed (the toolbar shows how many).
     var onPendingChange: (() -> Void)?
 
@@ -38,27 +35,22 @@ final class AnnotationController {
     var mode: EditorMode { owner.mode }
     var commentsOn: Bool { owner.commentsOn }
     var sourceOn: Bool { mode == .source }
-    private(set) var lastTypingAt = Date.distantPast
 
     private var cardWidth: CGFloat { AnnotationStyle.cardWidth }
     var paneShown: Bool { commentsOn }
 
-    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, webPreview: WebPreviewSurface, source: SourceEditorView,
-         preview: PreviewView? = nil) {
+    init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, source: SourceEditorView, preview: PreviewView) {
         self.owner = owner
         self.host = host
         self.store = store
-        self.webPreview = webPreview
         self.source = source
         self.preview = preview
-        if let preview { surface = preview } else { surface = webPreview }
+        surface = preview
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
-        listen(to: webPreview)
         listen(to: source)
-        if let preview { listen(to: preview) }
-        webPreview.onTyping = { [weak self] in self?.lastTypingAt = Date() }
+        listen(to: preview)
         attach(store)
         refresh()
     }
@@ -84,8 +76,7 @@ final class AnnotationController {
 
     /// The window showed the preview or the source, or opened or closed the pane.
     func refreshMode() {
-        let showing: AnnotationSurface
-        if sourceOn { showing = source } else if let preview { showing = preview } else { showing = webPreview }
+        let showing: AnnotationSurface = sourceOn ? source : preview
         let modeChanged = showing !== surface
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
@@ -392,7 +383,7 @@ final class AnnotationController {
             default: return false
             }
         }
-        // ⌘Z and ⇧⌘Z reach the page first; they are ours only while an annotation action is the latest.
+        // ⌘Z and ⇧⌘Z are ours in the preview and the source text; a reply field keeps its own.
         if event.charactersIgnoringModifiers?.lowercased() == "z" {
             let responder = owner.window?.firstResponder
             if flags == [.command] { return undo(from: responder) }
@@ -438,25 +429,18 @@ final class AnnotationController {
 
     // MARK: Undo
 
-    // The page has its own undo for what is typed, and the window has no undo manager that would
-    // join the two (the document has none on purpose: it would keep WebKit's undo from the editors).
-    // So Undo and Redo go to the annotation actions while one of them is the latest thing the
-    // reader did, and to the page otherwise.
-
-    // In the source it is one history: the text view's, with the annotation actions in it in order.
-    private var annotationActionIsLatest: Bool { !sourceOn && store.lastActionAt > lastTypingAt }
+    // The preview is read-only, so its Undo is the annotation actions' own history; in the source it is
+    // one history: the text view's, with the annotation actions in it in order.
 
     // The one place that decides Undo and Redo, for ⌘Z (`handleKey`) and Edit ▸ Undo (`AppDelegate`),
-    // from where the keyboard is: in the source text, the text view's history; in the page, the
-    // annotation actions while one is the latest thing the reader did, else the page's own.
-    // Anywhere else (a reply field, the sidebar) it is not ours.
-    private enum UndoScope { case source, page }
+    // from where the keyboard is: in the source text, the text view's history; in the preview, the
+    // annotation actions. Anywhere else (a reply field, the sidebar) it is not ours.
+    private enum UndoScope { case source, preview }
 
     private func undoScope(of responder: NSResponder?) -> UndoScope? {
         guard let view = responder as? NSView else { return nil }
         if sourceOn { return view === source.textView ? .source : nil }
-        if let preview { return view.isDescendant(of: preview) ? .page : nil }
-        return view.isDescendant(of: owner.webView) ? .page : nil
+        return view.isDescendant(of: preview) ? .preview : nil
     }
 
     /// Undoes in the source or the last annotation action. Returns false when Undo belongs to the responder.
@@ -466,7 +450,7 @@ final class AnnotationController {
             guard source.canUndo else { return false }
             source.undo()
             return true
-        case .page: return annotationActionIsLatest && store.canUndo && store.undo()
+        case .preview: return store.canUndo && store.undo()
         case nil: return false
         }
     }
@@ -477,17 +461,16 @@ final class AnnotationController {
             guard source.canRedo else { return false }
             source.redo()
             return true
-        case .page: return annotationActionIsLatest && store.canRedo && store.redo()
+        case .preview: return store.canRedo && store.redo()
         case nil: return false
         }
     }
 
-    /// Whether Edit ▸ Undo is available, or nil when the responder decides. The page's own undo
-    /// cannot be asked, so it counts as available.
+    /// Whether Edit ▸ Undo is available, or nil when the responder decides.
     func canUndo(from responder: NSResponder?) -> Bool? {
         switch undoScope(of: responder) {
         case .source: return source.canUndo
-        case .page: return preview != nil ? store.canUndo : true
+        case .preview: return store.canUndo
         case nil: return nil
         }
     }
@@ -495,7 +478,7 @@ final class AnnotationController {
     func canRedo(from responder: NSResponder?) -> Bool? {
         switch undoScope(of: responder) {
         case .source: return source.canRedo
-        case .page: return preview != nil ? store.canRedo : true
+        case .preview: return store.canRedo
         case nil: return nil
         }
     }

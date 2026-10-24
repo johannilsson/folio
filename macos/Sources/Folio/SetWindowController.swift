@@ -37,13 +37,12 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         return super.toolbar(toolbar, itemForItemIdentifier: id, willBeInsertedIntoToolbar: flag)
     }
 
-    /// `info` must have at least one file: the page opens on the first.
+    /// `info` must have at least one file: the window opens on the first.
     init(set info: Rust.SetInfo) {
         let workspace = Workspace(set: info)
         sidebar = SidebarViewController(workspace: workspace)
         currentID = workspace.entries[0].document.id
-        super.init(workspace: workspace, entryURL: SchemeHandler.entryURL(file: workspace.entries[0].document.id),
-                   fullHeightSidebar: true)
+        super.init(workspace: workspace, fullHeightSidebar: true)
 
         // The editor goes in the content pane of a split view, with the sidebar beside it.
         // Its top edge is the bottom of the toolbar, which now floats over the content side.
@@ -84,7 +83,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    // MARK: following the page
+    // MARK: following the files
 
     override func workspaceEvent(_ type: String, _ id: String) {
         super.workspaceEvent(type, id)
@@ -92,8 +91,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         if type == "folio:changed" { sidebar.reload() }
     }
 
-    /// Opens a file of the set in the editor, in place. `completion` runs once the page has
-    /// saved the file it left and shows the new one.
+    /// Opens a file of the set in the editor, in place. `completion` runs once the new file is shown.
     func openFile(_ id: String, completion: (() -> Void)? = nil) {
         guard id != currentID, let entry = workspace.entries.first(where: { $0.document.id == id }) else {
             completion?()
@@ -103,32 +101,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         currentID = id
         window?.subtitle = entry.name
         sidebar.select(id)
-        // The source shows the file it was opened on until it is told otherwise (the page swaps by
-        // itself). It comes first: the annotation UI then hands the new file's annotations to it.
+        // The source shows the file it was opened on until it is told otherwise. It comes first: the
+        // annotation UI then hands the new file's annotations to it.
         if mode == .source { scrollHost.source.load(entry.document) }
-        if let preview = scrollHost.preview {
-            preview.load(entry.document)
-            annotations.fileChanged(store: currentStore)
-            restoreScroll(of: id)
-            completion?()
-            return
-        }
+        scrollHost.preview.load(entry.document)
         annotations.fileChanged(store: currentStore)
-        webView.callAsyncJavaScript(
-            """
-            if (typeof window.__folioSwitchFile !== 'function') return false
-            await window.__folioSwitchFile(id)
-            return true
-            """,
-            arguments: ["id": id], in: nil, in: .page
-        ) { [weak self] result in
-            // The page is not ready to swap (still booting): load it on that file instead.
-            if case .success(let swapped) = result, swapped as? Bool == true {} else {
-                self?.webView.load(URLRequest(url: SchemeHandler.entryURL(file: id)))
-            }
-            self?.restoreScroll(of: id)
-            completion?()
-        }
+        restoreScroll(of: id)
+        completion?()
     }
 
     /// The manifest changed (here or from a terminal): refresh the sidebar, and move off a
@@ -186,7 +165,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
             }
             completion?()
         }
-        // Leave the file first, so the page saves it while the set still resolves it.
+        // Leave the file first, while the set still resolves it.
         if id == currentID, let other = workspace.entries.first(where: { $0.document.id != id }) {
             openFile(other.document.id, completion: finish)
         } else {

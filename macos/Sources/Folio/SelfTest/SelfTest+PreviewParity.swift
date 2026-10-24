@@ -1,6 +1,6 @@
 import AppKit
 
-/// What the preview has to do as the web one did: Find, the card that opens next to the
+/// What the preview does besides showing the text: Find, the card that opens next to the
 /// text, the scroll position across the source and across a set's files.
 extension SelfTest {
     func previewParityChecks() async {
@@ -145,10 +145,11 @@ extension SelfTest {
             report("the set is created: \(error)", false)
             return
         }
-        guard let win = app.openSet("preview"), let preview = win.scrollHost.preview else {
+        guard let win = app.openSet("preview") else {
             report("the set opens on the preview", false)
             return
         }
+        let preview = win.scrollHost.preview
         let alphaID = win.sidebar.fileIDs[0], betaID = win.sidebar.fileIDs[1]
         await check("the set opens on its first file, in the preview") {
             await self.until { preview.window != nil && preview.textView.string.contains("The last paragraph.") }

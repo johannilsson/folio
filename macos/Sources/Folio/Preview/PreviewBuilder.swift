@@ -330,7 +330,7 @@ struct PreviewBuilder {
         centre(NSRange(location: start, length: result.text.length - start))
     }
 
-    /// A picture in a block of its own is centred in the window and may be as wide as it, as in the web preview.
+    /// A picture in a block of its own is centred in the window and may be as wide as it.
     private mutating func centre(_ range: NSRange) {
         result.text.addAttribute(.folioWide, value: true, range: range)
         result.text.addAttribute(.folioCentered, value: true, range: range)

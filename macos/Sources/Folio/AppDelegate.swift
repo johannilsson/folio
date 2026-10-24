@@ -10,8 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard FileManager.default.fileExists(atPath: AppConfig.dist.appendingPathComponent("index.html").path) else {
-            fputs("no index.html in \(AppConfig.dist.path); run `pnpm build` in frontend/\n", stderr)
+        guard FileManager.default.fileExists(atPath: AppConfig.dist.appendingPathComponent("diagram.html").path) else {
+            fputs("no diagram.html in \(AppConfig.dist.path); run `pnpm build` in frontend/\n", stderr)
             exit(66)
         }
         // From `swift run` there is no bundle to hold the icon; use the one in the checkout.
@@ -252,8 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// In the source, Undo goes back through the text view's history, which has the annotation
     /// actions in it. In the preview it takes back the last annotation action (a rejected
-    /// suggestion, a reply) while that is the latest thing the reader did in the page, and otherwise
-    /// the page's own typing. A text field of the annotation UI keeps its own undo.
+    /// suggestion, a reply). A text field of the annotation UI keeps its own undo.
     @MainActor @objc private func undoEdit(_ sender: Any?) {
         let responder = frontWindow?.firstResponder
         if frontEditor?.annotations.undo(from: responder) == true { return }
@@ -266,8 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         responder?.tryToPerform(Selector(("redo:")), with: sender)
     }
 
-    /// Undo and Redo are greyed out when there is nothing to undo: in the source and in text fields
-    /// that is known; the page's own undo cannot be asked, so they stay available there.
+    /// Undo and Redo are greyed out when there is nothing to undo.
     @MainActor func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let responder = frontWindow?.firstResponder
         switch item.action {
@@ -380,8 +378,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         }
 
-        // WKWebView only gets cut/copy/paste from the responder chain; these items have no target,
-        // so they reach it as first responder. Undo and Redo first ask the window's annotation actions.
+        // Cut/copy/paste have no target, so they reach the first responder. Undo and Redo first ask the
+        // window's annotation actions.
         _ = add("Edit") { m in
             m.addItem(withTitle: "Undo", action: #selector(undoEdit(_:)), keyEquivalent: "z").target = self
             let redo = m.addItem(withTitle: "Redo", action: #selector(redoEdit(_:)), keyEquivalent: "z")

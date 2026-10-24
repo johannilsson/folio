@@ -1,12 +1,11 @@
 import AppKit
-import WebKit
 
 /// The preview's annotation UI, the annotation store and Undo across the two modes.
 extension SelfTest {
     /// The preview's own annotation UI: the pane, the card that opens next to the text, the Comment
     /// button and form, shortcuts, and Edit ▸ Undo. The preview is showing, with the pane open.
     func nativeAnnotationChecks() async {
-        controller.window?.makeFirstResponder(controller.webView)
+        controller.window?.makeFirstResponder(previewView.textView)
         // Three annotations, in document order: a comment, a suggestion, a comment far down.
         replaceSidecar([])
         _ = await until { self.controller.currentStore.annotations.isEmpty }
@@ -92,12 +91,12 @@ extension SelfTest {
             await self.until { self.controller.currentStore.annotation(replaceID)?.resolved == false && self.pane.cards[replaceID] != nil }
         }
 
-        // Edit ▸ Undo, with the web view in front, undoes the last annotation action.
+        // Edit ▸ Undo, with the preview in front, undoes the last annotation action.
         press("accept", inCardOf: commentID)   // a comment: Resolve dismisses it
         await check("resolving a comment dismisses it") {
             self.controller.currentStore.annotation(commentID)?.resolvedAs == "dismissed"
         }
-        controller.window?.makeFirstResponder(controller.webView)
+        controller.window?.makeFirstResponder(previewView.textView)
         send("undoEdit:")
         await check("Edit ▸ Undo brings the dismissed comment back") {
             await self.until { self.controller.currentStore.annotation(commentID)?.resolved == false }
@@ -112,18 +111,6 @@ extension SelfTest {
             let redone = self.pane.handleKey(self.keyEvent("z", [.command, .shift], code: 6))
                 && self.controller.currentStore.annotation(commentID)?.resolved == true
             return undone && redone
-        }
-        // After typing in the page, Undo is the page's again: it takes the typing back and leaves the annotation.
-        _ = await js("document.querySelector('#editor-tiptap .ProseMirror').focus()")
-        _ = await js("document.execCommand('insertText', false, 'QZX')")
-        _ = await until { self.pane.lastTypingAt > self.controller.currentStore.lastActionAt }
-        await check("⌘Z after typing is left to the page") { !self.pane.handleKey(self.keyEvent("z", .command, code: 6)) }
-        send("undoEdit:")
-        await check("Edit ▸ Undo after typing takes the typing back and leaves the annotation") {
-            let typedBackOut = await self.until {
-                (await self.js("document.querySelector('#editor-tiptap').innerText.includes('QZX')") as? Bool) == false
-            }
-            return typedBackOut && self.controller.currentStore.annotation(commentID)?.resolved == true
         }
         controller.currentStore.undo()
         _ = await until { self.controller.currentStore.annotation(commentID)?.resolved == false }
@@ -217,21 +204,16 @@ extension SelfTest {
             return annotation == [URL(string: "folio://annotation/ann_x?file=/tmp/a.md")!] && set == []
         }
 
-        // Agents write the ids: one with quotes and a backslash reaches the page as it is.
+        // Agents write the ids: one with quotes and a backslash is an id like any other.
         let quotedID = #"it's \"quoted\" \ ')"#
         replaceSidecar([commentJSON(quotedID, before: "Natural wine is made with ", target: "no additives")])
         _ = await until(seconds: 8) { self.pane.anchors[quotedID] != nil }
-        _ = await js("(() => { const c = document.querySelector('#editor-tiptap .ProseMirror'); c.focus(); const s = getSelection(); s.selectAllChildren(c); s.collapseToEnd(); return 1 })()")
-        await check("⌃J puts the page's caret on an annotation whose id has quotes and a backslash") {
-            guard self.pane.handleKey(self.keyEvent("j", .control, code: 38)), self.pane.focusedID == quotedID else { return false }
-            return await self.waitFor("""
-                (() => {
-                  const s = getSelection(), p = s.focusNode && (s.focusNode.nodeType === 1 ? s.focusNode : s.focusNode.parentElement).closest('p')
-                  if (!p) return false
-                  const before = document.createRange(); before.setStart(p, 0); before.setEnd(s.focusNode, s.focusOffset)
-                  return before.toString().length === p.textContent.indexOf('no additives')
-                })()
-                """, seconds: 5)
+        previewView.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        await check("⌃J puts the caret on an annotation whose id has quotes and a backslash") {
+            guard self.pane.handleKey(self.keyEvent("j", .control, code: 38)), self.pane.focusedID == quotedID,
+                  let range = self.previewView.ranges[quotedID] else { return false }
+            return self.previewView.textView.selectedRange().location == range.location
+                && (self.previewText as NSString).substring(with: range) == "no additives"
         }
 
         await commentFormChecks()
@@ -298,23 +280,17 @@ extension SelfTest {
 
     /// The Comment button over a selection, and the form it opens, with the pane open and closed.
     func commentFormChecks(inSource: Bool = false) async {
-        let textResponder: NSResponder = inSource ? sourceView.textView : controller.webView
+        let textView = inSource ? sourceView.textView : previewView.textView
+        let textResponder: NSResponder = textView
         // Selects `length` characters of "Natural wine" from `offset`, as the reader would.
         func select(from offset: Int, length: Int) async {
-            if inSource {
-                let start = (sourceText as NSString).range(of: "Natural wine").location
-                sourceView.textView.setSelectedRange(NSRange(location: start + offset, length: length))
-            } else {
-                await selectInPreview("Natural wine", from: offset, length: length)
-            }
+            let start = ((inSource ? sourceText : previewText) as NSString).range(of: "Natural wine").location
+            textView.setSelectedRange(NSRange(location: start + offset, length: length))
         }
         // Whether the text being commented on is highlighted (the pending range).
         func highlighted() async -> Bool {
-            if inSource {
-                let start = (sourceText as NSString).range(of: "Natural wine").location
-                return sourceView.textView.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: start, effectiveRange: nil) != nil
-            }
-            return await waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')", seconds: 2)
+            let start = ((inSource ? sourceText : previewText) as NSString).range(of: "Natural wine").location
+            return textView.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: start, effectiveRange: nil) != nil
         }
         controller.window?.makeFirstResponder(textResponder)
         for paneOpen in [true, false] {
@@ -329,7 +305,7 @@ extension SelfTest {
                 let shown = await self.until { self.pane.selection?.target == "Natural" && !self.pane.adderIsHidden }
                 if !shown {
                     let responder = self.controller.window?.firstResponder
-                    print("    selection \(String(describing: self.pane.selection)) adderHidden \(self.pane.adderIsHidden) form \(self.pane.form != nil) sourceOn \(self.pane.sourceOn) responder \(String(describing: responder.map { type(of: $0) })) inPage \((responder as? NSView)?.isDescendant(of: self.controller.webView) ?? false)")
+                    print("    selection \(String(describing: self.pane.selection)) adderHidden \(self.pane.adderIsHidden) form \(self.pane.form != nil) sourceOn \(self.pane.sourceOn) responder \(String(describing: responder.map { type(of: $0) })) inText \((responder as? NSView)?.isDescendant(of: textView) ?? false)")
                 }
                 return shown
             }
@@ -356,7 +332,7 @@ extension SelfTest {
                                                     windowNumber: controller.window?.windowNumber ?? 0, context: nil, characters: "\u{1b}",
                                                     charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!)
             await check("Escape cancels the form (\(label))") {
-                let stillHighlighted = inSource ? await highlighted() : await self.waitFor("!!document.querySelector('#editor-tiptap .ann-comment-pending')", seconds: 1)
+                let stillHighlighted = await highlighted()
                 return self.pane.form == nil && !stillHighlighted
             }
             // Send.

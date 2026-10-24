@@ -1,8 +1,8 @@
 import Foundation
 
 /// The YAML block at the top of a file. The preview shows it as a small box of key and value rows
-/// (as the web preview does) instead of reading it as markdown. The parsing follows
-/// `frontend/src/frontmatter.ts`: top-level `key: value` pairs, list items joined onto their key.
+/// instead of reading it as markdown. The parsing is simple: top-level `key: value` pairs, list items
+/// joined onto their key.
 struct PreviewFrontmatter {
     struct Entry {
         var key: String

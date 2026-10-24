@@ -297,8 +297,7 @@ pub fn rendered_selection(doc: &str, from: usize, to: usize) -> Option<(String, 
 /// - a `raw_spans` where `raw_spans[i]` is the raw byte width of the i-th char
 ///   (1 for regular ASCII, >1 for multi-byte Unicode or decoded HTML entities)
 ///
-/// Block boundaries (newlines) are dropped; text is concatenated with no separator,
-/// matching the frontend's ProseMirror `findAnchor` behaviour.
+/// Block boundaries (newlines) are dropped; text is concatenated with no separator.
 fn strip_markdown(doc: &str) -> (String, Vec<usize>, Vec<usize>) {
     strip_markdown_impl(doc, true)
 }

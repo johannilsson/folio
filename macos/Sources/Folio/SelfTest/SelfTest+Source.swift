@@ -1,8 +1,196 @@
 import AppKit
-import WebKit
 
 /// The source editor: its annotation UI, saving, outside changes and formatting.
 extension SelfTest {
+    /// Opening the source from the menu, typing, Undo, copy and paste, the CLI's annotations in the
+    /// source, accepting there, and the preview picking up what was done. Starts in the preview and ends in it.
+    func sourceEditingChecks() async {
+        replaceSidecar([])
+        replaceFile(fixture)
+        _ = await until { self.previewText.contains("The last paragraph.") && self.controller.currentStore.annotations.isEmpty }
+        if controller.commentsOn {
+            send("toggleComments:")
+            _ = await until { !self.controller.commentsOn && self.controller.scrollHost.paneWidth == 0 }
+        }
+
+        // The View menu switches to the source editor.
+        send("toggleSource:")
+        await check("the source editor opens from the menu and the toolbar follows") {
+            let shown = await self.until { self.controller.sourceOn && !self.sourceView.isHidden && self.sourceView.window != nil && self.previewView.isHidden }
+            return shown && self.sourceText.contains("The last paragraph.")
+        }
+        await check("the source text starts close under the title bar") {
+            guard let layout = self.sourceView.textView.layoutManager else { return false }
+            let top = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil).minY + self.sourceView.textView.textContainerOrigin.y
+            return top < 40
+        }
+        await check("the source is highlighted: a heading is heavier than the text") {
+            let storage = self.sourceView.textView.textStorage!
+            let heading = storage.attribute(.font, at: 4, effectiveRange: nil) as? NSFont
+            let plain = storage.attribute(.font, at: storage.length - 4, effectiveRange: nil) as? NSFont
+            return heading != nil && heading != plain
+        }
+
+        // Typing is saved to the file.
+        controller.window?.makeFirstResponder(sourceView.textView)
+        sourceView.textView.insertText("ZZ", replacementRange: NSRange(location: 0, length: 0))
+        await check("typing reaches the editor") { self.sourceText.hasPrefix("ZZ") }
+        await check("typing is written to the file") { await self.until { self.disk().contains("ZZ") } }
+
+        // Edit menu actions go through the responder chain, as the menu items do.
+        send("undoEdit:")
+        await check("undo from the Edit menu") { await self.until { !self.sourceText.contains("ZZ") } }
+        await check("undo is written to the file") { await self.until { !self.disk().contains("ZZ") } }
+        send("redoEdit:")
+        await check("redo from the Edit menu") { await self.until { self.sourceText.contains("ZZ") } }
+
+        NSPasteboard.general.clearContents()
+        send("selectAll:")
+        send("copy:")
+        await check("copy puts the document on the pasteboard") {
+            await self.until { NSPasteboard.general.string(forType: .string)?.contains("The last paragraph.") == true }
+        }
+        sourceView.textView.deleteBackward(nil)
+        await check("selection deleted") { !self.sourceText.contains("The last paragraph.") }
+        send("paste:")
+        await check("paste restores the document") {
+            await self.until { self.sourceText.contains("The last paragraph.") }
+        }
+        await check("the restored document is on disk") { await self.until { self.disk().contains("The last paragraph.") } }
+
+        // ⌘B and ⌘I wrap the selection in the markdown marks, and unwrap it again.
+        await sourceFormattingChecks()
+
+        // An agent annotates through the CLI; the app has to notice. The View menu opens the comments pane.
+        send("toggleComments:")
+        await check("the toolbar follows the comments toggle") { await self.until { self.controller.commentsOn } }
+        await check("the comments pane slides open") { await self.until { self.controller.scrollHost.paneWidth > 300 } }
+        // Closing and opening again, sampling the width on the way: it passes through in-between values.
+        await check("the comments pane animates when it closes and opens, rather than jumping") {
+            @MainActor func sampleWidths() async -> [Double] {
+                var widths: [Double] = []
+                for _ in 0..<12 {
+                    widths.append(Double(self.controller.scrollHost.paneWidth))
+                    try? await Task.sleep(nanoseconds: 30_000_000)
+                }
+                return widths
+            }
+            self.send("toggleComments:")
+            let closing = await sampleWidths()
+            self.send("toggleComments:")
+            let opening = await sampleWidths()
+            let between = { (w: [Double]) in w.contains { $0 > 15 && $0 < 290 } }
+            return between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 300
+        }
+        await check("the toolbar follows the pane after the animation test") { await self.until { self.controller.commentsOn } }
+        let replaceCLI = cli([
+            "annotate", name, "--kind", "replace",
+            "--context-before", "Natural wine is made with ", "--target", "minimal intervention",
+            "--replacement", "no additives", "--author", "agent", "--source", "agent",
+        ])
+        await check("folio annotate succeeds") { replaceCLI.status == 0 }
+        await check("the CLI's annotation appears in the app without a reload") {
+            await self.until { self.pane.cards.count == 1 }
+        }
+        // In the window is not the same as in the model: the card has to have a size and sit inside it.
+        await check("the card is visible in the comments pane of the source view") {
+            await self.until { self.visibleCards().count == 1 }
+        }
+        await check("the source marks the annotated text: struck through and tinted") {
+            await self.until {
+                let text = self.sourceText as NSString
+                let range = text.range(of: "minimal intervention")
+                guard range.location != NSNotFound, let layout = self.sourceView.textView.layoutManager else { return false }
+                let strike = layout.temporaryAttribute(.strikethroughStyle, atCharacterIndex: range.location, effectiveRange: nil)
+                return strike != nil
+            }
+        }
+        await check("the comments icon counts the pending annotations") {
+            await self.until { self.controller.pendingCount == 1 }
+        }
+
+        // An agent replies to an existing annotation by rewriting the sidecar (temp file, rename).
+        let sidecarURL = controller.files.sidecar
+        if let data = try? Data(contentsOf: sidecarURL),
+           var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           var anns = obj["annotations"] as? [[String: Any]], !anns.isEmpty {
+            anns[0]["replies"] = [[
+                "id": "reply-selftest", "author": "agent", "source": "agent",
+                "body": "Reply from the agent", "created": "2026-01-02T00:00:00Z",
+            ]]
+            obj["annotations"] = anns
+            let tmp = sidecarURL.deletingLastPathComponent().appendingPathComponent("incoming-sidecar.tmp")
+            try? JSONSerialization.data(withJSONObject: obj).write(to: tmp)
+            _ = try? FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmp)
+        }
+        await check("an agent's reply to an existing annotation appears without a reload") {
+            await self.until(seconds: 8) { self.pane.cards.values.first?.annotation.replies?.first?.body == "Reply from the agent" }
+        }
+
+        // Accept in source mode: Rust patches the file, and the source follows it.
+        press("accept", inCardOf: pane.cards.keys.first)
+        await check("accepting in source mode patches the file") {
+            await self.until { self.disk().contains("made with no additives in both") }
+        }
+        await check("the source shows the accepted text") {
+            await self.until { self.sourceText.contains("made with no additives in both") }
+        }
+        await check("the CLI sees the annotation as resolved") {
+            await self.until { self.pendingFromCLI() == 0 }
+        }
+
+        // Back in the preview, which picks up what was typed and accepted in the source.
+        send("toggleSource:")
+        await check("the toolbar follows the source toggle") { await self.until { !self.controller.sourceOn } }
+        await check("the preview picked up what was typed and accepted in the source") {
+            await self.until { self.previewText.contains("made with no additives in both") }
+        }
+
+        // Accept in the preview is the app's own card (Rust anchors and patches).
+        let secondCLI = cli([
+            "annotate", name, "--kind", "replace",
+            "--context-before", "in both the vineyard and the ", "--target", "cellar",
+            "--replacement", "cave", "--author", "agent", "--source", "agent",
+        ])
+        await check("second annotation added from the CLI") { secondCLI.status == 0 }
+        await check("it appears in the comments pane of the preview, on screen") {
+            await self.until(seconds: 8) { self.visibleCards().count == 1 && self.pane.anchors.count == 1 }
+        }
+        press("accept", inCardOf: pane.cards.keys.first)
+        await check("accepting patches the file") {
+            await self.until { self.disk().contains("vineyard and the cave.") }
+        }
+        await check("accepting shows a toast") { self.pane.toastMessage == "Accepted replace" }
+        await check("the preview reloads the patched text") {
+            await self.until { self.previewText.contains("vineyard and the cave.") }
+        }
+        await check("the CLI sees both annotations resolved") { await self.until { self.pendingFromCLI() == 0 } }
+
+        // The comments pane is open in the preview; switching to the source view must keep it.
+        let thirdCLI = cli([
+            "annotate", name, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph",
+            "--comment", "Pane in source", "--author", "agent", "--source", "agent",
+        ])
+        await check("a comment added from the CLI shows in the preview pane") {
+            let shown = await self.until(seconds: 8) { self.visibleCards().count == 1 }
+            return thirdCLI.status == 0 && shown
+        }
+        send("toggleSource:")
+        await check("the card is visible in the comments pane after switching to the source view") {
+            await self.until(seconds: 8) { self.controller.sourceOn && self.visibleCards().count == 1 && self.pane.anchorsKnown }
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-source-after-preview.png") }
+        send("toggleSource:")
+        _ = await until(seconds: 8) { !self.controller.sourceOn && self.pane.anchorsKnown }
+
+        // Another program replaces the file the way agents do: write a temp file, rename over it.
+        replaceFile(disk() + "\nAdded by another program.\n")
+        await check("an atomic replace from outside reloads the preview") {
+            await self.until(seconds: 8) { self.previewText.contains("Added by another program.") }
+        }
+        replaceSidecar([])
+    }
+
     /// The annotation UI in the source: the marks on the text, ranges that follow the text as it is
     /// edited, clicks, ⌃J/⌃K, the Comment button and form, Undo in order, and the file changing underneath.
     func sourceAnnotationChecks() async {

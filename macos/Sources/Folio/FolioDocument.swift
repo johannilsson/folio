@@ -2,11 +2,11 @@ import AppKit
 
 /// What the app was started with, shared by every window.
 enum AppConfig {
-    /// The built frontend. Inside the .app it is bundled; from `swift run` it is the
+    /// The built frontend (the diagram page). Inside the .app it is bundled; from `swift run` it is the
     /// checkout this was compiled from.
     static var dist: URL = {
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent("dist"),
-           FileManager.default.fileExists(atPath: bundled.appendingPathComponent("index.html").path) {
+           FileManager.default.fileExists(atPath: bundled.appendingPathComponent("diagram.html").path) {
             return bundled
         }
         return URL(fileURLWithPath: #filePath)
@@ -31,17 +31,13 @@ enum AppConfig {
         return url.hasSuffix("/") ? String(url.dropLast()) : url
     }
     static var renderPlantUML: Bool { plantumlCommand != nil || plantumlURL != nil }
-    /// Whether the preview is the web page (Tiptap, `-WebPreview YES` or the `WebPreview` default) instead
-    /// of `PreviewView`, which is what shows by default. The flag and everything that checks it goes with
-    /// the web page.
-    static var webPreview: Bool { UserDefaults.standard.bool(forKey: "WebPreview") }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?
     static var appearance: String?
 }
 
-/// One open markdown file. The page saves its own edits through the bridge, so this
+/// One open markdown file. The source editor saves its own edits, so this
 /// never has unsaved changes of its own and has no Save: AppKit supplies the window,
 /// the title and proxy icon, Open Recent, and opening from Finder.
 final class FolioDocument: NSDocument {
@@ -49,8 +45,8 @@ final class FolioDocument: NSDocument {
 
     override class var autosavesInPlace: Bool { false }
 
-    // Undo belongs to the editors in the page. With a document undo manager the window
-    // answers Edit > Undo itself and WebKit's native undo never reaches CodeMirror.
+    // Undo belongs to the editors: the source's text view and the annotation actions. With a document
+    // undo manager the window would answer Edit > Undo itself and they would never get it.
     override init() {
         super.init()
         hasUndoManager = false

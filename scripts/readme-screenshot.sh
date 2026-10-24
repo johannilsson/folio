@@ -15,7 +15,7 @@ for arg in "$@"; do
   esac
 done
 
-[[ -f frontend/dist/index.html ]] || (cd frontend && pnpm build)
+[[ -f frontend/dist/diagram.html ]] || (cd frontend && pnpm build)
 cargo build            # the `folio` CLI that seeds the annotations
 cargo build --release  # libfolio.a, which the app links
 swift build --package-path macos

@@ -1,21 +1,15 @@
 import AppKit
 import Compression
 
-/// The preview (the default; `-WebPreview YES` is the web one): what is drawn, how the text maps to the file, the
-/// annotation UI on it, and accepting. The web page is not loaded in this mode, so this replaces
-/// the checks that drive it.
+/// The preview: what is drawn, how the text maps to the file, the annotation UI on it, and accepting.
 extension SelfTest {
-    var previewView: PreviewView { controller.scrollHost.preview! }
+    var previewView: PreviewView { controller.scrollHost.preview }
     var previewText: String { previewView.textView.string }
 
     func previewChecks() async {
-        guard controller.scrollHost.preview != nil else {
-            report("the preview is on", false)
-            return finishPreview()
-        }
         let textView = previewView.textView
-        await check("the preview shows the document, and the web view stays hidden") {
-            await self.until { self.previewView.window != nil && !self.previewView.isHidden && self.web.isHidden && self.previewText.contains("The last paragraph.") }
+        await check("the preview shows the document") {
+            await self.until { self.previewView.window != nil && !self.previewView.isHidden && self.previewText.contains("The last paragraph.") }
         }
         await check("the toolbar shows the preview as current") { !self.controller.sourceOn }
         await check("markdown syntax is not shown: no heading mark, no fences, and diagrams are pictures, not their code") {
@@ -57,9 +51,9 @@ extension SelfTest {
             return bold == (md as NSString).range(of: "bold** word") && bullet == nil && one == (md as NSString).range(of: "one")
         }
 
-        await check("the PlantUML encoding reads back as the text, and so does the web page's encoder's") {
+        await check("the PlantUML encoding reads back as the text, and so does a server's own") {
             // The compressed bytes differ with the compressor, so they are compared by what they say. The
-            // second string comes from the plantuml-encoder package the web page uses.
+            // second string is what the plantuml-encoder package, which the old web preview used, made of it.
             let text = "@startuml\nAlice -> Bob: hello\n@enduml"
             return Self.plantUMLDecode(PlantUML.encode(text)) == text
                 && Self.plantUMLDecode("SoWkIImgAStDuNBCoKnELT2rKt3AJx9Io4ZDoSddSaZDIodDpG40") == text
@@ -237,7 +231,6 @@ extension SelfTest {
         }
 
         await mcpChecks()
-        finishPreview()
     }
 
     /// Tables, images and diagrams, on a document of their own.
@@ -521,10 +514,5 @@ extension SelfTest {
         var output = [UInt8](repeating: 0, count: 65536)
         let size = compression_decode_buffer(&output, 65536, bytes, bytes.count, nil, COMPRESSION_ZLIB)
         return size > 0 ? String(decoding: output.prefix(size), as: UTF8.self) : nil
-    }
-
-    private func finishPreview() {
-        // finish() prints the verdict; run() returns it.
-        previewVerdict = finish()
     }
 }

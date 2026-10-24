@@ -1,5 +1,4 @@
 import AppKit
-import WebKit
 
 /// A picture of a window as the user sees it: title bar and toolbar included, transparent
 /// round corners, no shadow.
@@ -27,20 +26,13 @@ enum Screenshot {
         win.window?.center()
         win.showWindow(nil)
         win.showSidebar()
-        // The text is on screen: the preview's, or the web page's.
-        if let preview = win.scrollHost.preview {
-            await until { !preview.textView.string.isEmpty }
-        } else {
-            await until(10) { win.bridge.count("getFile") > 0 }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-        }
+        await until { !win.scrollHost.preview.textView.string.isEmpty }
 
         // The file of the set with the most going on: a replacement, a highlight and a comment.
         if let target = win.workspace.entries.first(where: { $0.name.hasSuffix("producers.md") }) {
             win.sidebar.choose(target.document.id)
             await until { win.currentID == target.document.id }
         }
-        // The comments pane is the app's, so the window opens it, whichever preview is showing.
         win.toggleComments(nil)
         await until { win.annotations.cards.count >= 3 }
 
