@@ -61,7 +61,7 @@ CI takes the pictures only for a pull request labeled `pictures` and shows them 
 - `commands/set.rs` — `folio set add / rm / list`
 - `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app
 - `commands/accept.rs` — anchoring + reverse-order patch application
-- `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `connect_claude` (Folio ▸ Connect to Claude…, edits Claude's config) and `client_snippets` (Folio ▸ Connect to Other Tools…, what to paste into Codex and the like)
+- `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `client_snippets` (Folio ▸ Connect to MCP Clients…, what each tool needs) and `connect_claude` / `connect_codex` (that window's Add for Me, edit Claude Desktop's or Codex's config)
 - `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`)
 
 ### Frontend (`frontend/src/`)

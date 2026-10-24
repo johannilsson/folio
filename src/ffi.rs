@@ -306,23 +306,27 @@ pub extern "C" fn folio_app_stop() {
     crate::live::stop();
 }
 
-/// Registers `<exe> --mcp` as the `folio` server in Claude desktop's config. Returns
-/// `{"config": <path>, "change": "added" | "updated" | "unchanged"}`. Free with `folio_free`.
+/// Registers `<exe> --mcp` as the `folio` server in a tool's config; `client` is "claude" (Claude
+/// desktop) or "codex". Returns `{"config": <path>, "change": "added" | "updated" | "unchanged"}`.
+/// Free with `folio_free`.
 ///
 /// # Safety
-/// `exe` must be a valid NUL-terminated UTF-8 string.
+/// `client` and `exe` must be valid NUL-terminated UTF-8 strings.
 #[no_mangle]
-pub unsafe extern "C" fn folio_claude_connect(exe: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn folio_mcp_connect(client: *const c_char, exe: *const c_char) -> *mut c_char {
     finish((|| {
-        let config = crate::mcp::claude_config_path().map_err(|e| e.to_string())?;
-        let change = crate::mcp::connect_claude(Path::new(arg(exe)?), &config).map_err(|e| e.to_string())?;
+        let client = arg(client)?;
+        let client = crate::mcp::Client::from_id(client).ok_or_else(|| format!("unknown MCP client {client}"))?;
+        let config = client.config_path().map_err(|e| e.to_string())?;
+        let change = client.connect(Path::new(arg(exe)?), &config).map_err(|e| e.to_string())?;
         let change = format!("{change:?}").to_lowercase();
         Ok(json!({ "config": config, "change": change }).to_string())
     })())
 }
 
-/// The ways to register `<exe> --mcp` by hand in tools other than Claude desktop (Codex and
-/// others): `{"snippets": [{"name", "hint", "text"}]}`. Free with `folio_free`.
+/// The ways to register `<exe> --mcp` in each tool: `{"snippets": [{"name", "hint", "text"}]}`, plus
+/// `"client"` (the id for `folio_mcp_connect`) and `"config"` (the file it writes) when Folio can
+/// write it itself. Free with `folio_free`.
 ///
 /// # Safety
 /// `exe` must be a valid NUL-terminated UTF-8 string.
@@ -331,7 +335,14 @@ pub unsafe extern "C" fn folio_mcp_snippets(exe: *const c_char) -> *mut c_char {
     finish((|| {
         let snippets: Vec<_> = crate::mcp::client_snippets(Path::new(arg(exe)?))
             .into_iter()
-            .map(|s| json!({ "name": s.name, "hint": s.hint, "text": s.text }))
+            .map(|s| {
+                let mut item = json!({ "name": s.name, "hint": s.hint, "text": s.text });
+                if let Some(client) = s.client {
+                    item["client"] = json!(client.id());
+                    item["config"] = json!(client.config_path().ok());
+                }
+                item
+            })
             .collect();
         Ok(json!({ "snippets": snippets }).to_string())
     })())
@@ -520,10 +531,13 @@ mod tests {
         std::env::set_var("FOLIO_CLAUDE_CONFIG", &config);
 
         let exe = CString::new("/Applications/Folio.app/Contents/MacOS/Folio").unwrap();
-        let first = take(unsafe { folio_claude_connect(exe.as_ptr()) });
+        let claude = CString::new("claude").unwrap();
+        let first = take(unsafe { folio_mcp_connect(claude.as_ptr(), exe.as_ptr()) });
         assert_eq!((first["change"].as_str(), first["config"].as_str()), (Some("added"), config.to_str()));
-        assert_eq!(take(unsafe { folio_claude_connect(exe.as_ptr()) })["change"], "unchanged");
-        assert!(take(unsafe { folio_claude_connect(std::ptr::null()) }).get("error").is_some());
+        assert_eq!(take(unsafe { folio_mcp_connect(claude.as_ptr(), exe.as_ptr()) })["change"], "unchanged");
+        assert!(take(unsafe { folio_mcp_connect(claude.as_ptr(), std::ptr::null()) }).get("error").is_some());
+        let chatgpt = CString::new("chatgpt").unwrap();
+        assert!(take(unsafe { folio_mcp_connect(chatgpt.as_ptr(), exe.as_ptr()) }).get("error").is_some());
 
         std::env::remove_var("FOLIO_CLAUDE_CONFIG");
         std::fs::remove_dir_all(&dir).ok();

@@ -196,26 +196,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         MainActor.assumeIsolated { AppServer.stop() }
     }
 
-    // MARK: Claude
+    // MARK: MCP
 
-    /// Folio ▸ Connect to Claude…: registers this app as an MCP server in Claude desktop's config, which
-    /// Claude reads when it starts.
-    @MainActor @objc func connectToClaude(_ sender: Any?) {
-        let alert = NSAlert()
-        do {
-            let result = try AppServer.connectClaude()
-            alert.messageText = result.change == "unchanged" ? "Folio is already connected to Claude" : "Folio is connected to Claude"
-            alert.informativeText = "Restart Claude to use it, then ask it to review a markdown file with Folio.\n\nThe setting is in \(result.config)."
-        } catch {
-            alert.alertStyle = .warning
-            alert.messageText = "Folio could not be connected to Claude"
-            alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
-        }
-        alert.runModal()
-    }
-
-    /// Folio ▸ Connect to Other Tools…: what to run or paste to register the app's MCP server in Codex and the like.
-    @MainActor @objc func connectOtherTools(_ sender: Any?) {
+    /// Folio ▸ Connect to MCP Clients…: what to run or paste to register the app's MCP server in each tool,
+    /// and for some tools a button that writes it into their config.
+    @MainActor @objc func connectTools(_ sender: Any?) {
         do {
             ConnectToolsAlert(snippets: try AppServer.clientSnippets()).run()
         } catch {
@@ -342,8 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = add("Folio") { m in
             m.addItem(withTitle: "About Folio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
             m.addItem(.separator())
-            m.addItem(withTitle: "Connect to Claude…", action: #selector(connectToClaude(_:)), keyEquivalent: "").target = self
-            m.addItem(withTitle: "Connect to Other Tools…", action: #selector(connectOtherTools(_:)), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Connect to MCP Clients…", action: #selector(connectTools(_:)), keyEquivalent: "").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
             let others = m.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")

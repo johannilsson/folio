@@ -63,12 +63,15 @@ enum Rust {
         folio_app_stop()
     }
 
-    /// What to run or paste to register `executable --mcp` in a tool other than Claude desktop.
+    /// What to run or paste to register `executable --mcp` in a tool.
     struct Snippet {
         let name: String
         /// Where it goes.
         let hint: String
         let text: String
+        /// Set when Folio can write it itself: the id for `connectMCP`, and the file it writes.
+        let client: String?
+        let config: String?
     }
 
     static func mcpSnippets(executable: String) throws -> [Snippet] {
@@ -77,14 +80,14 @@ enum Rust {
         }
         return list.compactMap { item in
             guard let name = item["name"] as? String, let hint = item["hint"] as? String, let text = item["text"] as? String else { return nil }
-            return Snippet(name: name, hint: hint, text: text)
+            return Snippet(name: name, hint: hint, text: text, client: item["client"] as? String, config: item["config"] as? String)
         }
     }
 
-    /// Registers `executable --mcp` as the MCP server of Claude desktop. `change` is "added", "updated"
-    /// or "unchanged"; Claude has to be restarted to see it.
-    static func connectClaude(executable: String) throws -> (config: String, change: String) {
-        let out = try object(folio_claude_connect(executable))
+    /// Registers `executable --mcp` as the MCP server of `client` ("claude" for Claude desktop, or "codex").
+    /// `change` is "added", "updated" or "unchanged"; the tool has to be restarted to see it.
+    static func connectMCP(client: String, executable: String) throws -> (config: String, change: String) {
+        let out = try object(folio_mcp_connect(client, executable))
         guard let config = out["config"] as? String, let change = out["change"] as? String else {
             throw RustError(description: "unexpected result from libfolio")
         }

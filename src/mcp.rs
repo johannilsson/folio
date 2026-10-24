@@ -552,7 +552,46 @@ fn reveal(args: &Value, app: &dyn App) -> Result<Value, String> {
     Ok(Value::String("Shown in Folio.".to_string()))
 }
 
-// MARK: connecting Claude desktop
+// MARK: connecting Claude desktop and Codex
+
+/// A tool whose config Folio can write itself (the Add button in Folio ▸ Connect to MCP Clients…).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Client {
+    ClaudeDesktop,
+    Codex,
+}
+
+impl Client {
+    /// As the app names it to `folio_mcp_connect`.
+    pub fn from_id(id: &str) -> Option<Client> {
+        match id {
+            "claude" => Some(Client::ClaudeDesktop),
+            "codex" => Some(Client::Codex),
+            _ => None,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Client::ClaudeDesktop => "claude",
+            Client::Codex => "codex",
+        }
+    }
+
+    pub fn config_path(self) -> anyhow::Result<PathBuf> {
+        match self {
+            Client::ClaudeDesktop => claude_config_path(),
+            Client::Codex => codex_config_path(),
+        }
+    }
+
+    pub fn connect(self, exe: &Path, config: &Path) -> anyhow::Result<Connected> {
+        match self {
+            Client::ClaudeDesktop => connect_claude(exe, config),
+            Client::Codex => connect_codex(exe, config),
+        }
+    }
+}
 
 /// Claude desktop's config file.
 pub fn claude_config_path() -> anyhow::Result<PathBuf> {
@@ -563,7 +602,16 @@ pub fn claude_config_path() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(home).join("Library/Application Support/Claude/claude_desktop_config.json"))
 }
 
-/// What `connect_claude` did to the config.
+/// Codex's config file (the CLI's and the app's): `$CODEX_HOME/config.toml`, by default in `~/.codex`.
+pub fn codex_config_path() -> anyhow::Result<PathBuf> {
+    if let Some(dir) = std::env::var_os("CODEX_HOME").filter(|p| !p.is_empty()) {
+        return Ok(PathBuf::from(dir).join("config.toml"));
+    }
+    let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+    Ok(PathBuf::from(home).join(".codex/config.toml"))
+}
+
+/// What connecting did to a config.
 #[derive(Debug, PartialEq)]
 pub enum Connected {
     Added,
@@ -607,25 +655,81 @@ pub fn connect_claude(exe: &Path, config: &Path) -> anyhow::Result<Connected> {
     entry["command"] = command;
     entry["args"] = args;
 
-    let mut tmp = config.as_os_str().to_owned();
+    replace_file(config, &(serde_json::to_string_pretty(&root)? + "\n"))?;
+    Ok(outcome)
+}
+
+/// Registers `exe --mcp` as the `folio` MCP server in Codex's config (`[mcp_servers.folio]`), keeping
+/// everything else in the file, comments and layout included. Codex reads it when it starts.
+pub fn connect_codex(exe: &Path, config: &Path) -> anyhow::Result<Connected> {
+    use toml_edit::{value, Array, DocumentMut, Item, Table};
+
+    let dir = config.parent().unwrap_or(Path::new("."));
+    if !dir.is_dir() {
+        anyhow::bail!("Codex does not seem to be installed: {} does not exist", dir.display());
+    }
+    let text = std::fs::read_to_string(config).unwrap_or_default();
+    let mut doc: DocumentMut = text.parse().map_err(|e| {
+        anyhow::anyhow!("{} is not valid TOML ({e}). Fix or remove it, then try again.", config.display())
+    })?;
+    let servers = doc.entry("mcp_servers").or_insert_with(|| {
+        let mut table = Table::new();
+        table.set_implicit(true);
+        Item::Table(table)
+    });
+    let servers = servers
+        .as_table_like_mut()
+        .ok_or_else(|| anyhow::anyhow!("\"mcp_servers\" in {} is not a table", config.display()))?;
+
+    let command = exe.to_string_lossy();
+    let outcome = match servers.get("folio") {
+        None => Connected::Added,
+        Some(entry)
+            if entry.get("command").and_then(Item::as_str) == Some(&*command)
+                && entry.get("args").and_then(Item::as_array).is_some_and(|a| {
+                    a.len() == 1 && a.get(0).and_then(|v| v.as_str()) == Some("--mcp")
+                }) =>
+        {
+            return Ok(Connected::Unchanged)
+        }
+        Some(_) => Connected::Updated,
+    };
+    // Other keys of an existing entry (an `env`, say) stay.
+    let entry = servers.entry("folio").or_insert(Item::Table(Table::new()));
+    if !entry.is_table_like() {
+        *entry = Item::Table(Table::new());
+    }
+    let entry = entry.as_table_like_mut().expect("a table");
+    entry.insert("command", value(&*command));
+    entry.insert("args", value(Array::from_iter(["--mcp"])));
+
+    replace_file(config, &doc.to_string())?;
+    Ok(outcome)
+}
+
+/// Writes `text` to `path` through a temporary file beside it, so a failed write leaves the old file.
+fn replace_file(path: &Path, text: &str) -> anyhow::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, serde_json::to_string_pretty(&root)? + "\n")?;
-    std::fs::rename(&tmp, config).inspect_err(|_| {
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })?;
-    Ok(outcome)
+    Ok(())
 }
 
 // MARK: connecting other tools
 
-/// What to run or paste to register `exe --mcp` as the `folio` server in a tool other than Claude desktop.
+/// What to run or paste to register `exe --mcp` as the `folio` server in a tool.
 #[derive(Debug, PartialEq)]
 pub struct Snippet {
     pub name: &'static str,
     /// Where it goes.
     pub hint: &'static str,
     pub text: String,
+    /// Set when Folio can also write it into the tool's config itself.
+    pub client: Option<Client>,
 }
 
 /// A path as one word of a shell command.
@@ -644,28 +748,38 @@ pub fn client_snippets(exe: &Path) -> Vec<Snippet> {
         .unwrap_or_default();
     vec![
         Snippet {
+            name: "Claude Code",
+            hint: "Run it in a terminal.",
+            text: format!("claude mcp add folio -- {} --mcp\n", shell_word(&exe)),
+            client: None,
+        },
+        Snippet {
+            name: "Claude Desktop",
+            hint: "Goes in Claude's config, merged into its \"mcpServers\". Restart Claude after.",
+            text: format!("{json}\n"),
+            client: Some(Client::ClaudeDesktop),
+        },
+        Snippet {
             name: "Codex",
-            hint: "Run it in a terminal, or put the lines in ~/.codex/config.toml.",
+            hint: "Run it in a terminal, or put the lines in Codex's config. Restart Codex after.",
             text: format!(
                 "codex mcp add folio -- {word} --mcp\n\n[mcp_servers.folio]\ncommand = {path}\nargs = [\"--mcp\"]\n",
                 word = shell_word(&exe),
                 path = quoted(&exe)
             ),
-        },
-        Snippet {
-            name: "Claude Code",
-            hint: "Run it in a terminal.",
-            text: format!("claude mcp add folio -- {} --mcp\n", shell_word(&exe)),
+            client: Some(Client::Codex),
         },
         Snippet {
             name: "Other tools (JSON)",
             hint: "Cursor (~/.cursor/mcp.json), Gemini CLI, Windsurf and most others take this in their MCP settings.",
             text: format!("{json}\n"),
+            client: None,
         },
         Snippet {
             name: "Any MCP client",
             hint: "For a tool that asks for a command and its arguments. The server speaks MCP over stdio.",
             text: format!("command:    {exe}\narguments: --mcp\n"),
+            client: None,
         },
     ]
 }
@@ -990,19 +1104,24 @@ mod tests {
         let exe = Path::new("/Users/me/My \"Apps\"/it's/Folio.app/Contents/MacOS/Folio");
         let snippets = client_snippets(exe);
         let names: Vec<_> = snippets.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["Codex", "Claude Code", "Other tools (JSON)", "Any MCP client"]);
+        assert_eq!(names, ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]);
+        let clients: Vec<_> = snippets.iter().map(|s| s.client).collect();
+        assert_eq!(clients, [None, Some(Client::ClaudeDesktop), Some(Client::Codex), None, None]);
 
-        let codex = &snippets[0].text;
+        assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+        let json: Value = serde_json::from_str(&snippets[1].text).unwrap();
+        assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
+
+        let codex = &snippets[2].text;
         assert!(codex.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"), "{codex}");
         // The TOML half parses as a basic string holding the same path.
         let command = codex.lines().find_map(|l| l.strip_prefix("command = ")).unwrap();
         assert_eq!(serde_json::from_str::<String>(command).unwrap(), exe.to_string_lossy());
         assert!(codex.contains("[mcp_servers.folio]") && codex.contains("args = [\"--mcp\"]"));
 
-        assert!(snippets[1].text.starts_with("claude mcp add folio -- '/Users"));
-        let json: Value = serde_json::from_str(&snippets[2].text).unwrap();
+        let json: Value = serde_json::from_str(&snippets[3].text).unwrap();
         assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
-        assert!(snippets[3].text.contains(&*exe.to_string_lossy()) && snippets[3].text.contains("--mcp"));
+        assert!(snippets[4].text.contains(&*exe.to_string_lossy()) && snippets[4].text.contains("--mcp"));
         assert!(snippets.iter().all(|s| !s.hint.is_empty()));
     }
 
@@ -1063,5 +1182,58 @@ mod tests {
         assert_eq!(connect_claude(exe, &config).unwrap(), Connected::Added);
         let missing = connect_claude(exe, &dir.join("no-such-folder/claude_desktop_config.json")).unwrap_err().to_string();
         assert!(missing.contains("does not seem to be installed"), "{missing}");
+    }
+
+    // MARK: connecting Codex
+
+    #[test]
+    fn connecting_codex_adds_the_table_and_keeps_everything_else() {
+        let exe = Path::new("/Applications/My \"Apps\"/Folio.app/Contents/MacOS/Folio");
+        let dir = temp_dir("codex");
+        let config = dir.join("config.toml");
+
+        assert_eq!(connect_codex(exe, &config).unwrap(), Connected::Added);
+        let written: toml_edit::DocumentMut = std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        assert_eq!(written["mcp_servers"]["folio"]["command"].as_str(), Some(&*exe.to_string_lossy()));
+
+        // Comments, other servers, other settings and an `env` on our entry survive.
+        std::fs::write(
+            &config,
+            "# mine\nmodel = \"o3\"\n\n[mcp_servers.other]\ncommand = \"x\"\n\n[mcp_servers.folio]\ncommand = \"/old/Folio\"\nargs = [\"--mcp\"]\nenv = { A = \"1\" }\n",
+        )
+        .unwrap();
+        assert_eq!(connect_codex(exe, &config).unwrap(), Connected::Updated);
+        let text = std::fs::read_to_string(&config).unwrap();
+        assert!(text.starts_with("# mine\nmodel = \"o3\"\n"), "{text}");
+        let written: toml_edit::DocumentMut = text.parse().unwrap();
+        assert_eq!(written["mcp_servers"]["other"]["command"].as_str(), Some("x"));
+        let folio = &written["mcp_servers"]["folio"];
+        assert_eq!(folio["command"].as_str(), Some(&*exe.to_string_lossy()));
+        assert_eq!(folio["args"].as_array().unwrap().iter().map(|v| v.as_str()).collect::<Vec<_>>(), [Some("--mcp")]);
+        assert_eq!(folio["env"]["A"].as_str(), Some("1"));
+
+        // Doing it again changes nothing.
+        assert_eq!(connect_codex(exe, &config).unwrap(), Connected::Unchanged);
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
+        assert!(!config.with_extension("toml.tmp").exists());
+    }
+
+    #[test]
+    fn connecting_codex_does_not_overwrite_a_config_it_cannot_read() {
+        let exe = Path::new("/Applications/Folio.app/Contents/MacOS/Folio");
+        let dir = temp_dir("codex-bad");
+        let config = dir.join("config.toml");
+        std::fs::write(&config, "[not toml").unwrap();
+        let message = connect_codex(exe, &config).unwrap_err().to_string();
+        assert!(message.contains("not valid TOML"), "{message}");
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "[not toml");
+
+        std::fs::write(&config, "mcp_servers = 1\n").unwrap();
+        assert!(connect_codex(exe, &config).unwrap_err().to_string().contains("not a table"));
+
+        let missing = connect_codex(exe, &dir.join("no-such-folder/config.toml")).unwrap_err().to_string();
+        assert!(missing.contains("does not seem to be installed"), "{missing}");
+        assert_eq!(Client::from_id(Client::Codex.id()), Some(Client::Codex));
+        assert_eq!(Client::from_id("chatgpt"), None);
     }
 }

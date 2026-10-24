@@ -3,7 +3,7 @@ import AppKit
 /// Claude's way into the app: the MCP server that the app's binary becomes with `--mcp`, started and
 /// spoken to over its pipes as Claude desktop does, against the app that is running this test. The tools
 /// that work on files are covered by `cargo test`; here it is that they reach this app: its windows, the
-/// annotation the reader has focused, its annotations, and the menu items that connect Claude and other tools.
+/// annotation the reader has focused, its annotations, and Folio ▸ Connect to MCP Clients…, which connects tools to it.
 extension SelfTest {
     func mcpChecks() async {
         // A socket path has to be short (104 bytes), so not the temporary folder.
@@ -16,28 +16,54 @@ extension SelfTest {
         let claudeConfig = config.appendingPathComponent("claude_desktop_config.json")
         setenv("FOLIO_CONFIG_DIR", config.path, 1)
         setenv("FOLIO_CLAUDE_CONFIG", claudeConfig.path, 1)
+        setenv("CODEX_HOME", config.path, 1)
         defer {
             AppServer.stop()
             unsetenv("FOLIO_CONFIG_DIR")
             unsetenv("FOLIO_CLAUDE_CONFIG")
+            unsetenv("CODEX_HOME")
         }
 
-        // Connecting Claude: the menu item, and what it writes.
-        await check("Folio ▸ Connect to Claude… is in the app menu") {
-            let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Claude…")
-            return item?.action == #selector(AppDelegate.connectToClaude(_:)) && item?.target === self.app
+        // Folio ▸ Connect to MCP Clients…: one item for every tool, a window that shows what each needs, and
+        // Add for Me only for the tools whose config Folio writes.
+        let appMenu = NSApp.mainMenu?.items.first?.submenu
+        await check("Folio ▸ Connect to MCP Clients… is the app menu's one item for MCP tools") {
+            let item = appMenu?.item(withTitle: "Connect to MCP Clients…")
+            return item?.action == #selector(AppDelegate.connectTools(_:)) && item?.target === self.app
+                && appMenu?.items.contains { $0.title == "MCP" || $0.title.hasPrefix("Connect to Claude") } == false
         }
-        await check("Folio ▸ Connect to Other Tools… is next to it, and offers Codex with this app's path") {
-            let item = NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Connect to Other Tools…")
-            guard item?.action == #selector(AppDelegate.connectOtherTools(_:)), item?.target === self.app,
-                  let snippets = try? AppServer.clientSnippets(), let path = Bundle.main.executablePath else { return false }
-            let alert = ConnectToolsAlert(snippets: snippets)
-            return snippets.first?.name == "Codex" && alert.shownText.contains("codex mcp add folio") && alert.shownText.contains(path)
+        guard let snippets = try? AppServer.clientSnippets(), let exe = Bundle.main.executablePath else {
+            report("the connect window gets what each tool needs", false)
+            return
         }
-        let first = try? AppServer.connectClaude()
-        let second = try? AppServer.connectClaude()
-        await check("connecting adds the app to Claude's config, and doing it again changes nothing") {
-            first?.change == "added" && second?.change == "unchanged" && first?.config == claudeConfig.path
+        let alert = ConnectToolsAlert(snippets: snippets)
+        let names = snippets.map(\.name)
+        await check("the window lists the tools, none first by favour, each with this app's path") {
+            names == ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]
+                && snippets.allSatisfy { $0.text.contains(exe) } && alert.shownText.contains("claude mcp add folio")
+        }
+        await check("Add for Me is there for Claude Desktop and Codex only, naming the file it writes") {
+            snippets.indices.allSatisfy { i in
+                alert.select(i)
+                let direct = ["Claude Desktop", "Codex"].contains(names[i])
+                return alert.canAdd == direct && (!direct || alert.statusText.contains(snippets[i].config ?? "?"))
+            }
+        }
+        alert.select(names.firstIndex(of: "Codex") ?? 0)
+        alert.add(nil)
+        let codexAdded = alert.statusText
+        alert.add(nil)
+        await check("Add for Me writes [mcp_servers.folio] for Codex, says so, and the second time changes nothing") {
+            guard let text = try? String(contentsOf: config.appendingPathComponent("config.toml"), encoding: .utf8) else { return false }
+            return codexAdded.hasPrefix("Added to") && alert.statusText.hasPrefix("Already in")
+                && text.contains("[mcp_servers.folio]") && text.contains(exe) && text.contains("\"--mcp\"")
+        }
+        alert.select(names.firstIndex(of: "Claude Desktop") ?? 0)
+        alert.add(nil)
+        let claudeAdded = alert.statusText
+        alert.add(nil)
+        await check("Add for Me writes Claude Desktop's config, says so, and the second time changes nothing") {
+            claudeAdded == "Added to \(claudeConfig.path). Restart Claude Desktop to use it." && alert.statusText.hasPrefix("Already in")
         }
         guard let data = try? Data(contentsOf: claudeConfig),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
