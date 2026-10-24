@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetFile {
@@ -57,6 +57,11 @@ pub fn config_dir() -> anyhow::Result<PathBuf> {
         return Ok(PathBuf::from(d));
     }
     if let Some(d) = std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
+        return Ok(PathBuf::from(d).join("folio"));
+    }
+    // Windows has no HOME of its own; the app data folder is where config goes.
+    #[cfg(windows)]
+    if let Some(d) = std::env::var_os("APPDATA").filter(|d| !d.is_empty()) {
         return Ok(PathBuf::from(d).join("folio"));
     }
     let home = std::env::var_os("HOME")
@@ -220,9 +225,11 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
 /// when run from `root`. Files outside `root` fall back to their absolute path
 /// under `.folio/`, like `commands::folio_path`.
 pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
-    let relative = file
-        .strip_prefix(root)
-        .unwrap_or_else(|_| file.strip_prefix("/").unwrap_or(file));
+    // Without its root (`/`, or `C:\` on Windows), or joining it would replace `root`.
+    let relative: PathBuf = match file.strip_prefix(root) {
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => file.components().filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir)).collect(),
+    };
     let dir = relative.parent().unwrap_or(Path::new(""));
     let name = relative.file_name().unwrap().to_string_lossy();
     root.join(".folio").join(dir).join(format!("{}.folio", name))
@@ -289,6 +296,9 @@ mod tests {
             folio_path_in(root, Path::new("/r/repo/spec.md")),
             PathBuf::from("/r/repo/.folio/spec.md.folio")
         );
+        // A file outside the root keeps its whole path, inside `.folio/`.
+        let outside = if cfg!(windows) { r"C:\elsewhere\spec.md" } else { "/elsewhere/spec.md" };
+        assert_eq!(folio_path_in(root, Path::new(outside)), root.join(".folio").join("elsewhere").join("spec.md.folio"));
     }
 
     #[test]
