@@ -191,32 +191,12 @@ extension SelfTest {
         await check("clicking a link in a card opens it and does not focus the annotation") {
             guard let card = self.pane.cards["links"],
                   let label = card.subviews.compactMap({ $0 as? PassthroughLabel }).first(where: { $0.stringValue.contains("the docs") })
-            else { print("    no card or body label"); return false }
+            else { return false }
             let before = self.pane.focusedID
             mouseDown(on: card, label: label)
             let opensLink = opened == [URL(string: "https://example.com/docs")!] && self.pane.focusedID == before
             self.click(card)
-            let ok = opensLink && opened.count == 1 && self.pane.focusedID == "links"
-            if !ok {
-                let attribute = label.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil)
-                let direct = label.link(at: label.convert(NSPoint(x: 3, y: label.bounds.midY), to: card), in: card)
-                print("    link attribute \(String(describing: attribute)), direct lookup \(String(describing: direct)), flipped \(label.isFlipped), bounds \(label.bounds)")
-            }
-            if !ok {
-                let local = label.convert(NSPoint(x: 3, y: label.bounds.midY), to: card)
-                let back = label.convert(local, from: card)
-                let storage = NSTextStorage(attributedString: label.attributedStringValue)
-                let container = NSTextContainer(size: NSSize(width: label.bounds.width, height: .greatestFiniteMagnitude))
-                container.lineFragmentPadding = 0
-                let layout = NSLayoutManager()
-                layout.addTextContainer(container)
-                storage.addLayoutManager(layout)
-                let used = layout.usedRect(for: container)
-                let index = layout.characterIndex(for: back, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
-                print("    back \(back) in bounds \(label.bounds.contains(back)), length \(storage.length), used \(used), index \(index)")
-            }
-            if !ok { print("    opened \(opened), focused \(self.pane.focusedID ?? "nil") (before \(before ?? "nil")), label \(label.frame) in card \(card.frame)") }
-            return ok
+            return opensLink && opened.count == 1 && self.pane.focusedID == "links"
         }
 
         // Agents write the ids: one with quotes and a backslash reaches the page as it is.
