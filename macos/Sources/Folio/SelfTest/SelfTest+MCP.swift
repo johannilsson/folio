@@ -32,7 +32,7 @@ extension SelfTest {
             return item?.action == #selector(AppDelegate.connectTools(_:)) && item?.target === self.app
                 && appMenu?.items.contains { $0.title == "MCP" || $0.title.hasPrefix("Connect to Claude") } == false
         }
-        guard let snippets = try? AppServer.clientSnippets(), let path = Bundle.main.executablePath else {
+        guard let snippets = try? AppServer.clientSnippets(), let exe = Bundle.main.executablePath else {
             report("the connect window gets what each tool needs", false)
             return
         }
@@ -40,7 +40,7 @@ extension SelfTest {
         let names = snippets.map(\.name)
         await check("the window lists the tools, none first by favour, each with this app's path") {
             names == ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]
-                && snippets.allSatisfy { $0.text.contains(path) } && alert.shownText.contains("claude mcp add folio")
+                && snippets.allSatisfy { $0.text.contains(exe) } && alert.shownText.contains("claude mcp add folio")
         }
         await check("Add for Me is there for Claude Desktop and Codex only, naming the file it writes") {
             snippets.indices.allSatisfy { i in
@@ -56,7 +56,7 @@ extension SelfTest {
         await check("Add for Me writes [mcp_servers.folio] for Codex, says so, and the second time changes nothing") {
             guard let text = try? String(contentsOf: config.appendingPathComponent("config.toml"), encoding: .utf8) else { return false }
             return codexAdded.hasPrefix("Added to") && alert.statusText.hasPrefix("Already in")
-                && text.contains("[mcp_servers.folio]") && text.contains(path) && text.contains("\"--mcp\"")
+                && text.contains("[mcp_servers.folio]") && text.contains(exe) && text.contains("\"--mcp\"")
         }
         alert.select(names.firstIndex(of: "Claude Desktop") ?? 0)
         alert.add(nil)
