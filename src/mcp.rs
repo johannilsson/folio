@@ -554,7 +554,7 @@ fn reveal(args: &Value, app: &dyn App) -> Result<Value, String> {
 
 // MARK: connecting Claude desktop and Codex
 
-/// A tool whose config Folio ▸ MCP can write itself.
+/// A tool whose config Folio can write itself (the Add button in Folio ▸ Connect to MCP Clients…).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Client {
     ClaudeDesktop,
@@ -568,6 +568,13 @@ impl Client {
             "claude" => Some(Client::ClaudeDesktop),
             "codex" => Some(Client::Codex),
             _ => None,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Client::ClaudeDesktop => "claude",
+            Client::Codex => "codex",
         }
     }
 
@@ -714,13 +721,15 @@ fn replace_file(path: &Path, text: &str) -> anyhow::Result<()> {
 
 // MARK: connecting other tools
 
-/// What to run or paste to register `exe --mcp` as the `folio` server in a tool Folio does not connect itself.
+/// What to run or paste to register `exe --mcp` as the `folio` server in a tool.
 #[derive(Debug, PartialEq)]
 pub struct Snippet {
     pub name: &'static str,
     /// Where it goes.
     pub hint: &'static str,
     pub text: String,
+    /// Set when Folio can also write it into the tool's config itself.
+    pub client: Option<Client>,
 }
 
 /// A path as one word of a shell command.
@@ -739,28 +748,38 @@ pub fn client_snippets(exe: &Path) -> Vec<Snippet> {
         .unwrap_or_default();
     vec![
         Snippet {
+            name: "Claude Code",
+            hint: "Run it in a terminal.",
+            text: format!("claude mcp add folio -- {} --mcp\n", shell_word(&exe)),
+            client: None,
+        },
+        Snippet {
+            name: "Claude Desktop",
+            hint: "Goes in Claude's config, merged into its \"mcpServers\". Restart Claude after.",
+            text: format!("{json}\n"),
+            client: Some(Client::ClaudeDesktop),
+        },
+        Snippet {
             name: "Codex",
-            hint: "Run it in a terminal, or put the lines in ~/.codex/config.toml.",
+            hint: "Run it in a terminal, or put the lines in Codex's config. Restart Codex after.",
             text: format!(
                 "codex mcp add folio -- {word} --mcp\n\n[mcp_servers.folio]\ncommand = {path}\nargs = [\"--mcp\"]\n",
                 word = shell_word(&exe),
                 path = quoted(&exe)
             ),
-        },
-        Snippet {
-            name: "Claude Code",
-            hint: "Run it in a terminal.",
-            text: format!("claude mcp add folio -- {} --mcp\n", shell_word(&exe)),
+            client: Some(Client::Codex),
         },
         Snippet {
             name: "Other tools (JSON)",
             hint: "Cursor (~/.cursor/mcp.json), Gemini CLI, Windsurf and most others take this in their MCP settings.",
             text: format!("{json}\n"),
+            client: None,
         },
         Snippet {
             name: "Any MCP client",
             hint: "For a tool that asks for a command and its arguments. The server speaks MCP over stdio.",
             text: format!("command:    {exe}\narguments: --mcp\n"),
+            client: None,
         },
     ]
 }
@@ -1085,19 +1104,24 @@ mod tests {
         let exe = Path::new("/Users/me/My \"Apps\"/it's/Folio.app/Contents/MacOS/Folio");
         let snippets = client_snippets(exe);
         let names: Vec<_> = snippets.iter().map(|s| s.name).collect();
-        assert_eq!(names, ["Codex", "Claude Code", "Other tools (JSON)", "Any MCP client"]);
+        assert_eq!(names, ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]);
+        let clients: Vec<_> = snippets.iter().map(|s| s.client).collect();
+        assert_eq!(clients, [None, Some(Client::ClaudeDesktop), Some(Client::Codex), None, None]);
 
-        let codex = &snippets[0].text;
+        assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+        let json: Value = serde_json::from_str(&snippets[1].text).unwrap();
+        assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
+
+        let codex = &snippets[2].text;
         assert!(codex.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"), "{codex}");
         // The TOML half parses as a basic string holding the same path.
         let command = codex.lines().find_map(|l| l.strip_prefix("command = ")).unwrap();
         assert_eq!(serde_json::from_str::<String>(command).unwrap(), exe.to_string_lossy());
         assert!(codex.contains("[mcp_servers.folio]") && codex.contains("args = [\"--mcp\"]"));
 
-        assert!(snippets[1].text.starts_with("claude mcp add folio -- '/Users"));
-        let json: Value = serde_json::from_str(&snippets[2].text).unwrap();
+        let json: Value = serde_json::from_str(&snippets[3].text).unwrap();
         assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
-        assert!(snippets[3].text.contains(&*exe.to_string_lossy()) && snippets[3].text.contains("--mcp"));
+        assert!(snippets[4].text.contains(&*exe.to_string_lossy()) && snippets[4].text.contains("--mcp"));
         assert!(snippets.iter().all(|s| !s.hint.is_empty()));
     }
 
@@ -1209,7 +1233,7 @@ mod tests {
 
         let missing = connect_codex(exe, &dir.join("no-such-folder/config.toml")).unwrap_err().to_string();
         assert!(missing.contains("does not seem to be installed"), "{missing}");
-        assert_eq!(Client::from_id("codex"), Some(Client::Codex));
+        assert_eq!(Client::from_id(Client::Codex.id()), Some(Client::Codex));
         assert_eq!(Client::from_id("chatgpt"), None);
     }
 }

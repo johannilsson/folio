@@ -60,8 +60,8 @@ char *folio_app_listen(folio_app_handler handler);
 /* Takes the socket away; the app is quitting. */
 void folio_app_stop(void);
 
-/* The ways to register `<exe> --mcp` by hand in other tools (Claude Code, Cursor and others):
-   {"snippets": [{"name", "hint", "text"}]} */
+/* The ways to register `<exe> --mcp` in each tool: {"snippets": [{"name", "hint", "text"}]}, plus "client"
+   (for folio_mcp_connect) and "config" (the file it writes) when Folio can write it itself. */
 char *folio_mcp_snippets(const char *exe);
 
 /* Registers `<exe> --mcp` as the "folio" server in a tool's config; `client` is "claude" (Claude desktop)

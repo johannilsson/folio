@@ -1,16 +1,19 @@
 import AppKit
 
-/// Folio ▸ MCP ▸ Other Tools…: the MCP server is the app's own binary, so a tool Folio does not connect
-/// itself needs to be told its path. A pop-up picks the tool and shows what to run or paste for it
-/// (`Rust.mcpSnippets`); Copy puts the shown text on the pasteboard.
+/// Folio ▸ Connect to MCP Clients…: the MCP server is the app's own binary, so a tool needs to be told its
+/// path. A pop-up picks the tool and shows what to run or paste for it (`Rust.mcpSnippets`); Copy puts the
+/// shown text on the pasteboard. For a tool whose config Folio can write (Claude Desktop, Codex), Add for Me
+/// writes the same entry into that file, which the line beside it names, and says what it did.
 @MainActor
 final class ConnectToolsAlert: NSObject {
     private static let width: CGFloat = 480
     private let snippets: [Rust.Snippet]
-    private let popup = NSPopUpButton(frame: NSRect(x: 0, y: 188, width: 240, height: 26), pullsDown: false)
+    private let popup = NSPopUpButton(frame: NSRect(x: 0, y: 238, width: 240, height: 26), pullsDown: false)
     private let hint = NSTextField(wrappingLabelWithString: "")
     private let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: ConnectToolsAlert.width, height: 150))
-    private let box = NSView(frame: NSRect(x: 0, y: 0, width: ConnectToolsAlert.width, height: 220))
+    private let addButton = NSButton(title: "Add for Me", target: nil, action: nil)
+    private let status = NSTextField(wrappingLabelWithString: "")
+    private let box = NSView(frame: NSRect(x: 0, y: 0, width: ConnectToolsAlert.width, height: 264))
 
     init(snippets: [Rust.Snippet]) {
         self.snippets = snippets
@@ -20,11 +23,11 @@ final class ConnectToolsAlert: NSObject {
         popup.target = self
         popup.action = #selector(pick(_:))
 
-        hint.frame = NSRect(x: 0, y: 156, width: Self.width, height: 28)
+        hint.frame = NSRect(x: 0, y: 206, width: Self.width, height: 28)
         hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         hint.textColor = .secondaryLabelColor
 
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: Self.width, height: 150))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 52, width: Self.width, height: 150))
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         textView.isEditable = false
@@ -37,14 +40,33 @@ final class ConnectToolsAlert: NSObject {
         textView.textContainer?.widthTracksTextView = true
         scroll.documentView = textView
 
+        addButton.target = self
+        addButton.action = #selector(add(_:))
+        addButton.sizeToFit()
+        addButton.frame.origin = NSPoint(x: 0, y: 12)
+        let statusX = addButton.frame.maxX + 8
+        status.frame = NSRect(x: statusX, y: 0, width: Self.width - statusX, height: 44)
+        status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+
         box.addSubview(popup)
         box.addSubview(hint)
         box.addSubview(scroll)
+        box.addSubview(addButton)
+        box.addSubview(status)
         show(0)
     }
 
-    /// What is shown for the tool at `index`.
+    /// What is shown for the selected tool.
     var shownText: String { textView.string }
+    /// The line beside Add for Me: which file it writes, then what it did.
+    var statusText: String { status.stringValue }
+    /// Whether the selected tool has Add for Me.
+    var canAdd: Bool { !addButton.isHidden }
+
+    func select(_ index: Int) {
+        popup.selectItem(at: index)
+        show(index)
+    }
 
     @objc private func pick(_ sender: Any?) {
         show(popup.indexOfSelectedItem)
@@ -52,14 +74,38 @@ final class ConnectToolsAlert: NSObject {
 
     private func show(_ index: Int) {
         guard snippets.indices.contains(index) else { return }
-        hint.stringValue = snippets[index].hint
-        textView.string = snippets[index].text
+        let snippet = snippets[index]
+        hint.stringValue = snippet.hint
+        textView.string = snippet.text
+        addButton.isHidden = snippet.client == nil
+        status.isHidden = snippet.client == nil
+        status.textColor = .secondaryLabelColor
+        status.stringValue = "Writes this into \(snippet.config ?? "its config"), keeping everything else in the file."
+    }
+
+    /// Add for Me: writes the selected tool's entry into its config.
+    @objc func add(_ sender: Any?) {
+        guard snippets.indices.contains(popup.indexOfSelectedItem) else { return }
+        let snippet = snippets[popup.indexOfSelectedItem]
+        guard let client = snippet.client else { return }
+        do {
+            let result = try AppServer.connect(client: client)
+            switch result.change {
+            case "unchanged": status.stringValue = "Already in \(result.config); nothing changed."
+            case "added": status.stringValue = "Added to \(result.config). Restart \(snippet.name) to use it."
+            default: status.stringValue = "Updated in \(result.config). Restart \(snippet.name) to use it."
+            }
+            status.textColor = .labelColor
+        } catch {
+            status.stringValue = (error as? RustError)?.description ?? error.localizedDescription
+            status.textColor = .systemRed
+        }
     }
 
     func run() {
         let alert = NSAlert()
-        alert.messageText = "Connect other tools to Folio"
-        alert.informativeText = "Folio is an MCP server: the tool starts the app's own program with --mcp. Pick your tool and copy what it needs."
+        alert.messageText = "Connect MCP clients to Folio"
+        alert.informativeText = "Folio is an MCP server: the tool starts the app's own program with --mcp. Pick your tool to see what it needs, and copy it. For some tools Folio can also add it for you."
         alert.accessoryView = box
         alert.addButton(withTitle: "Copy")
         alert.addButton(withTitle: "Done")

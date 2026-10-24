@@ -59,12 +59,13 @@ Folio is also an MCP server, built into the app, for Claude Desktop, Codex and o
 (`src/mcp.rs`, the same engine as the CLI). Nothing else needs installing, and the `folio` CLI is not
 involved.
 
-**Folio ▸ MCP** connects tools to it, none ahead of the others. **Add to Claude Desktop** adds the server
-to Claude's config (`~/Library/Application Support/Claude/claude_desktop_config.json`) and **Add to Codex**
-to Codex's (`~/.codex/config.toml`, or `$CODEX_HOME/config.toml`), keeping everything else in the file;
-restart the tool afterwards. Run it again after moving the app: it updates the path.
-**Other Tools…** is for the rest (Claude Code, Cursor and other MCP clients): it shows what to run or
-paste for each, with this app's path in it, and Copy puts it on the pasteboard.
+**Folio ▸ Connect to MCP Clients…** connects tools to it, none ahead of the others: pick the tool (Claude
+Code, Claude Desktop, Codex, Cursor and other MCP clients) and it shows what to run or paste, with this
+app's path in it; Copy puts it on the pasteboard. For Claude Desktop
+(`~/Library/Application Support/Claude/claude_desktop_config.json`) and Codex (`~/.codex/config.toml`, or
+`$CODEX_HOME/config.toml`) **Add for Me** writes the same entry into the file named beside it, keeping
+everything else in it, and says what it did; restart the tool afterwards. Do it again after moving the
+app: it updates the path.
 
 The tools: `render`, `list_annotations`, `annotate` (all or nothing, checked against the text before
 anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files

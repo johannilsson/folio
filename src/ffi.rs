@@ -324,8 +324,9 @@ pub unsafe extern "C" fn folio_mcp_connect(client: *const c_char, exe: *const c_
     })())
 }
 
-/// The ways to register `<exe> --mcp` by hand in other tools (Claude Code, Cursor and
-/// others): `{"snippets": [{"name", "hint", "text"}]}`. Free with `folio_free`.
+/// The ways to register `<exe> --mcp` in each tool: `{"snippets": [{"name", "hint", "text"}]}`, plus
+/// `"client"` (the id for `folio_mcp_connect`) and `"config"` (the file it writes) when Folio can
+/// write it itself. Free with `folio_free`.
 ///
 /// # Safety
 /// `exe` must be a valid NUL-terminated UTF-8 string.
@@ -334,7 +335,14 @@ pub unsafe extern "C" fn folio_mcp_snippets(exe: *const c_char) -> *mut c_char {
     finish((|| {
         let snippets: Vec<_> = crate::mcp::client_snippets(Path::new(arg(exe)?))
             .into_iter()
-            .map(|s| json!({ "name": s.name, "hint": s.hint, "text": s.text }))
+            .map(|s| {
+                let mut item = json!({ "name": s.name, "hint": s.hint, "text": s.text });
+                if let Some(client) = s.client {
+                    item["client"] = json!(client.id());
+                    item["config"] = json!(client.config_path().ok());
+                }
+                item
+            })
             .collect();
         Ok(json!({ "snippets": snippets }).to_string())
     })())

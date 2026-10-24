@@ -34,12 +34,12 @@ enum AppServer {
         return path
     }
 
-    /// Folio ▸ MCP ▸ Add to Claude Desktop / Add to Codex: lets that tool start this app's MCP server.
+    /// Add for Me in Folio ▸ Connect to MCP Clients…: lets that tool start this app's MCP server.
     static func connect(client: String) throws -> (config: String, change: String) {
         try Rust.connectMCP(client: client, executable: executable())
     }
 
-    /// Folio ▸ MCP ▸ Other Tools…: what to paste into Claude Code, Cursor and the like.
+    /// Folio ▸ Connect to MCP Clients…: what each tool needs.
     static func clientSnippets() throws -> [Rust.Snippet] {
         try Rust.mcpSnippets(executable: executable())
     }
