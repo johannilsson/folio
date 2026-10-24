@@ -191,12 +191,14 @@ extension SelfTest {
         await check("clicking a link in a card opens it and does not focus the annotation") {
             guard let card = self.pane.cards["links"],
                   let label = card.subviews.compactMap({ $0 as? PassthroughLabel }).first(where: { $0.stringValue.contains("the docs") })
-            else { return false }
+            else { print("    no card or body label"); return false }
             let before = self.pane.focusedID
             mouseDown(on: card, label: label)
             let opensLink = opened == [URL(string: "https://example.com/docs")!] && self.pane.focusedID == before
             self.click(card)
-            return opensLink && opened.count == 1 && self.pane.focusedID == "links"
+            let ok = opensLink && opened.count == 1 && self.pane.focusedID == "links"
+            if !ok { print("    opened \(opened), focused \(self.pane.focusedID ?? "nil") (before \(before ?? "nil")), label \(label.frame) in card \(card.frame)") }
+            return ok
         }
 
         // Agents write the ids: one with quotes and a backslash reaches the page as it is.
