@@ -611,8 +611,10 @@ pub fn codex_config_path() -> anyhow::Result<PathBuf> {
     if let Some(dir) = std::env::var_os("CODEX_HOME").filter(|p| !p.is_empty()) {
         return Ok(PathBuf::from(dir).join("config.toml"));
     }
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".codex/config.toml"))
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+    Ok(PathBuf::from(home).join(".codex").join("config.toml"))
 }
 
 /// What connecting did to a config.
