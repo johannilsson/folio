@@ -197,6 +197,11 @@ extension SelfTest {
             let opensLink = opened == [URL(string: "https://example.com/docs")!] && self.pane.focusedID == before
             self.click(card)
             let ok = opensLink && opened.count == 1 && self.pane.focusedID == "links"
+            if !ok {
+                let attribute = label.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil)
+                let direct = label.link(at: label.convert(NSPoint(x: 3, y: label.bounds.height - 3), to: card), in: card)
+                print("    link attribute \(String(describing: attribute)), direct lookup \(String(describing: direct)), flipped \(label.isFlipped), bounds \(label.bounds)")
+            }
             if !ok { print("    opened \(opened), focused \(self.pane.focusedID ?? "nil") (before \(before ?? "nil")), label \(label.frame) in card \(card.frame)") }
             return ok
         }

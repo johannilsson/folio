@@ -157,7 +157,11 @@ final class PassthroughLabel: NSTextField {
         let at = NSPoint(x: local.x, y: y)
         guard layout.usedRect(for: container).contains(at) else { return nil }
         let index = layout.characterIndex(for: at, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
-        return storage.attribute(.link, at: index, effectiveRange: nil) as? URL
+        switch storage.attribute(.link, at: index, effectiveRange: nil) {
+        case let url as URL: return url
+        case let text as String: return URL(string: text)
+        default: return nil
+        }
     }
 }
 
