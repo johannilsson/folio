@@ -65,6 +65,10 @@ pub fn apply(mut sidecar: Sidecar, edit: Edit) -> Result<Edited, String> {
     match edit {
         Edit::Resolve { id } => {
             let ann = find(&mut sidecar, &id)?;
+            // Already resolved (say, accepted by the CLI while the card was still showing): keep how.
+            if ann.resolved {
+                return Ok(Edited { sidecar, id: None });
+            }
             ann.resolved = true;
             // A comment is dismissed; a suggestion (or highlight) is rejected.
             let outcome = if ann.kind == AnnotationKind::Comment { "dismissed" } else { "rejected" };
@@ -141,6 +145,17 @@ mod tests {
         assert_eq!(out.annotations[0].resolved_as.as_deref(), Some("dismissed"));
         assert_eq!(out.annotations[1].resolved_as.as_deref(), Some("rejected"));
         assert!(out.annotations.iter().all(|a| a.resolved && a.resolved_at.is_some()));
+    }
+
+    #[test]
+    fn resolving_an_already_resolved_annotation_keeps_its_outcome() {
+        let mut s = sidecar();
+        s.annotations[1].resolved = true;
+        s.annotations[1].resolved_as = Some("accepted".into());
+        s.annotations[1].resolved_at = Some("2026-01-02T00:00:00Z".into());
+        let out = apply(s, edit(r#"{"op":"resolve","id":"r1"}"#)).unwrap().sidecar;
+        assert_eq!(out.annotations[1].resolved_as.as_deref(), Some("accepted"));
+        assert_eq!(out.annotations[1].resolved_at.as_deref(), Some("2026-01-02T00:00:00Z"));
     }
 
     #[test]
