@@ -107,7 +107,8 @@ enum AppServer {
     /// Brings the file forward, opening it first if it is not open (in its set's window if a set has it),
     /// and focuses the annotation. The answer does not wait for a file that opens now: the annotation is
     /// focused once the window has placed it.
-    private static func reveal(_ url: URL, annotation id: String?) -> String {
+    @discardableResult
+    static func reveal(_ url: URL, annotation id: String?) -> String {
         guard FileManager.default.fileExists(atPath: url.path) else { return reply(error: "no such file: \(url.path)") }
         let wanted = url.resolvingSymlinksInPath().path
         func isWanted(_ document: Document) -> Bool { document.file.resolvingSymlinksInPath().path == wanted }

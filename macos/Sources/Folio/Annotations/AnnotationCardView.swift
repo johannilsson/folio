@@ -496,14 +496,20 @@ final class AnnotationCardView: NSView {
     /// What opens a link clicked in a card; the self-test swaps it.
     static var openLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    /// Only these schemes open: an agent wrote the text.
+    /// Only these schemes open: an agent wrote the text. Of folio:// only the link to an annotation,
+    /// which shows a file and focuses the annotation and nothing else.
     private static let linkSchemes: Set<String> = ["http", "https", "mailto"]
+
+    private static func opens(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return linkSchemes.contains(scheme) || (scheme == "folio" && url.host == "annotation")
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let bodies = entries.flatMap(\.bodies)
         if let url = bodies.lazy.compactMap({ $0.link(at: point, in: self) }).first {
-            if let scheme = url.scheme?.lowercased(), Self.linkSchemes.contains(scheme) { Self.openLink(url) }
+            if Self.opens(url) { Self.openLink(url) }
             return
         }
         handlers.focus(annotation.id)

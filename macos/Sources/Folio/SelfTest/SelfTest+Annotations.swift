@@ -199,6 +199,24 @@ extension SelfTest {
             return opensLink && opened.count == 1 && self.pane.focusedID == "links"
         }
 
+        // Of folio:// links a card opens the one to an annotation, not the rest (a set, say).
+        func clickedLinks(in comment: String, labelled word: String) async -> [URL]? {
+            linked["comment"] = comment
+            replaceSidecar([linked])
+            _ = await until(seconds: 8) { self.pane.cards["links"]?.subviews.contains(where: { ($0 as? PassthroughLabel)?.stringValue.contains(word) == true }) == true }
+            guard let card = self.pane.cards["links"],
+                  let label = card.subviews.compactMap({ $0 as? PassthroughLabel }).first(where: { $0.stringValue.contains(word) })
+            else { return nil }
+            opened = []
+            mouseDown(on: card, label: label)
+            return opened
+        }
+        await check("a card opens a folio://annotation link and ignores other folio:// links") {
+            let annotation = await clickedLinks(in: "[there](folio://annotation/ann_x?file=/tmp/a.md)", labelled: "there")
+            let set = await clickedLinks(in: "[a set](folio://set/x)", labelled: "a set")
+            return annotation == [URL(string: "folio://annotation/ann_x?file=/tmp/a.md")!] && set == []
+        }
+
         // Agents write the ids: one with quotes and a backslash reaches the page as it is.
         let quotedID = #"it's \"quoted\" \ ')"#
         replaceSidecar([commentJSON(quotedID, before: "Natural wine is made with ", target: "no additives")])

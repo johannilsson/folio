@@ -145,11 +145,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let id = link.lastPathComponent
         guard let path = URLComponents(url: link, resolvingAgainstBaseURL: false)?
             .queryItems?.first(where: { $0.name == "file" })?.value, !id.isEmpty, id != "/" else { return }
-        open(URL(fileURLWithPath: path)) { document in
-            MainActor.assumeIsolated {
-                if let editor = document?.windowControllers.first as? EditorWindowController { AppServer.focus(id, in: editor) }
-            }
-        }
+        // Same as the MCP `reveal`: a file that a set window has opens there, not in a window of its own.
+        MainActor.assumeIsolated { _ = AppServer.reveal(URL(fileURLWithPath: path), annotation: id) }
     }
 
     // MARK: launching without a file
