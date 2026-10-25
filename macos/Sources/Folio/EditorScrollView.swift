@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
@@ -92,6 +93,13 @@ final class EditorScrollView: NSScrollView {
 
     /// The pane moved or the window resized: cards beside the text may have to move.
     var onPaneLayout: (() -> Void)?
+    /// The text and the cards scrolled under the mouse.
+    var onScroll: (() -> Void)?
+
+    override func reflectScrolledClipView(_ cView: NSClipView) {
+        super.reflectScrolledClipView(cView)
+        onScroll?()
+    }
 
     init(source: SourceEditorView, preview: PreviewView) {
         self.source = source
@@ -198,9 +206,15 @@ final class EditorScrollView: NSScrollView {
 
     // MARK: scrolling
 
-    /// Scroll so the rectangle (top and bottom in the canvas's coordinates) is on screen.
-    func reveal(top: CGFloat, bottom: CGFloat) {
-        canvas.scrollToVisible(NSRect(x: 0, y: top - 24 - contentInsets.top, width: 1, height: bottom - top + 48 + contentInsets.top))
+    /// Scroll so the lines at `top`...`bottom` (in the canvas's coordinates) are on screen, and with them
+    /// `card`, an annotation's card, when both fit. The top margin is clear of the blur under the toolbar.
+    func reveal(top: CGFloat, bottom: CGFloat, card: (top: CGFloat, bottom: CGFloat)? = nil) {
+        // The blur eases out 32 points below the toolbar (`layoutToolbarBlur`), which `visibleDocumentRect` starts under.
+        let delta = CardLayout.revealDelta(anchor: (top, bottom), card: card, visible: visibleDocumentRect, topMargin: 40, bottomMargin: 24)
+        guard delta != 0 else { return }
+        let target = contentView.constrainBoundsRect(NSRect(origin: NSPoint(x: 0, y: contentView.bounds.origin.y + delta), size: contentView.bounds.size))
+        contentView.scroll(to: target.origin)
+        reflectScrolledClipView(contentView)
     }
 
     var scrollOffset: CGFloat { contentView.bounds.origin.y + contentInsets.top }

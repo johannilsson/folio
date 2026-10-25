@@ -35,7 +35,8 @@ enum TextSurface {
     /// where the annotations are in the text on screen, `pendingRange` the text being commented on.
     /// Returns where suggestions would insert text (zero-width annotations), which the source marks.
     @discardableResult
-    static func applyMarks(in textView: NSTextView, pending: [Annotation], ranges: [String: NSRange], pendingRange: NSRange?) -> [Int] {
+    static func applyMarks(in textView: NSTextView, pending: [Annotation], ranges: [String: NSRange], pendingRange: NSRange?,
+                           emphasized: Set<String> = []) -> [Int] {
         guard let layoutManager = textView.layoutManager else { return [] }
         let whole = NSRange(location: 0, length: (textView.string as NSString).length)
         for key in [NSAttributedString.Key.backgroundColor, .strikethroughStyle, .strikethroughColor, .underlineStyle, .underlineColor] {
@@ -57,12 +58,19 @@ enum TextSurface {
         var inserts: [Int] = []
         for annotation in pending {
             guard let range = ranges[annotation.id] else { continue }
+            // The annotation in focus or under the mouse (its card or its text) is drawn stronger.
+            let strong = emphasized.contains(annotation.id)
             switch annotation.kind {
             case .comment, .highlight:
-                mark([.backgroundColor: purple.withAlphaComponent(0.22)], range)
+                var attributes: [NSAttributedString.Key: Any] = [.backgroundColor: purple.withAlphaComponent(strong ? 0.42 : 0.22)]
+                if strong {
+                    attributes[.underlineStyle] = NSUnderlineStyle.thick.rawValue
+                    attributes[.underlineColor] = purple
+                }
+                mark(attributes, range)
             case .replace, .delete:
                 var attributes: [NSAttributedString.Key: Any] = [
-                    .backgroundColor: red.withAlphaComponent(0.12),
+                    .backgroundColor: red.withAlphaComponent(strong ? 0.28 : 0.12),
                     .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                     .strikethroughColor: red,
                 ]
@@ -123,12 +131,25 @@ enum TextSurface {
         )
     }
 
-    /// The annotation whose text the character at `index` is in (or just after), if any.
-    static func annotation(at index: Int, in pending: [Annotation], ranges: [String: NSRange]) -> String? {
+    /// The annotation whose text the character at `index` is in (or just after, unless `strict`), if any.
+    static func annotation(at index: Int, in pending: [Annotation], ranges: [String: NSRange], strict: Bool = false) -> String? {
         pending.first { annotation in
             guard let range = ranges[annotation.id] else { return false }
-            return index >= range.location && index <= range.upperBound
+            return index >= range.location && (strict ? index < range.upperBound : index <= range.upperBound)
         }?.id
+    }
+
+    /// The character under `point` (in the text view's coordinates), or nil when the point is not on
+    /// the text: past the end of a line, or between lines.
+    static func character(at point: NSPoint, in textView: NSTextView) -> Int? {
+        guard let layoutManager = textView.layoutManager, let container = textView.textContainer,
+              let length = textView.textStorage?.length, length > 0 else { return nil }
+        let origin = textView.textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyph = layoutManager.glyphIndex(for: local, in: container, fractionOfDistanceThroughGlyph: nil)
+        let box = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        guard box.contains(local) else { return nil }
+        return layoutManager.characterIndexForGlyph(at: glyph)
     }
 
     /// Selects the next (or previous) match of `text`, wrapping round, and shows it. A match for which

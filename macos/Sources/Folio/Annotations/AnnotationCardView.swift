@@ -179,6 +179,10 @@ final class EditBoxView: NSView {
 /// What the buttons and fields of a card do; the controller supplies them.
 struct AnnotationCardHandlers {
     var focus: (String) -> Void = { _ in }
+    /// The mouse is over the card (true) or has left it (false).
+    var hover: (String, Bool) -> Void = { _, _ in }
+    /// Esc in the reply field: drop the focus.
+    var blur: () -> Void = {}
     /// Accept a suggestion (apply it to the text).
     var accept: (String) -> Void = { _ in }
     /// Reject a suggestion or dismiss a comment.
@@ -199,6 +203,7 @@ final class AnnotationCardView: NSView {
         didSet {
             guard isFocused != oldValue else { return }
             rebuild()
+            updateActions()
             handlers.relayout()
         }
     }
@@ -232,6 +237,21 @@ final class AnnotationCardView: NSView {
     private var badge: PassthroughLabel?
     private var accept: ClosureButton?
     private var more: ClosureButton?
+    private(set) var isHovered = false {
+        didSet { if isHovered != oldValue { needsDisplay = true } }
+    }
+    /// The mouse is over this annotation's text: its card shows what hovering it would.
+    var isLinked = false {
+        didSet {
+            guard isLinked != oldValue else { return }
+            needsDisplay = true
+            updateActions()
+        }
+    }
+    /// The menu from "more" is open: the mouse is off the card, but its button stays.
+    private var isMenuOpen = false
+    /// Accept and more show on the focused card and under the mouse; they keep their place when hidden.
+    private var actionsShown: Bool { isFocused || isHovered || isLinked || isMenuOpen }
     /// Where the thread line goes between entries, in card coordinates: (x, from, to).
     private var lines: [(CGFloat, CGFloat, CGFloat)] = []
     private var rules: [CGRect] = []
@@ -251,6 +271,7 @@ final class AnnotationCardView: NSView {
             if handlers.reply(annotation.id, text) { replyBox.clear() }
         }
         replyBox.onResize = { [weak self] in self?.handlers.relayout() }
+        replyBox.textView.onCancel = { [weak self] in self?.handlers.blur() }
         rebuild()
     }
 
@@ -352,10 +373,59 @@ final class AnnotationCardView: NSView {
             guard let self, let more else { return }
             showMenu(from: more)
         }
+        // Start where the buttons being replaced were, so a rebuild neither flashes nor skips the fade.
+        let start = self.accept?.alphaValue ?? (actionsShown ? 1 : 0)
+        accept.alphaValue = start
+        more.alphaValue = start
         addSubview(accept)
         addSubview(more)
         self.accept = accept
         self.more = more
+    }
+
+    private func updateActions() {
+        let alpha: CGFloat = actionsShown ? 1 : 0
+        let fade = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        for button in [accept, more] {
+            guard let button else { continue }
+            if fade {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.12
+                    button.animator().alphaValue = alpha
+                }
+            } else {
+                button.alphaValue = alpha
+            }
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    /// Whether the mouse is over the card, read from where it is now: a card that scrolls or is
+    /// moved from under a still mouse is never told the mouse left it.
+    func syncHover() {
+        var inside = false
+        if let window { inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) }
+        guard inside != isHovered else { return }
+        isHovered = inside
+        updateActions()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateActions()
+        handlers.hover(annotation.id, true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateActions()
+        handlers.hover(annotation.id, false)
     }
 
     private func showMenu(from button: NSView) {
@@ -364,7 +434,10 @@ final class AnnotationCardView: NSView {
         edit.target = self
         let delete = menu.addItem(withTitle: "Delete", action: #selector(deleteAnnotation), keyEquivalent: "")
         delete.target = self
+        isMenuOpen = true
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
+        isMenuOpen = false
+        updateActions()
     }
 
     @objc private func deleteAnnotation() { handlers.resolve(annotation.id) }
@@ -487,6 +560,10 @@ final class AnnotationCardView: NSView {
         if isFocused {
             path.lineWidth = 1
             NSColor.controlAccentColor.setStroke()
+            path.stroke()
+        } else if isHovered || isLinked {
+            path.lineWidth = 1
+            NSColor.controlAccentColor.withAlphaComponent(0.4).setStroke()
             path.stroke()
         }
         NSColor.separatorColor.setFill()

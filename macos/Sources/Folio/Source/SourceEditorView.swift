@@ -20,6 +20,10 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     var onAnchors: (([AnchorRect]) -> Void)?
     var onSelection: ((SelectionInfo?) -> Void)?
     var onFocus: ((String?) -> Void)?
+    var onHover: ((String?) -> Void)?
+    var emphasized: Set<String> = [] {
+        didSet { if emphasized != oldValue { applyMarks() } }
+    }
     var onPointer: (() -> Void)?
 
     private var saveTimer: Timer?
@@ -45,6 +49,7 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         lineNumbers.textView = textView
         textView.onPointer = { [weak self] in self?.onPointer?() }
         textView.onClick = { [weak self] index in self?.clicked(at: index) }
+        textView.onHover = { [weak self] index in self?.onHover?(self?.annotation(hovering: index)) }
         addSubview(lineNumbers)
         addSubview(textView)
     }
@@ -248,13 +253,13 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     /// Draws each annotation over its text without touching the text.
     private func applyMarks() {
         let pendingText = pendingRange.map { NSRange(location: $0.from, length: $0.to - $0.from) }
-        textView.insertPoints = TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText)
+        textView.insertPoints = TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText, emphasized: emphasized)
         // The text a replace or insert would put in, shown after the struck text / at the marker.
         textView.suggestions = pending.compactMap { annotation in
             guard let range = ranges[annotation.id], let text = annotation.replacement, !text.isEmpty else { return nil }
             switch annotation.kind {
-            case .replace: return (range.upperBound, text)
-            case .insert: return (range.location, text)
+            case .replace: return (range.upperBound, text, emphasized.contains(annotation.id))
+            case .insert: return (range.location, text, emphasized.contains(annotation.id))
             default: return nil
             }
         }
@@ -277,6 +282,15 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
 
     func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()
+    }
+
+    private func annotation(hovering index: Int?) -> String? {
+        index.flatMap { TextSurface.annotation(at: $0, in: pending, ranges: ranges, strict: true) }
+    }
+
+    func annotationUnderMouse() -> String? {
+        guard let window else { return nil }
+        return annotation(hovering: TextSurface.character(at: textView.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: textView))
     }
 
     /// A click on a character: the annotation there takes the focus, or none.

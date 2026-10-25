@@ -38,8 +38,17 @@ protocol AnnotationSurface: AnyObject {
     var onSelection: ((SelectionInfo?) -> Void)? { get set }
     /// The annotation clicked in the text, or nil for a click on plain text.
     var onFocus: ((String?) -> Void)? { get set }
+    /// The annotation under the mouse in the text, or nil.
+    var onHover: ((String?) -> Void)? { get set }
     /// The mouse was pressed somewhere in the text, before the surface acted on it.
     var onPointer: (() -> Void)? { get set }
+
+    /// The annotations drawn stronger: the one in focus and the one under the mouse.
+    var emphasized: Set<String> { get set }
+
+    /// The annotation under the mouse right now. The text can move under a still mouse (scrolling),
+    /// which sends no event.
+    func annotationUnderMouse() -> String?
 
     /// Whether the keyboard is in the text, so the Comment button over a selection is wanted.
     var hasKeyboardFocus: Bool { get }

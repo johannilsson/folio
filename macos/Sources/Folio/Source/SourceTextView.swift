@@ -10,6 +10,8 @@ final class SourceTextView: NSTextView {
     var onPointer: (() -> Void)?
     /// The mouse was released: the character index under the caret, for a click that selected nothing.
     var onClick: ((Int?) -> Void)?
+    /// The mouse moved over the text: the character under it, nil when it is not on a character.
+    var onHover: ((Int?) -> Void)?
     /// A key press to offer the annotation shortcuts first. Returns whether it was used.
     var keyHandler: ((NSEvent) -> Bool)?
 
@@ -26,7 +28,8 @@ final class SourceTextView: NSTextView {
 
     /// The text a replace or insert would put in, and where: drawn in green after that point, over
     /// the text that follows on the line, without being part of the file.
-    var suggestions: [(at: Int, text: String)] = [] {
+    /// `strong` is the annotation in focus or under the mouse: its green is deeper.
+    var suggestions: [(at: Int, text: String, strong: Bool)] = [] {
         didSet { needsDisplay = true }
     }
 
@@ -114,6 +117,27 @@ final class SourceTextView: NSTextView {
 
     // MARK: mouse
 
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onHover?(TextSurface.character(at: convert(event.locationInWindow, from: nil), in: self))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(nil)
+    }
+
     override func mouseDown(with event: NSEvent) {
         onPointer?()
         super.mouseDown(with: event)
@@ -176,7 +200,7 @@ final class SourceTextView: NSTextView {
             guard box.intersects(dirtyRect) else { continue }
             NSColor.textBackgroundColor.setFill()
             box.fill()
-            NSColor.systemGreen.withAlphaComponent(0.15).setFill()
+            NSColor.systemGreen.withAlphaComponent(suggestion.strong ? 0.3 : 0.15).setFill()
             box.fill()
             (text as NSString).draw(at: NSPoint(x: x + 2, y: box.minY + (box.height - size.height) / 2), withAttributes: attributes)
         }
