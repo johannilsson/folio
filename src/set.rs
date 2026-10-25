@@ -347,6 +347,59 @@ mod tests {
     }
 
     #[test]
+    fn add_files_reports_duplicates_and_saves_nothing_on_a_bad_path() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("addfiles");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+
+        let first = add_files("s", &[a.clone()], None).unwrap();
+        assert_eq!(first.added, vec![a.clone()]);
+        let again = add_files("s", &[a.clone()], None).unwrap();
+        assert!(again.added.is_empty());
+        assert_eq!(again.already, vec![a.clone()]);
+
+        // A missing file and a folder both fail, and the good file before them is not saved.
+        let b = tmp.join("b.md");
+        std::fs::write(&b, "# b\n").unwrap();
+        assert!(add_files("s", &[b.clone(), tmp.join("missing.md")], None).is_err());
+        assert!(add_files("s", &[b.clone(), tmp.clone()], None).is_err());
+        assert_eq!(load("s").unwrap().files.len(), 1);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn remove_files_fails_for_a_file_not_in_the_set_and_saves_nothing() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("rmfiles");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        add_files("s", &[a.clone()], None).unwrap();
+
+        assert!(remove_files("s", &[a.clone(), tmp.join("other.md")]).is_err());
+        assert_eq!(load("s").unwrap().files.len(), 1);
+
+        // A file deleted from disk can still be removed by the path it was added with.
+        std::fs::remove_file(&a).unwrap();
+        assert_eq!(remove_files("s", &[a.clone()]).unwrap(), vec![a]);
+        assert!(load("s").unwrap().files.is_empty());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn load_rejects_an_unsupported_version() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("version");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        save("v2", &Set { version: 2, files: Vec::new() }).unwrap();
+        let err = load("v2").unwrap_err().to_string();
+        assert!(err.contains("unsupported set version 2"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
     fn rejects_bad_names() {
         assert!(validate_name("../evil").is_err());
         assert!(validate_name("").is_err());
