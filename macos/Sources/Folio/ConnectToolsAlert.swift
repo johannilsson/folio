@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// Folio ▸ Connect to MCP Clients…: the MCP server is the app's own binary, so a tool needs to be told its
 /// path. A pop-up picks the tool and shows what to run or paste for it (`Rust.mcpSnippets`); Copy puts the

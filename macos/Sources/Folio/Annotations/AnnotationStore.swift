@@ -1,3 +1,4 @@
+import FolioKit
 import Foundation
 
 /// The annotations of one document as the window shows them, and what the reader can do to

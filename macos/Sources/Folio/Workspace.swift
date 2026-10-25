@@ -1,3 +1,4 @@
+import FolioKit
 import Foundation
 
 /// The files one window works on: a single document, or the files of a set. It resolves

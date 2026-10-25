@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The window's annotation UI: the cards in the comments pane (or the one card that opens next to
 /// the text when the pane is closed), the Comment button over a selection, the form for a new

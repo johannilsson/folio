@@ -1,26 +1,30 @@
 import CFolio
 import Foundation
 
-struct RustError: LocalizedError, CustomStringConvertible {
-    let description: String
-    var errorDescription: String? { description }
+public struct RustError: LocalizedError, CustomStringConvertible {
+    public let description: String
+    public var errorDescription: String? { description }
+
+    public init(description: String) {
+        self.description = description
+    }
 }
 
 /// Swift face of libfolio (src/ffi.rs): the same anchoring and accept code the CLI uses.
-enum Rust {
-    static func sidecarPath(for file: String) throws -> String {
+public enum Rust {
+    public static func sidecarPath(for file: String) throws -> String {
         try take(folio_sidecar_path(file))
     }
 
     /// `items` is the JSON request body of `/api/anchor`; the result is its JSON response.
-    static func anchor(doc: String, itemsJSON: String, raw: Bool) throws -> String {
+    public static func anchor(doc: String, itemsJSON: String, raw: Bool) throws -> String {
         try take(folio_anchor(doc, itemsJSON, raw))
     }
 
     /// The selection `range` (UTF-16, as the text view has it) of the markdown `doc` as rendered text,
     /// which is what agents and the preview anchor by: the selected words and up to 30 characters
     /// before them, without markdown syntax. Nil when none of it is rendered text.
-    static func renderedSelection(doc: String, range: NSRange) throws -> (target: String, contextBefore: String)? {
+    public static func renderedSelection(doc: String, range: NSRange) throws -> (target: String, contextBefore: String)? {
         let out = try object(folio_rendered_selection(doc, range.location, range.upperBound))
         guard let target = out["target"] as? String, let context = out["context_before"] as? String else { return nil }
         return (target, context)
@@ -28,7 +32,7 @@ enum Rust {
 
     /// The patched markdown (nil when accepting changes nothing in it) and the new
     /// sidecar text.
-    static func accept(doc: String, sidecarJSON: String, id: String) throws -> (doc: String?, sidecar: String) {
+    public static func accept(doc: String, sidecarJSON: String, id: String) throws -> (doc: String?, sidecar: String) {
         let out = try take(folio_accept(doc, sidecarJSON, id))
         guard let obj = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any],
               let sidecar = obj["sidecar"] as? String else {
@@ -39,7 +43,7 @@ enum Rust {
 
     /// Applies one editor action (see src/edit.rs) to the sidecar text. Returns the new
     /// sidecar text and the id of the annotation or reply the action created.
-    static func edit(sidecarJSON: String, edit: [String: Any]) throws -> (sidecar: String, id: String?) {
+    public static func edit(sidecarJSON: String, edit: [String: Any]) throws -> (sidecar: String, id: String?) {
         let body = String(decoding: try JSONSerialization.data(withJSONObject: edit), as: UTF8.self)
         let out = try object(folio_edit(sidecarJSON, body))
         guard let sidecar = out["sidecar"] as? String else { throw RustError(description: "unexpected edit result") }
@@ -49,32 +53,32 @@ enum Rust {
     // MARK: Claude
 
     /// Runs the MCP server on stdin and stdout until Claude closes them (`Folio --mcp`). The exit code.
-    static func mcpServe() -> Int32 {
+    public static func mcpServe() -> Int32 {
         folio_mcp_serve()
     }
 
     /// Starts answering the MCP server's questions about this app (src/live.rs). `handler` gets each
     /// request as JSON and returns the response as a `malloc`ed JSON string; it runs on another thread.
-    static func appListen(_ handler: @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?) throws {
+    public static func appListen(_ handler: @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?) throws {
         _ = try object(folio_app_listen(handler))
     }
 
-    static func appStop() {
+    public static func appStop() {
         folio_app_stop()
     }
 
     /// What to run or paste to register `executable --mcp` in a tool.
-    struct Snippet {
-        let name: String
+    public struct Snippet {
+        public let name: String
         /// Where it goes.
-        let hint: String
-        let text: String
+        public let hint: String
+        public let text: String
         /// Set when Folio can write it itself: the id for `connectMCP`, and the file it writes.
-        let client: String?
-        let config: String?
+        public let client: String?
+        public let config: String?
     }
 
-    static func mcpSnippets(executable: String) throws -> [Snippet] {
+    public static func mcpSnippets(executable: String) throws -> [Snippet] {
         guard let list = try object(folio_mcp_snippets(executable))["snippets"] as? [[String: Any]] else {
             throw RustError(description: "unexpected result from libfolio")
         }
@@ -86,7 +90,7 @@ enum Rust {
 
     /// Registers `executable --mcp` as the MCP server of `client` ("claude" for Claude desktop, or "codex").
     /// `change` is "added", "updated" or "unchanged"; the tool has to be restarted to see it.
-    static func connectMCP(client: String, executable: String) throws -> (config: String, change: String) {
+    public static func connectMCP(client: String, executable: String) throws -> (config: String, change: String) {
         let out = try object(folio_mcp_connect(client, executable))
         guard let config = out["config"] as? String, let change = out["change"] as? String else {
             throw RustError(description: "unexpected result from libfolio")
@@ -96,28 +100,28 @@ enum Rust {
 
     // MARK: sets
 
-    struct SetFile {
-        let id: String
+    public struct SetFile {
+        public let id: String
         /// Path relative to the root, as the sidebar shows it.
-        let name: String
+        public let name: String
         /// Name of the root folder; files are grouped by it.
-        let group: String
-        let path: URL
-        let sidecar: URL
+        public let group: String
+        public let path: URL
+        public let sidecar: URL
     }
 
-    struct SetInfo {
-        let name: String
+    public struct SetInfo {
+        public let name: String
         /// The set's JSON file, watched so that `folio set add` from a terminal shows up.
-        let manifest: URL
-        let files: [SetFile]
+        public let manifest: URL
+        public let files: [SetFile]
     }
 
-    static func setNames() throws -> [String] {
+    public static func setNames() throws -> [String] {
         try object(folio_set_names())["names"] as? [String] ?? []
     }
 
-    static func setLoad(_ name: String) throws -> SetInfo {
+    public static func setLoad(_ name: String) throws -> SetInfo {
         let obj = try object(folio_set_load(name))
         guard let manifest = obj["manifest"] as? String, let files = obj["files"] as? [[String: Any]] else {
             throw RustError(description: "unexpected set result")
@@ -135,16 +139,16 @@ enum Rust {
     }
 
     /// Adds files to the set, creating it if needed. Files already in it are skipped.
-    static func setAdd(_ name: String, files: [URL]) throws {
+    public static func setAdd(_ name: String, files: [URL]) throws {
         _ = try object(folio_set_add(name, paths(files), nil))
     }
 
-    static func setRemove(_ name: String, files: [URL]) throws {
+    public static func setRemove(_ name: String, files: [URL]) throws {
         _ = try object(folio_set_remove(name, paths(files)))
     }
 
     /// Deletes the set's manifest. The files and their sidecars stay.
-    static func setDelete(_ name: String) throws {
+    public static func setDelete(_ name: String) throws {
         _ = try object(folio_set_delete(name))
     }
 

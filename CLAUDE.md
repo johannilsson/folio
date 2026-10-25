@@ -34,10 +34,13 @@ macos/scripts/bundle.sh   # -> macos/build/Folio.app
 # Rust unit tests (sidecar anchoring, strip_markdown)
 cargo test
 
+# macOS app logic (FolioKit): unit tests, no desktop session needed
+swift test --package-path macos
+
 # macOS app: drives the real app against throwaway copies and the real CLI (needs a desktop session)
 macos/.build/debug/Folio --self-test macos/selftest.md
 
-# Everything: frontend build, cargo build/test, and on macOS the app build + self-test
+# Everything: frontend build, cargo build/test, and on macOS the app build, unit tests + self-test
 # (--skip-macos to leave that part out)
 ./scripts/verify.sh
 ```

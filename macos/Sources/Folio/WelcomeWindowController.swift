@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 import UniformTypeIdentifiers
 
 /// The window Folio shows when there is nothing open, like Xcode's: the app and its actions on

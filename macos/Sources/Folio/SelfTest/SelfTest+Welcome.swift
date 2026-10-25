@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The welcome window: what it lists, opening from it, and coming back when the last window closes.
 /// It runs last, since it closes every document window.

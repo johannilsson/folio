@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {

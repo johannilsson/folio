@@ -1,5 +1,6 @@
 import AppKit
 import Compression
+import FolioKit
 
 /// The preview: what is drawn, how the text maps to the file, the annotation UI on it, and accepting.
 extension SelfTest {

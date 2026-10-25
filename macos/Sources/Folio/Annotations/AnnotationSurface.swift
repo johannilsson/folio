@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// Where a surface drew an annotation: its top-left and line height, in the scrolling canvas's
 /// coordinates, and its place in the document, which orders the cards.

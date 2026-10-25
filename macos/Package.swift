@@ -2,7 +2,7 @@
 import Foundation
 import PackageDescription
 
-// The Rust core (anchoring and accept) is linked as a static library:
+// The Rust core (anchoring and accept) is linked into FolioKit as a static library:
 //   cargo build --release   ->   <repo>/target/release/libfolio.a
 let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 let rustLib = repo.appendingPathComponent("target/release").path
@@ -19,13 +19,13 @@ let package = Package(
     ],
     targets: [
         .target(name: "CFolio"),
-        .executableTarget(
-            name: "Folio",
-            dependencies: ["CFolio", .product(name: "Markdown", package: "swift-markdown")],
+        // The app's logic: values in and out, no views (CLAUDE.md, "How the app is built").
+        .target(
+            name: "FolioKit",
+            dependencies: ["CFolio"],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .unsafeFlags(["-L", rustLib]),
-                .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
                 .linkedLibrary("folio"),
                 // Pulled in by the file-watching and networking crates inside libfolio.
                 .linkedFramework("CoreServices"),
@@ -34,5 +34,14 @@ let package = Package(
                 .linkedLibrary("iconv"),
             ]
         ),
+        .executableTarget(
+            name: "Folio",
+            dependencies: ["FolioKit", .product(name: "Markdown", package: "swift-markdown")],
+            swiftSettings: [.swiftLanguageMode(.v5)],
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
+            ]
+        ),
+        .testTarget(name: "FolioKitTests", dependencies: ["FolioKit"]),
     ]
 )

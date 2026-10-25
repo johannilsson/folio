@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 import UniformTypeIdentifiers
 
 /// A window for a named set of files: a sidebar of the files beside the editor, which

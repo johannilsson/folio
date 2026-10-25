@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The markdown source, edited in place: line numbers and a text view that is as tall as its text,
 /// inside the window's scroll view. It saves a moment after typing stops, follows the file when

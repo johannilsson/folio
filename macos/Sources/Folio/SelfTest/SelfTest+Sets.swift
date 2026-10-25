@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// A set of files in its own window.
 extension SelfTest {
