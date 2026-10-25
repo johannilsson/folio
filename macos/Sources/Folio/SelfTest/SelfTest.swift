@@ -61,6 +61,11 @@ final class SelfTest {
             let ids = self.controller.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
             return ids.filter { $0 == "source" || $0 == "comments" }.count == 2
         }
+        await check("the search is the last toolbar item, folded into its icon at launch") {
+            let ids = self.controller.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
+            let folded = await self.until { !self.controller.findExpanded && self.controller.findItem.searchField.frame.width < 60 }
+            return ids.last == "find" && folded
+        }
 
         await previewChecks()
         await sourceEditingChecks()
