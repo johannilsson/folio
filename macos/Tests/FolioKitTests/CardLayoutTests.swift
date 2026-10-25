@@ -18,25 +18,25 @@ import Testing
 
     @Test func aCardThatWouldOverlapIsPushedDownSixBelowTheOneAbove() {
         let stacked = CardLayout.stack([card(100, order: 1, height: 80), card(120, order: 2, height: 30)], end: 1000)
-        #expect(stacked.placed.map { $0.top } == [96, 96 + 80 + 6])
+        #expect(stacked.placed.map { $0.top } == [96, 96 + 80 + 6] as [CGFloat])
     }
 
     @Test func aCardWithRoomStaysAtItsAnchor() {
         let stacked = CardLayout.stack([card(100, order: 1, height: 20), card(300, order: 2)], end: 1000)
-        #expect(stacked.placed.map { $0.top } == [96, 296])
+        #expect(stacked.placed.map { $0.top } == [96, 296] as [CGFloat])
     }
 
     @Test func cardsAreStackedInDocumentOrder() {
         // Given out of order: the one earlier in the document goes first, whatever its anchor's top.
         let stacked = CardLayout.stack([card(100, order: 5), card(200, order: 2)], end: 1000)
         #expect(stacked.placed.map { $0.index } == [1, 0])
-        #expect(stacked.placed.map { $0.top } == [196, 196 + 50 + 6])
+        #expect(stacked.placed.map { $0.top } == [196, 196 + 50 + 6] as [CGFloat])
     }
 
     @Test func aCardNotFoundInTheDocumentIsParkedAfterTheText() {
         let stacked = CardLayout.stack([card(nil), card(100, order: 3)], end: 400)
         #expect(stacked.placed.map { $0.index } == [1, 0])
-        #expect(stacked.placed.map { $0.top } == [96, 396])
+        #expect(stacked.placed.map { $0.top } == [96, 396] as [CGFloat])
     }
 
     @Test func nothingToStackReachesNowhere() {
