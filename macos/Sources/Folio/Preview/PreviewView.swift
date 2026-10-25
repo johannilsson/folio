@@ -244,7 +244,7 @@ final class PreviewView: NSView, AnnotationSurface {
             // A diagram fills the window: up to twice its size and 800 points tall
             // when it is smaller, and the width of the window when it is larger. Images are never enlarged.
             let grow = centered && !asset.key.hasPrefix("image:") ? max(1, min(2, 800 / max(1, image.size.height))) : 1
-            let scale = min(grow, available / image.size.width)
+            let scale = asset.width.map { $0 / image.size.width } ?? min(grow, available / image.size.width)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
             if attachment.image !== image {
                 attachment.image = image

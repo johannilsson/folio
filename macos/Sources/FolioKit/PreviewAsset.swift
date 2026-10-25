@@ -39,9 +39,12 @@ public final class PreviewAsset: NSObject {
     }
 
     public let kind: Kind
+    /// How wide to draw it, when the file says (an HTML `width`); otherwise its own size, as wide as the text at most.
+    public let width: CGFloat?
 
-    public init(_ kind: Kind) {
+    public init(_ kind: Kind, width: CGFloat? = nil) {
         self.kind = kind
+        self.width = width
     }
 
     /// Same picture, same key: the view loads each only once.
