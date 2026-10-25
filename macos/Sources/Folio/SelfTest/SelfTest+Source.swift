@@ -67,20 +67,25 @@ extension SelfTest {
         await check("the comments pane slides open") { await self.until { self.controller.scrollHost.paneWidth > 300 } }
         // Closing and opening again, sampling the width on the way: it passes through in-between values.
         await check("the comments pane animates when it closes and opens, rather than jumping") {
-            @MainActor func sampleWidths() async -> [Double] {
+            // Samples until the pane has settled (or 2 s), so a slow runner delays the samples instead of missing the animation.
+            @MainActor func sampleWidths(until settled: @escaping (Double) -> Bool) async -> [Double] {
                 var widths: [Double] = []
-                for _ in 0..<12 {
+                let deadline = Date().addingTimeInterval(2)
+                while Date() < deadline {
                     widths.append(Double(self.controller.scrollHost.paneWidth))
-                    try? await Task.sleep(nanoseconds: 30_000_000)
+                    if settled(widths.last!) { break }
+                    try? await Task.sleep(nanoseconds: 10_000_000)
                 }
                 return widths
             }
             self.send("toggleComments:")
-            let closing = await sampleWidths()
+            let closing = await sampleWidths { $0 < 5 }
             self.send("toggleComments:")
-            let opening = await sampleWidths()
+            let opening = await sampleWidths { $0 > 300 }
             let between = { (w: [Double]) in w.contains { $0 > 15 && $0 < 290 } }
-            return between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 300
+            let ok = between(closing) && between(opening) && (closing.last ?? 999) < 5 && (opening.last ?? 0) > 300
+            if !ok { print("pane widths closing \(closing), opening \(opening)") }
+            return ok
         }
         await check("the toolbar follows the pane after the animation test") { await self.until { self.controller.commentsOn } }
         let replaceCLI = cli([
