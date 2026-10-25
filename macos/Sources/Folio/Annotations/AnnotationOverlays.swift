@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The comments pane: a column of cards beside the text, each at the height of what it is
 /// about. A card that would overlap the one above is pushed down.
@@ -8,28 +9,25 @@ final class AnnotationGutterView: NSView {
     /// Something to stack: a card, or the form for a new comment.
     struct Item {
         var view: NSView
-        /// Where its text is, in page coordinates.
-        var anchorTop: CGFloat
-        /// Its place in the document, which orders the pane.
-        var order: Int
+        /// Where its text is, in page coordinates; nil when it is not found in the document.
+        var anchor: CardLayout.Anchor?
     }
 
-    /// Puts `items` in the pane, in document order, and returns how far down they reach.
+    /// Puts `items` in the pane, in document order (`CardLayout.stack`; one not found in the
+    /// document is parked at `end`), and returns how far down they reach.
     /// Each has been laid out at `AnnotationStyle.cardWidth`.
     @discardableResult
-    func stack(_ items: [Item]) -> CGFloat {
-        let gap: CGFloat = 6
+    func stack(_ items: [Item], end: CGFloat) -> CGFloat {
         let keep = Set(items.map { ObjectIdentifier($0.view) })
         for view in subviews where !keep.contains(ObjectIdentifier(view)) { view.removeFromSuperview() }
 
-        var minTop: CGFloat = 0
-        for item in items.sorted(by: { $0.order < $1.order }) {
-            if item.view.superview !== self { addSubview(item.view) }
-            let top = max(item.anchorTop - 4, minTop)
-            item.view.frame.origin = NSPoint(x: 0, y: top)
-            minTop = top + item.view.frame.height + gap
+        let stacked = CardLayout.stack(items.map { CardLayout.Card(anchor: $0.anchor, height: $0.view.frame.height) }, end: end)
+        for (index, top) in stacked.placed {
+            let view = items[index].view
+            if view.superview !== self { addSubview(view) }
+            view.frame.origin = NSPoint(x: 0, y: top)
         }
-        return minTop
+        return stacked.extent
     }
 
     /// Only the cards take the mouse: the empty column beside them belongs to nobody.
