@@ -207,18 +207,18 @@ final class AnnotationController {
                 card.layoutContent(width: cardWidth)
                 let anchor = anchors[annotation.id]
                 // Not found in the document: parked after the text.
-                items.append(.init(view: card, anchorTop: anchor?.top ?? host.contentHeight, order: anchor?.from ?? Int.max))
+                items.append(.init(view: card, anchor: anchor.map { CardLayout.Anchor(top: CGFloat($0.top), order: $0.from) }))
             }
             if let form, let formSelection, paneShown {
                 form.isFloating = false
                 form.layoutContent(width: cardWidth)
-                items.append(.init(view: form, anchorTop: formSelection.top, order: formSelection.from))
+                items.append(.init(view: form, anchor: CardLayout.Anchor(top: CGFloat(formSelection.top), order: formSelection.from)))
             }
-            let extent = host.gutter.stack(items)
+            let extent = host.gutter.stack(items, end: host.contentHeight)
             host.setGutterExtent(extent > 0 ? extent + 48 : 0)
         } else {
             host.setGutterExtent(0)
-            _ = host.gutter.stack([])
+            _ = host.gutter.stack([], end: host.contentHeight)
             for card in cards.values where card.annotation.id != focusedID { card.removeFromSuperview() }
             placeOpenCard()
             placeFloatingForm()
@@ -246,15 +246,8 @@ final class AnnotationController {
 
     /// Below `bottom`, or above `top` when it will not fit below but will fit above, and kept inside the text column.
     private func floatingOrigin(width: CGFloat, height: CGFloat, left: Double, top: Double, bottom: Double) -> NSPoint {
-        let visible = host.visibleDocumentRect
-        let fitsBelow = visible.maxY - CGFloat(bottom) >= height + 12
-        let fitsAbove = CGFloat(top) - visible.minY > height + 12
-        var y = !fitsBelow && fitsAbove ? CGFloat(top) - height - 6 : CGFloat(bottom) + 6
-        // Fits neither way (the text is at the bottom of the window): kept inside what is visible.
-        y = min(y, visible.maxY - height - 8)
-        y = max(y, visible.minY + 8)
-        let maxX = max(8, host.textWidth - width - 8)
-        return NSPoint(x: min(max(8, CGFloat(left)), maxX), y: y)
+        CardLayout.floatingOrigin(width: width, height: height, left: CGFloat(left), top: CGFloat(top), bottom: CGFloat(bottom),
+                                  visible: host.visibleDocumentRect, textWidth: host.textWidth)
     }
 
     // MARK: the Comment button and the form
@@ -265,13 +258,10 @@ final class AnnotationController {
             return
         }
         // Above the first line, centred; below it when there is no room above, near the top of the window.
-        let visible = host.visibleDocumentRect
-        let width = adder.frame.width, height = adder.frame.height
-        let centre = CGFloat(selection.left + selection.right) / 2
-        let above = CGFloat(selection.top) - 8 - height
-        let y = above < visible.minY + 8 ? CGFloat(selection.bottom) + 8 : above
-        let x = min(max(8, centre - width / 2), max(8, host.textWidth - width - 8))
-        adder.frame.origin = NSPoint(x: x, y: y)
+        adder.frame.origin = CardLayout.adderOrigin(width: adder.frame.width, height: adder.frame.height,
+                                                    left: CGFloat(selection.left), right: CGFloat(selection.right),
+                                                    top: CGFloat(selection.top), bottom: CGFloat(selection.bottom),
+                                                    visible: host.visibleDocumentRect, textWidth: host.textWidth)
         if adder.superview !== host.floatingHost { host.floatingHost.addSubview(adder) }
         adder.isHidden = false
     }
