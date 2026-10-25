@@ -93,6 +93,19 @@ A SwiftPM package: AppKit windows, no server. The preview (`PreviewView`) and th
 - The self-test (`macos/Sources/Folio/SelfTest/`: `SelfTest.swift` has the run order and helpers, the `SelfTest+<area>.swift` extensions the checks) is the regression suite for the app; add a check there for new app behaviour. Pictures for judging looks come from `FOLIO_SNAPSHOT`; the README screenshot from `scripts/readme-screenshot.sh`.
 - The preview is read-only; hand edits go through the source.
 
+### How the app is built
+
+Where a piece of Swift goes, and so how it is tested. Most of the app already works this way; apply these to the code you touch rather than refactoring ahead of a change.
+
+1. **Three layers, each calling only the one below.** The *engine* (Rust, through `Rust.swift`) decides about text and annotations: anchoring, accept, edits, sets. The *logic* is plain Swift, values in and values out, no views: `PreviewBuilder`, `PreviewText`, `AnnotationModel`, `MarkdownHighlighter`, layout math. The *UI* (AppKit views and controllers) turns events into calls on the logic and its results into frames and attributes; it applies decisions, it does not make them.
+2. **A rule you can say in a sentence is a function.** "A card sits at its anchor's top minus 4 and is pushed down 6 when it would overlap" belongs in something like `layoutCards(anchors, heights) -> [frame]`, not inside a view's layout code; the view sets the frames it is given.
+3. **One owner per piece of state; views redraw from it.** The file belongs to `Document`, its annotations to `AnnotationStore`, the mode, the comments pane and the shown file to the window controller. A view does not keep its own copy that can drift (a sidebar refresh that bounced to the first file was such a copy).
+4. **The disk is the truth.** Changes are read, modified and written through libfolio so an agent's concurrent writes survive; nothing in Swift assumes its copy in memory is current.
+5. **A protocol only for two real implementations.** `AnnotationSurface` has two (the preview and the source). Do not add protocols, coordinators or containers to make something mockable; take the logic out into a function (2) instead.
+6. **Dependencies are passed in; globals stay at the edges.** The existing statics (`AppConfig`, `RecentFiles`, `AppServer`) are the process boundary. New code takes what it needs as parameters and adds no singletons or `NotificationCenter` broadcasts.
+7. **UI code is on the main actor.** Move work off it only when it is measured to be slow (diagrams, very large files).
+8. **Test a rule in the layer where it lives.** A logic rule gets a unit test, a rule about where things land on screen an off-screen layout or picture test, a rule about wiring (focus, windows, files changing underneath, the CLI and MCP against the live app) a self-test check. The self-test is for the last kind; the others are faster and fail closer to the cause.
+
 ## Annotation Model
 
 Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<root>/.folio/<path relative to root>.folio` (root = the file's git root, else its folder).
