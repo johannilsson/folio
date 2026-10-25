@@ -18,7 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        # Windows has no app; it keeps the Rust crate building and passing there for a future client.
+        os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -48,6 +49,7 @@ jobs:
 
       # Frontend build, cargo build/test; the macOS app steps only run on macOS.
       - name: Verify
+        shell: bash
         run: ./scripts/verify.sh
 
       # The pictures are only taken for a pull request with the `pictures` label, for changes that

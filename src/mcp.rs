@@ -303,7 +303,7 @@ fn author_arg(args: &Value) -> String {
 /// An absolute path to a markdown file. Folio only works on those, and the tools write beside them.
 fn path_value(raw: &str) -> Result<PathBuf, String> {
     let path = match raw.strip_prefix("~/") {
-        Some(rest) => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(rest),
+        Some(rest) => PathBuf::from(std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).unwrap_or_default()).join(rest),
         None => PathBuf::from(raw),
     };
     if !path.is_absolute() {
@@ -598,6 +598,10 @@ pub fn claude_config_path() -> anyhow::Result<PathBuf> {
     if let Some(path) = std::env::var_os("FOLIO_CLAUDE_CONFIG").filter(|p| !p.is_empty()) {
         return Ok(PathBuf::from(path));
     }
+    #[cfg(windows)]
+    if let Some(appdata) = std::env::var_os("APPDATA").filter(|p| !p.is_empty()) {
+        return Ok(PathBuf::from(appdata).join("Claude").join("claude_desktop_config.json"));
+    }
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
     Ok(PathBuf::from(home).join("Library/Application Support/Claude/claude_desktop_config.json"))
 }
@@ -607,8 +611,10 @@ pub fn codex_config_path() -> anyhow::Result<PathBuf> {
     if let Some(dir) = std::env::var_os("CODEX_HOME").filter(|p| !p.is_empty()) {
         return Ok(PathBuf::from(dir).join("config.toml"));
     }
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".codex/config.toml"))
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+    Ok(PathBuf::from(home).join(".codex").join("config.toml"))
 }
 
 /// What connecting did to a config.
@@ -818,6 +824,11 @@ mod tests {
         dir.canonicalize().unwrap()
     }
 
+    /// An absolute path on this system: `/etc/hosts`, or `C:/etc/hosts` on Windows.
+    fn absolute(path: &str) -> String {
+        if cfg!(windows) { format!("C:{path}") } else { path.to_string() }
+    }
+
     /// A markdown file in a throwaway repo.
     fn document(tag: &str, text: &str) -> PathBuf {
         let dir = temp_dir(tag);
@@ -902,9 +913,9 @@ mod tests {
     #[test]
     fn paths_must_be_absolute_markdown_files() {
         assert!(err(&NoApp, "render", json!({ "file": "doc.md" })).contains("absolute"));
-        assert!(err(&NoApp, "render", json!({ "file": "/etc/passwd" })).contains("not a markdown file"));
+        assert!(err(&NoApp, "render", json!({ "file": absolute("/etc/passwd") })).contains("not a markdown file"));
         assert!(err(&NoApp, "render", json!({})).contains("`file` is required"));
-        assert!(err(&NoApp, "render", json!({ "file": "/definitely/not/here.md" })).contains("cannot read"));
+        assert!(err(&NoApp, "render", json!({ "file": absolute("/definitely/not/here.md") })).contains("cannot read"));
     }
 
     #[test]
@@ -1034,7 +1045,7 @@ mod tests {
         assert_eq!(ok(&NoApp, "set_remove", json!({ "name": "review", "files": [a] }))["removed"].as_array().unwrap().len(), 1);
         assert_eq!(ok(&NoApp, "set_list", json!({ "name": "review" }))["files"].as_array().unwrap().len(), 1);
         assert!(err(&NoApp, "set_list", json!({ "name": "../evil" })).contains("invalid set name"));
-        assert!(err(&NoApp, "set_add", json!({ "name": "review", "files": ["/etc/hosts"] })).contains("not a markdown file"));
+        assert!(err(&NoApp, "set_add", json!({ "name": "review", "files": [absolute("/etc/hosts")] })).contains("not a markdown file"));
 
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
@@ -1088,7 +1099,7 @@ mod tests {
         for name in ["current_document", "focused_annotation"] {
             assert!(err(&NoApp, name, json!({})).contains("Folio is not running"), "{name}");
         }
-        assert!(err(&NoApp, "reveal", json!({ "file": "/a.md" })).contains("Folio is not running"));
+        assert!(err(&NoApp, "reveal", json!({ "file": absolute("/a.md") })).contains("Folio is not running"));
     }
 
     #[test]

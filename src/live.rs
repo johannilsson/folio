@@ -5,7 +5,7 @@
 //! `{"ok": ...}` or `{"error": "..."}`. The answers come from Swift (`AppServer`); this
 //! module only moves the lines.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::path::PathBuf;
 
 /// Why a question to the app got no answer.
@@ -37,6 +37,7 @@ pub fn request(op: &str, args: Value) -> Result<Value, LiveError> {
 #[cfg(unix)]
 mod imp {
     use super::*;
+    use serde_json::json;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
@@ -145,6 +146,7 @@ pub use imp::{listen, stop};
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     // Socket paths are short; the system temp folder on a Mac is already most of the way to the limit.
     fn short_config(tag: &str) -> PathBuf {
