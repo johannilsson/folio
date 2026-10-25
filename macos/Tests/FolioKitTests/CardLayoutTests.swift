@@ -71,6 +71,36 @@ import Testing
         #expect(below.y == (1600 - 100 - 8 as CGFloat))
     }
 
+    // MARK: revealing
+
+    private func reveal(_ anchor: (CGFloat, CGFloat), card: (CGFloat, CGFloat)? = nil) -> CGFloat {
+        CardLayout.revealDelta(anchor: (anchor.0, anchor.1), card: card.map { ($0.0, $0.1) },
+                               visible: visible, topMargin: 40, bottomMargin: 24)
+    }
+
+    @Test func revealingWhatIsInViewDoesNotScroll() {
+        #expect(reveal((1100, 1120), card: (1090, 1300)) == 0)
+    }
+
+    @Test func revealKeepsClearOfTheToolbarBlur() {
+        // Visible from 1000, margin 40: a line at 1020 is under the blur, so scroll up by 20.
+        #expect(reveal((1020, 1040)) == -20)
+    }
+
+    @Test func revealScrollsDownToTheBottomMargin() {
+        #expect(reveal((1590, 1610)) == (1610 - (1600 - 24) as CGFloat))
+    }
+
+    @Test func revealFollowsTheCardWhenBothFit() {
+        // The text is in view, its card in the pane is below the window: scroll down to show the card.
+        #expect(reveal((1100, 1120), card: (1100, 1700)) == 0)   // too tall together: the text wins
+        #expect(reveal((1500, 1520), card: (1500, 1640)) == (1640 - (1600 - 24) as CGFloat))
+    }
+
+    @Test func revealOfATallAnchorShowsItsTop() {
+        #expect(reveal((1700, 2400)) == (1700 - 1040 as CGFloat))
+    }
+
     @Test func floatingStaysInsideTheTextColumn() {
         let right = CardLayout.floatingOrigin(width: 280, height: 100, left: 700, top: 1100, bottom: 1120,
                                               visible: visible, textWidth: 800)

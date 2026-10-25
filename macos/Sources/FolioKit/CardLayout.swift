@@ -58,6 +58,23 @@ public enum CardLayout {
         return CGPoint(x: min(max(8, left), maxX), y: y)
     }
 
+    /// How far to scroll down (up when negative) to show `anchor`, the lines of an annotation, and
+    /// with it `card`, its card, when both fit: `visible` is the part of the document on screen, kept
+    /// `topMargin` and `bottomMargin` clear of its edges. Nothing moves when the span is already in view;
+    /// when it is too tall, the top of the anchor wins.
+    public static func revealDelta(anchor: (top: CGFloat, bottom: CGFloat), card: (top: CGFloat, bottom: CGFloat)?,
+                                   visible: CGRect, topMargin: CGFloat, bottomMargin: CGFloat) -> CGFloat {
+        let upper = visible.minY + topMargin, lower = visible.maxY - bottomMargin
+        var span = anchor
+        if let card {
+            let both = (top: min(anchor.top, card.top), bottom: max(anchor.bottom, card.bottom))
+            if both.bottom - both.top <= lower - upper { span = both }
+        }
+        if span.top < upper { return span.top - upper }
+        if span.bottom > lower { return min(span.bottom - lower, span.top - upper) }
+        return 0
+    }
+
     /// Where the Comment button of `width` × `height` goes for a selection whose first line runs from
     /// `top` to `bottom`, between `left` and `right`: above it, centred, or below it when there is no
     /// room above, near the top of `visible`. Kept inside the text column, `textWidth` wide.

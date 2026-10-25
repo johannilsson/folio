@@ -26,6 +26,8 @@ final class AnnotationController {
     private(set) var selection: SelectionInfo?
 
     private(set) var focusedID: String?
+    /// The annotation under the mouse, in the text or as a card.
+    private var hoveredID: String?
     private(set) var cards: [String: AnnotationCardView] = [:]
     private let adder = CommentAdderView()
     private let toast = ToastView()
@@ -50,6 +52,7 @@ final class AnnotationController {
         host.floatingHost.addSubview(adder)
         adder.onClick = { [weak self] in self?.startForm() }
         host.onPaneLayout = { [weak self] in self?.layout() }
+        host.onScroll = { [weak self] in self?.refreshHover() }
         listen(to: source)
         listen(to: preview)
         attach(store)
@@ -67,6 +70,9 @@ final class AnnotationController {
         }
         candidate.onFocus = { [weak self, weak candidate] id in
             if let self, let candidate, candidate === surface { focus(id) }
+        }
+        candidate.onHover = { [weak self, weak candidate] id in
+            if let self, let candidate, candidate === surface { hover(id) }
         }
         candidate.onPointer = { [weak self, weak candidate] in
             if let self, let candidate, candidate === surface { pointerDown() }
@@ -87,6 +93,7 @@ final class AnnotationController {
             anchorsKnown = false
             selection = nil
             focusedID = nil
+            hoveredID = nil
         }
         host.setPane(open: paneShown)
         if modeChanged {
@@ -106,6 +113,7 @@ final class AnnotationController {
         anchorsKnown = false
         selection = nil
         focusedID = nil
+        hoveredID = nil
         toast.hide()
         attach(newStore)
         refresh()
@@ -145,6 +153,30 @@ final class AnnotationController {
         refresh()
     }
 
+    /// Esc in a card's reply field: the focus is dropped and the keyboard goes back to the text.
+    /// What was typed stays in the card.
+    private func blur() {
+        focusedID = nil
+        refresh()
+        surface.focusText()
+    }
+
+    /// Reads what is under the mouse now. Scrolling and relayout move cards and text under a still
+    /// mouse without telling anyone it left, so the hover is worked out again rather than trusted.
+    private func refreshHover() {
+        for card in cards.values { card.syncHover() }
+        hover(cards.values.first { $0.isHovered }?.annotation.id ?? surface.annotationUnderMouse())
+    }
+
+    /// The mouse is over an annotation's text or its card (nil: neither). The two are drawn as one:
+    /// the text stronger, the card with its buttons.
+    private func hover(_ id: String?) {
+        guard id != hoveredID else { return }
+        hoveredID = id
+        for card in cards.values { card.isLinked = card.annotation.id == id }
+        surface.emphasized = Set([focusedID, hoveredID].compactMap { $0 })
+    }
+
     /// A click in the page, before the page acts on it: what is open over the text closes.
     private func pointerDown() {
         cancelForm()
@@ -173,12 +205,15 @@ final class AnnotationController {
             cards[id] = nil
         }
         if let focusedID, !ids.contains(focusedID) { self.focusedID = nil }
+        // A card that goes away under the mouse never says the mouse left it.
+        if let hoveredID, !ids.contains(hoveredID) { self.hoveredID = nil }
         for annotation in pending {
             let card = cards[annotation.id] ?? makeCard(annotation)
             card.update(annotation)
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
         }
+        surface.emphasized = Set([focusedID, hoveredID].compactMap { $0 })
         layout()
     }
 
@@ -186,6 +221,8 @@ final class AnnotationController {
         let card = AnnotationCardView(annotation: annotation)
         card.handlers = AnnotationCardHandlers(
             focus: { [weak self] id in self?.focus(id) },
+            hover: { [weak self] id, inside in self?.hover(inside ? id : nil) },
+            blur: { [weak self] in self?.blur() },
             accept: { [weak self] id in self?.accept(id) },
             resolve: { [weak self] id in self?.resolve(id) },
             saveEdit: { [weak self] id, text in self?.saveEdit(id, text) ?? false },
@@ -224,6 +261,7 @@ final class AnnotationController {
             placeFloatingForm()
         }
         updateAdder()
+        refreshHover()
     }
 
     /// The card of the annotation clicked in the text, next to it; flips above near the bottom.
@@ -380,7 +418,7 @@ final class AnnotationController {
         }
         if flags.isEmpty, event.keyCode == 53 {
             if form != nil { cancelForm(refocusPage: true); return true }
-            if !paneShown, focusedID != nil { focusedID = nil; refresh(); return true }
+            if focusedID != nil { focusedID = nil; refresh(); return true }
         }
         return false
     }
@@ -410,9 +448,9 @@ final class AnnotationController {
         focusedID = id
         refresh()
         surface.select(annotation: id)
-        host.reveal(top: CGFloat(anchor.top), bottom: CGFloat(anchor.bottom))
-        // The open card sits below its text: bring it into view too.
-        if let card = cards[id], card.isFloating { host.reveal(top: card.frame.minY, bottom: card.frame.maxY) }
+        // Its card too, in the pane or open beside the text, when both fit.
+        let card = cards[id].flatMap { $0.superview == nil ? nil : (top: $0.frame.minY, bottom: $0.frame.maxY) }
+        host.reveal(top: CGFloat(anchor.top), bottom: CGFloat(anchor.bottom), card: card)
         return true
     }
 

@@ -35,6 +35,8 @@ final class PreviewTextView: NSTextView {
     var onPointer: (() -> Void)?
     /// The mouse was released: the character index under the caret, for a click that selected nothing.
     var onClick: ((Int?) -> Void)?
+    /// The mouse moved over the text: the character under it, nil when it is not on a character.
+    var onHover: ((Int?) -> Void)?
     /// A key press to offer the annotation shortcuts first. Returns whether it was used.
     var keyHandler: ((NSEvent) -> Bool)?
 
@@ -118,6 +120,27 @@ final class PreviewTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         if keyHandler?(event) == true { return }
         super.keyDown(with: event)
+    }
+
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onHover?(TextSurface.character(at: convert(event.locationInWindow, from: nil), in: self))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(nil)
     }
 
     override func mouseDown(with event: NSEvent) {

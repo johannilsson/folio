@@ -20,6 +20,10 @@ final class PreviewView: NSView, AnnotationSurface {
     var onAnchors: (([AnchorRect]) -> Void)?
     var onSelection: ((SelectionInfo?) -> Void)?
     var onFocus: ((String?) -> Void)?
+    var onHover: ((String?) -> Void)?
+    var emphasized: Set<String> = [] {
+        didSet { if emphasized != oldValue { applyMarks() } }
+    }
     var onPointer: (() -> Void)?
 
     private var markdown = ""
@@ -56,6 +60,7 @@ final class PreviewView: NSView, AnnotationSurface {
         textView.delegate = self
         textView.onPointer = { [weak self] in self?.onPointer?() }
         textView.onClick = { [weak self] index in self?.clicked(at: index) }
+        textView.onHover = { [weak self] index in self?.hovered(at: index) }
         addSubview(textView)
     }
 
@@ -409,7 +414,12 @@ final class PreviewView: NSView, AnnotationSurface {
     /// Draws each annotation over its text without touching the text.
     private func applyMarks() {
         let pendingText = pendingRange.flatMap { model.displayRange(forSource: NSRange(location: $0.from, length: $0.to - $0.from)) }
-        TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText)
+        TextSurface.applyMarks(in: textView, pending: pending, ranges: ranges, pendingRange: pendingText, emphasized: emphasized)
+        // The green text a suggestion would put in is deeper for the annotation in focus or under the mouse.
+        for id in emphasized {
+            guard let ghost = ghostRanges[id], ghost.upperBound <= textView.textStorage?.length ?? 0 else { continue }
+            textView.layoutManager?.addTemporaryAttribute(.backgroundColor, value: NSColor.systemGreen.withAlphaComponent(0.3), forCharacterRange: ghost)
+        }
     }
 
     // MARK: reports
@@ -442,6 +452,25 @@ final class PreviewView: NSView, AnnotationSurface {
             return index >= ghost.location && index < ghost.upperBound
         }?.id
         onFocus?(TextSurface.annotation(at: index, in: pending, ranges: ranges) ?? suggested)
+    }
+
+    /// The mouse is over a character (or none): the annotation there, or its suggested text.
+    private func hovered(at index: Int?) {
+        onHover?(annotation(hovering: index))
+    }
+
+    private func annotation(hovering index: Int?) -> String? {
+        guard let index else { return nil }
+        let suggested = pending.first { annotation in
+            guard let ghost = ghostRanges[annotation.id] else { return false }
+            return index >= ghost.location && index < ghost.upperBound
+        }?.id
+        return TextSurface.annotation(at: index, in: pending, ranges: ranges, strict: true) ?? suggested
+    }
+
+    func annotationUnderMouse() -> String? {
+        guard let window else { return nil }
+        return annotation(hovering: TextSurface.character(at: textView.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: textView))
     }
 
     // MARK: AnnotationSurface
