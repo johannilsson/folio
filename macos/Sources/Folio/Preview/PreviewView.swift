@@ -87,7 +87,7 @@ final class PreviewView: NSView, AnnotationSurface {
 
     private func setMarkdown(_ text: String) {
         markdown = text
-        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent())
+        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent(), plantUML: AppConfig.renderPlantUML)
         ghosts = []
         model = base
         rebuilding = true

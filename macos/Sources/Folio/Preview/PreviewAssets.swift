@@ -1,35 +1,6 @@
 import AppKit
 import Compression
-
-extension NSAttributedString.Key {
-    /// On the character that stands for an image or a diagram; the value is its `PreviewAsset`.
-    static let folioAsset = NSAttributedString.Key("folioAsset")
-}
-
-extension NSAttributedString.Key {
-    /// On text the view draws something behind: "box" (frontmatter), "code" (a code block) or "rule".
-    static let folioBlock = NSAttributedString.Key("folioBlock")
-    /// On quoted text: how deep it is quoted, which is how many bars are drawn beside it.
-    static let folioQuote = NSAttributedString.Key("folioQuote")
-}
-
-extension NSAttributedString.Key {
-    /// On the code of a block that has a language; the value is its `PreviewCode`.
-    static let folioCode = NSAttributedString.Key("folioCode")
-}
-
-/// The code of a block with a language, which the view colours once the page has said what is what in it.
-final class PreviewCode: NSObject {
-    let language: String
-    let code: String
-
-    init(language: String, code: String) {
-        self.language = language
-        self.code = code
-    }
-
-    var key: String { "\(language)\n\(code)" }
-}
+import FolioKit
 
 /// The colours of the parts of code, for the light and the dark look.
 enum SyntaxColors {
@@ -63,29 +34,9 @@ enum SyntaxColors {
     }
 }
 
-/// Something in the document that is a picture: an image, or a diagram drawn from the code of a block.
-final class PreviewAsset: NSObject {
-    enum Kind {
-        case image(URL)
-        case plantuml(String)
-        case mermaid(String)
-    }
-
-    let kind: Kind
-
-    init(_ kind: Kind) {
-        self.kind = kind
-    }
-
-    /// Same picture, same key: the view loads each only once.
-    var key: String {
-        switch kind {
-        case .image(let url): return "image:\(url.absoluteString)"
-        case .plantuml(let code): return "plantuml:\(code)"
-        case .mermaid(let code): return "mermaid:\(code)"
-        }
-    }
-
+/// Loading the pictures: from the file or the network, a PlantUML command or server, or the hidden
+/// diagram page, which belong to the app.
+extension PreviewAsset {
     /// The picture, or nil when it cannot be had (a missing file, no network).
     @MainActor
     func load(dark: Bool) async -> NSImage? {

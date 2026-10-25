@@ -22,7 +22,7 @@ let package = Package(
         // The app's logic: values in and out, no views (CLAUDE.md, "How the app is built").
         .target(
             name: "FolioKit",
-            dependencies: ["CFolio"],
+            dependencies: ["CFolio", .product(name: "Markdown", package: "swift-markdown")],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .unsafeFlags(["-L", rustLib]),
@@ -36,7 +36,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "Folio",
-            dependencies: ["FolioKit", .product(name: "Markdown", package: "swift-markdown")],
+            dependencies: ["FolioKit"],
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
