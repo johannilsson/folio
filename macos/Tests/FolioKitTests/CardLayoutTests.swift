@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import FolioKit
 import Testing

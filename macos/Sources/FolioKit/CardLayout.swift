@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Where the cards go: stacked in the comments pane beside the text, or floating over it (the open
