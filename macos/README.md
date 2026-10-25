@@ -99,8 +99,8 @@ cards, the card menu, the Comment button and the comment form.
 
 ## README screenshot
 
-`docs/screenshot.png` shows the `natural-wine` set (`docs/natural-wine/setup.sh` registers it).
-`scripts/readme-screenshot.sh` retakes it from a clean copy of the set. The app photographs
+`docs/screenshot.png` (and `docs/screenshot-dark.png`, for dark mode) show the `natural-wine` set (`docs/natural-wine/setup.sh` registers it).
+`scripts/readme-screenshot.sh` retakes the light one from a clean copy of the set, and `scripts/readme-screenshot.sh --dark docs/screenshot-dark.png` the dark one. The app photographs
 itself: `Folio --set <name> --screenshot <png> [--appearance light|dark]`.
 The README uses a plain markdown image, not a light/dark `<picture>`: raw HTML makes Folio's own
 preview read-only, and the README should open editable.
