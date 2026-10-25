@@ -145,4 +145,62 @@ import Testing
         #expect(style?.textBlocks.isEmpty == false)
         #expect(built.tables.count == 1)
     }
+
+    // MARK: HTML
+
+    let folder = URL(fileURLWithPath: "/docs/")
+
+    func asset(in built: PreviewText) -> PreviewAsset? {
+        var found: PreviewAsset?
+        built.text.enumerateAttribute(.folioAsset, in: NSRange(location: 0, length: built.text.length)) { value, _, _ in
+            found = found ?? value as? PreviewAsset
+        }
+        return found
+    }
+
+    @Test func aCentredHeadingAndImageFromHTMLAreDrawnNotShownAsTags() {
+        let html = """
+        <p align="center">
+          <img src="icon.png" width="128" alt="App icon">
+        </p>
+
+        <h1 align="center">Folio</h1>
+
+        After.
+        """
+        let built = PreviewBuilder.build(html, base: folder, plantUML: false)
+        #expect(!built.text.string.contains("<"))
+        let size = (attribute(.font, at: "Folio", in: built) as? NSFont)?.pointSize ?? 0
+        #expect(size > PreviewBuilder.bodySize)
+        let heading = attribute(.paragraphStyle, at: "Folio", in: built) as? NSParagraphStyle
+        #expect(heading?.alignment == .center)
+        let picture = asset(in: built)
+        #expect(picture?.key == "image:file:///docs/icon.png")
+        #expect(picture?.width == 128)
+        #expect(attribute(.folioCentered, at: "\u{FFFC}", in: built) != nil)
+    }
+
+    @Test func aPictureElementShowsItsImage() {
+        let html = """
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="dark.png">
+          <img src="light.png" alt="A screenshot">
+        </picture>
+        """
+        let built = PreviewBuilder.build(html, base: folder, plantUML: false)
+        #expect(assets(in: built) == ["image:file:///docs/light.png"])
+        #expect(!built.text.string.contains("srcset"))
+    }
+
+    @Test func htmlWithAnythingElseInItIsShownAsItIsWritten() {
+        let html = "<details>\n<summary>More</summary>\n</details>"
+        let built = PreviewBuilder.build(html, base: folder, plantUML: false)
+        #expect(built.text.string.contains("<details>") && built.text.string.contains("<summary>More</summary>"))
+        #expect(attribute(.folioBlock, at: "<details>", in: built) as? String == "code")
+    }
+
+    @Test func anHTMLImageThatCannotBeFoundIsShownByItsAltText() {
+        let built = PreviewBuilder.build("<img src=\"icon.png\" alt=\"App icon\">", plantUML: false)
+        #expect(built.text.string.contains("App icon") && assets(in: built).isEmpty)
+    }
 }

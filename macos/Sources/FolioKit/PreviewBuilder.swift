@@ -2,7 +2,7 @@ import AppKit
 import Markdown
 
 /// Turns markdown into the preview's attributed string and the map of where its characters came
-/// from (`PreviewText`). Blocks swift-markdown reads that are not drawn yet (tables, raw HTML) are
+/// from (`PreviewText`). Blocks swift-markdown reads that are not drawn yet (HTML beyond what `PreviewHTML` reads) are
 /// shown as their markdown, so nothing in the file is missing from the view.
 public struct PreviewBuilder {
     private struct Context {
@@ -169,6 +169,8 @@ public struct PreviewBuilder {
             }
         case let code as CodeBlock:
             codeBlock(code, context)
+        case let html as HTMLBlock:
+            htmlBlock(html, context)
         case let table as Markdown.Table:
             self.table(table, context)
         case let quote as BlockQuote:
@@ -199,6 +201,46 @@ public struct PreviewBuilder {
             result.text.addAttribute(.folioBlock, value: "rule", range: NSRange(location: start, length: 1))
         default:
             raw(node, context)
+        }
+    }
+
+    /// A block of HTML: the part of it READMEs use for layout (`PreviewHTML`) is drawn; anything else is shown as it is written.
+    private mutating func htmlBlock(_ html: HTMLBlock, _ context: Context) {
+        guard let elements = PreviewHTML.parse(html.rawHTML) else {
+            raw(html, context)
+            return
+        }
+        for element in elements {
+            switch element {
+            case .heading(let level, let text, let centered):
+                textBlock(text, of: html, context, heading: level, centered: centered)
+            case .paragraph(let text, let centered):
+                textBlock(text, of: html, context, heading: 0, centered: centered)
+            case .image(let image, let centered):
+                guard let place = imageURL(image.source) else {
+                    // A picture that cannot be had is shown by what it says it is.
+                    if !image.alt.isEmpty { textBlock(image.alt, of: html, context, heading: 0, centered: centered) }
+                    continue
+                }
+                let asset = PreviewAsset(.image(place), width: image.width.map { CGFloat($0) })
+                if centered {
+                    picture(asset, of: html, context)
+                } else {
+                    paragraph(context) { $0.emitPicture(asset, of: html, $0.attributes($1)) }
+                }
+            }
+        }
+    }
+
+    /// Text from HTML: it has no place of its own in the file, so it stands for the whole block.
+    private mutating func textBlock(_ text: String, of node: Markup, _ context: Context, heading: Int, centered: Bool) {
+        let start = result.text.length
+        paragraph(context, heading: heading) { $0.emit(text, source: $0.range(of: node), linear: false, $0.attributes($1)) }
+        guard centered else { return }
+        let block = NSRange(location: start, length: result.text.length - start)
+        if let style = (result.text.attribute(.paragraphStyle, at: start, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            style.alignment = .center
+            result.text.addAttribute(.paragraphStyle, value: style, range: block)
         }
     }
 
