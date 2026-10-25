@@ -8,7 +8,10 @@
 
 Folio is a local markdown editor built for review. An agent reads a document and leaves its feedback as annotations: replacements, deletions, insertions, highlights and comments. You see them beside the text as they arrive, reply to them, and accept or reject each one. Accepting patches the markdown; nothing else ever changes it.
 
-![The macOS app showing the natural-wine sample set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text](docs/screenshot.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+  <img src="docs/screenshot.png" alt="The macOS app showing the natural-wine set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text">
+</picture>
 
 ## Ways to use it
 

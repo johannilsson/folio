@@ -72,13 +72,57 @@ extension SelfTest {
         // Find: the Edit menu focuses the toolbar's search field, Return selects the match in the text.
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         controller.window?.makeFirstResponder(textView)
+        controller.setFindExpanded(false)
+        await check("the search folds into its icon") {
+            await self.until { !controller.findExpanded && controller.findItem.searchField.frame.width < 60 }
+        }
+        await snapshot("\(base)-find-collapsed.png")
+        controller.findItem.searchField.stringValue = ""
+        // A click on the folded field focuses it where it is: that unfolds it too, and it keeps the keyboard.
+        controller.window?.makeFirstResponder(controller.findItem.searchField)
+        await check("focusing the folded search field unfolds it and keeps the keyboard") {
+            let unfolded = await self.until { controller.findExpanded && controller.findItem.searchField.frame.width > 200 }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let editor = controller.window?.firstResponder as? NSText
+            let editing = editor?.delegate === controller.findItem.searchField
+            // Its text is laid out for the unfolded field, clear of the magnifier.
+            let laidOut = ((editor as? NSView)?.frame.width ?? 0) > 150 && ((editor as? NSView)?.frame.minX ?? 0) > 15
+            if !(unfolded && editing && laidOut) { print("    unfolded \(unfolded) editing \(editing) editor \(String(describing: (editor as? NSView)?.frame)) field \(controller.findItem.searchField.frame)") }
+            return unfolded && editing && laidOut && controller.findExpanded
+        }
+        controller.window?.makeFirstResponder(textView)
+        await check("it folds back when it is left empty") {
+            await self.until { !controller.findExpanded }
+        }
         let find = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "Edit" }?.item(withTitle: "Find…")
         await check("Edit has Find with ⌘F") { find?.keyEquivalent == "f" && find?.keyEquivalentModifierMask == .command }
         if let find, let action = find.action { send(NSStringFromSelector(action)) }
         await check("Find focuses the search field") {
-            (controller.window?.firstResponder as? NSText)?.delegate === controller.findItem.searchField
+            await self.until { (controller.window?.firstResponder as? NSText)?.delegate === controller.findItem.searchField }
+        }
+        await check("Find unfolds the search field from its icon") {
+            await self.until { controller.findExpanded && controller.findItem.searchField.frame.width > 200 }
+        }
+        await check("Find from the folded field leaves its text clear of the magnifier") {
+            let editor = controller.window?.firstResponder as? NSView
+            return (editor?.frame.width ?? 0) > 150 && (editor?.frame.minX ?? 0) > 15
+        }
+        // Clearing the field (the clear button, deleting the text) keeps the cursor in it; Esc leaves it.
+        let field = controller.findItem.searchField
+        field.stringValue = "abc"
+        (field.delegate as? NSSearchFieldDelegate)?.searchFieldDidEndSearching?(field)
+        field.stringValue = ""
+        (field.delegate as? NSSearchFieldDelegate)?.searchFieldDidEndSearching?(field)
+        await check("clearing the search field keeps it open and focused") {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            return controller.findExpanded && (controller.window?.firstResponder as? NSText)?.delegate === field
         }
         controller.findItem.searchField.stringValue = "last paragraph"
+        controller.window?.makeFirstResponder(textView)
+        await check("a search field with text stays out when it is left") {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            return controller.findExpanded && controller.findItem.searchField.frame.width > 200
+        }
         controller.findNext(nil)
         await check("Find selects the match in the text") {
             let selected: () -> String = { (self.previewText as NSString).substring(with: textView.selectedRange()) }
@@ -87,6 +131,13 @@ extension SelfTest {
             return found
         }
         await snapshot("\(base)-find.png")
+        // Empty and left, the field folds back into its icon.
+        controller.findItem.searchField.stringValue = ""
+        controller.window?.makeFirstResponder(controller.findItem.searchField)
+        controller.window?.makeFirstResponder(textView)
+        await check("an empty search field folds back into its icon when it is left") {
+            await self.until { !controller.findExpanded && controller.findItem.searchField.frame.width < 60 }
+        }
     }
 
     /// The whole window, title bar and toolbar included.

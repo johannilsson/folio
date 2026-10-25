@@ -286,6 +286,8 @@ final class AnnotationController {
             fail(error)
             return
         }
+        // The comment is on the text now: no selection, so no Comment button.
+        surface.collapseSelection()
         cancelForm(refocusPage: true)
     }
 

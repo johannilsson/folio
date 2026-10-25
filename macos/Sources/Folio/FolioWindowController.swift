@@ -28,6 +28,9 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     private let sourceItem = NSToolbarItem(itemIdentifier: EditorWindowController.sourceID)
     private let commentsItem = NSToolbarItem(itemIdentifier: EditorWindowController.commentsID)
     let findItem = NSSearchToolbarItem(itemIdentifier: EditorWindowController.findID)
+    /// The search field collapses to its icon by squeezing it to this width, and expands to the item's preferred one.
+    private let findWidth: NSLayoutConstraint
+    private static let collapsedFindWidth: CGFloat = 36
 
     /// The only file of a single-file window (the first of a set).
     var files: Document { workspace.entries[0].document }
@@ -59,6 +62,11 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     init(workspace: Workspace, fullHeightSidebar: Bool = false) {
         self.workspace = workspace
         scrollHost = EditorScrollView(source: SourceEditorView(frame: .zero), preview: PreviewView(frame: .zero))
+        // Whatever focuses the field (a click on it, Find, Tab) unfolds it.
+        let field = FindField()
+        findItem.searchField = field
+        findWidth = findItem.searchField.widthAnchor.constraint(equalToConstant: Self.collapsedFindWidth)
+        findWidth.isActive = true
 
         // The text's own background, so resizing never flashes white.
         let background = NSColor(name: nil) { appearance in
@@ -83,7 +91,12 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         super.init(window: window)
         shouldCascadeWindows = true
 
+        if let field = findItem.searchField as? FindField {
+            field.isFolded = { [weak self] in !(self?.findExpanded ?? true) }
+            field.unfold = { [weak self] done in self?.setFindExpanded(true, completion: done) }
+        }
         findItem.searchField.delegate = self
+        findItem.resignsFirstResponderWithCancel = false
         findItem.searchField.target = self
         findItem.searchField.action = #selector(findNext(_:))
 
@@ -120,6 +133,12 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         window?.toolbar = toolbar
+        // The icon the field folds into opens it like Find does.
+        DispatchQueue.main.async { [self] in
+            let icon = findItem.searchField.superview?.subviews.compactMap { $0 as? NSButton }.first
+            icon?.target = self
+            icon?.action = #selector(showFind(_:))
+        }
     }
 
     /// Remember where `id` is scrolled to before another file replaces it.
@@ -190,8 +209,32 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     // `SourceEditorView.find`), which select the match.
 
     @objc func showFind(_ sender: Any?) {
+        // A folded field unfolds first and takes the keyboard by itself (`FindField`).
         window?.makeFirstResponder(findItem.searchField)
-        findItem.searchField.selectText(nil)
+        // Not `selectText`: it ends the editing session the field has just begun, which folds it again.
+        if findExpanded { findItem.searchField.currentEditor()?.selectAll(nil) }
+    }
+
+    /// Whether the search field is out, not folded into its icon.
+    var findExpanded: Bool { findWidth.constant > Self.collapsedFindWidth }
+
+    /// Slides the field out or folds it into the icon. `completion` runs once it has its width.
+    func setFindExpanded(_ on: Bool, completion: (() -> Void)? = nil) {
+        let width = on ? findItem.preferredWidthForSearchField : Self.collapsedFindWidth
+        guard findWidth.constant != width else { completion?(); return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.allowsImplicitAnimation = true
+            findWidth.animator().constant = width
+        } completionHandler: { completion?() }
+    }
+
+    /// A field with nothing in it folds back into the icon once it is left; one with text stays, so Find Next keeps working.
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard notification.object as? NSSearchField === findItem.searchField else { return }
+        let typed = (notification.userInfo?["NSFieldEditor"] as? NSText)?.string ?? findItem.searchField.stringValue
+        guard typed.isEmpty, findItem.searchField.stringValue.isEmpty else { return }
+        setFindExpanded(false)
     }
 
     @objc func findNext(_ sender: Any?) { find(backwards: false) }
@@ -208,8 +251,12 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         }
     }
 
-    func searchFieldDidEndSearching(_ sender: NSSearchField) {
+    // Clearing the field (its clear button, or deleting the text) ends the search but not the editing:
+    // the cursor stays in the field. Esc leaves it for the text.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard control === findItem.searchField, selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
         window?.makeFirstResponder(textResponder)
+        return true
     }
 
     /// What has the keyboard when the text does: the source or the preview.
@@ -263,7 +310,7 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        leadingToolbarItems + [.flexibleSpace, Self.findID, Self.sourceID, Self.commentsID]
+        leadingToolbarItems + [.flexibleSpace, Self.sourceID, .space, Self.commentsID, .space, Self.findID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -280,6 +327,23 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         }
     }
 
+}
+
+/// The toolbar's search field. While it is folded into its icon it does not take the keyboard where
+/// it is: its text would be laid out for the narrow field. It unfolds first, then takes the keyboard.
+private final class FindField: NSSearchField {
+    var isFolded: () -> Bool = { false }
+    var unfold: (@escaping () -> Void) -> Void = { $0() }
+
+    override func becomeFirstResponder() -> Bool {
+        guard isFolded() else { return super.becomeFirstResponder() }
+        unfold { [weak self] in
+            guard let self else { return }
+            window?.makeFirstResponder(self)
+            currentEditor()?.selectAll(nil)
+        }
+        return false
+    }
 }
 
 /// One markdown file in its own window, owned by an `NSDocument`.

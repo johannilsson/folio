@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Retakes docs/screenshot.png: the macOS app showing the natural-wine sample set.
+# Retakes docs/screenshot.png: the macOS app showing the natural-wine set.
 # It works on a throwaway copy of the set with a temporary config, so none of your own sets
 # or annotations end up in the picture. Needs a logged-in macOS desktop session.
 # Usage: scripts/readme-screenshot.sh [--dark] [output.png]
@@ -24,9 +24,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 # A repo marker, so sidecars land where the app looks for them.
 mkdir -p "$work/repo/.git"
-cp demo.md "$work/repo/"
-cp -R demo-set "$work/repo/"
-(cd "$work/repo" && FOLIO_CONFIG_DIR="$work/config" FOLIO="$OLDPWD/target/debug/folio" demo-set/setup.sh >/dev/null)
+cp docs/natural-wine/*.md docs/natural-wine/setup.sh "$work/repo/"
+(cd "$work/repo" && FOLIO_CONFIG_DIR="$work/config" FOLIO="$OLDPWD/target/debug/folio" ./setup.sh >/dev/null)
 
 FOLIO_CONFIG_DIR="$work/config" macos/.build/debug/Folio \
   --set natural-wine --screenshot "$work/shot.png" --appearance "$appearance"

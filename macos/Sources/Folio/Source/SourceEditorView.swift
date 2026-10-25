@@ -293,6 +293,10 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         window?.makeFirstResponder(textView)
     }
 
+    func collapseSelection() {
+        textView.setSelectedRange(NSRange(location: textView.selectedRange().upperBound, length: 0))
+    }
+
     func setPending(_ range: (from: Int, to: Int)?) {
         pendingRange = range
         applyMarks()
