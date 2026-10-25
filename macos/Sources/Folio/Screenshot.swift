@@ -41,6 +41,8 @@ enum Screenshot {
         // Active, so the sidebar highlights in the system accent rather than inactive grey.
         NSApp.activate(ignoringOtherApps: true)
         win.window?.makeKeyAndOrderFront(nil)
+        // The top of the file, where the picture starts: after the pane has settled, which scrolls.
+        win.scrollHost.scroll(toFraction: 0)
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         if let window = win.window { WindowPicture.write(window, to: path) }
     }
