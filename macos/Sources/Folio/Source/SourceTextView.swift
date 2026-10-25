@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The markdown source as an `NSTextView`. It is not in a scroll view of its own: the window's
 /// `EditorScrollView` scrolls it with the comments pane beside it, so it is as tall as its text

@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 import Markdown
 
 /// Turns markdown into the preview's attributed string and the map of where its characters came
