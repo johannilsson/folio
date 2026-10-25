@@ -3,10 +3,10 @@ import AppKit
 /// Colours the markdown source: headings, emphasis, code, links, quotes, list markers, fences.
 /// Line by line, with one piece of state (inside a fenced block), which is all the editor needs.
 /// It sets attributes on the text storage and never touches the characters.
-enum MarkdownHighlighter {
+public enum MarkdownHighlighter {
     static let fontSize: CGFloat = 13
 
-    static let regular = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    public static let regular = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     private static let medium = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium)
     private static let strong = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)
 
@@ -42,7 +42,7 @@ enum MarkdownHighlighter {
     private static let rule = try! NSRegularExpression(pattern: "^\\s{0,3}([-*_])(\\s*\\1){2,}\\s*$")
 
     /// Gives all of `storage` its look.
-    static func apply(to storage: NSTextStorage) {
+    public static func apply(to storage: NSTextStorage) {
         let whole = NSRange(location: 0, length: storage.length)
         let text = storage.string as NSString
         storage.beginEditing()
@@ -90,7 +90,7 @@ enum MarkdownHighlighter {
     }
 
     /// The paragraph style the whole text uses: room between lines.
-    static let paragraph: NSParagraphStyle = {
+    public static let paragraph: NSParagraphStyle = {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = 22
         style.maximumLineHeight = 22

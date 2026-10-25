@@ -1,6 +1,6 @@
 import AppKit
 
-extension NSAttributedString.Key {
+public extension NSAttributedString.Key {
     /// On a paragraph that may be wider than the text column (a picture): it starts where the text does
     /// and may run on to the right edge of the window.
     static let folioWide = NSAttributedString.Key("folioWide")
@@ -17,16 +17,16 @@ extension NSAttributedString.Key {
 /// A table of the text. Its width and its place are the view's to set once it knows how wide the window is
 /// (`PreviewView.applyColumn`): at least as wide as the text column, wider when its content asks for it.
 /// It starts where the text does: a text table has no left margin, so an empty first column makes it.
-final class PreviewTable {
-    let grid: NSTextTable
+public final class PreviewTable {
+    public let grid: NSTextTable
     /// The cells of an extra first column with nothing in it, whose width is the table's left margin.
-    var spacers: [NSTextTableBlock] = []
+    public var spacers: [NSTextTableBlock] = []
     /// How wide the table is when no cell has to wrap.
-    var natural: CGFloat = 0
+    public var natural: CGFloat = 0
     /// The margin and width last given to the grid: laid-out text keeps what it was laid out with until told otherwise.
-    var applied: (margin: CGFloat, width: CGFloat) = (-1, -1)
+    public var applied: (margin: CGFloat, width: CGFloat) = (-1, -1)
 
-    init(grid: NSTextTable) {
+    public init(grid: NSTextTable) {
         self.grid = grid
     }
 }
@@ -34,27 +34,35 @@ final class PreviewTable {
 /// The rendered text of a markdown file, and how its characters line up with the file's. Everything
 /// that is anchored or selected goes through this map, so the rules of what is rendered text stay in
 /// Rust (`Rust.anchor`, `Rust.renderedSelection`), which work on the markdown itself.
-struct PreviewText {
-    struct Segment {
-        var display: NSRange
+public struct PreviewText {
+    public struct Segment {
+        public var display: NSRange
         /// Where the characters came from in the file. Nil for characters that exist only in the
         /// rendering: a bullet, the line between blocks, the preview of a suggestion.
-        var source: NSRange?
+        public var source: NSRange?
         /// Display and source hold the same text, so a position inside is one to one. Otherwise
         /// (an entity, a rule, a fallback) the segment is mapped as a whole.
-        var linear: Bool
+        public var linear: Bool
+
+        public init(display: NSRange, source: NSRange?, linear: Bool) {
+            self.display = display
+            self.source = source
+            self.linear = linear
+        }
     }
 
-    var text = NSMutableAttributedString()
-    var segments: [Segment] = []
-    var tables: [PreviewTable] = []
+    public var text = NSMutableAttributedString()
+    public var segments: [Segment] = []
+    public var tables: [PreviewTable] = []
+
+    public init() {}
 
     private var sourced: [Segment] { segments.filter { $0.source != nil } }
 
     // MARK: file to display
 
     /// The displayed range of the file's `range`, or nil when none of it is shown.
-    func displayRange(forSource range: NSRange) -> NSRange? {
+    public func displayRange(forSource range: NSRange) -> NSRange? {
         guard let start = displayLocation(forSource: range.location, end: false),
               let end = displayLocation(forSource: range.upperBound, end: true), end > start else { return nil }
         return NSRange(location: start, length: end - start)
@@ -62,7 +70,7 @@ struct PreviewText {
 
     /// Where the file's offset is on screen. A range's start snaps forward to the next shown
     /// character, its end (and a point, such as an insertion) back to the previous one.
-    func displayLocation(forSource offset: Int, end: Bool) -> Int? {
+    public func displayLocation(forSource offset: Int, end: Bool) -> Int? {
         let list = sourced
         guard let first = list.first, let last = list.last else { return nil }
         if end {
@@ -80,7 +88,7 @@ struct PreviewText {
     // MARK: display to file
 
     /// The file's range for a displayed one, or nil when it holds nothing from the file (bullets, say).
-    func sourceRange(forDisplay range: NSRange) -> NSRange? {
+    public func sourceRange(forDisplay range: NSRange) -> NSRange? {
         let list = sourced
         guard let first = list.first(where: { $0.display.upperBound > range.location }),
               let last = list.last(where: { $0.display.location < range.upperBound }) else { return nil }
@@ -93,7 +101,7 @@ struct PreviewText {
     // MARK: suggestions
 
     /// Puts the preview of a suggestion into the text at a displayed position.
-    mutating func insertGhost(_ ghost: NSAttributedString, at location: Int) {
+    public mutating func insertGhost(_ ghost: NSAttributedString, at location: Int) {
         var location = location
         // Inside a segment that cannot be cut, the preview goes after it.
         if let inside = segments.first(where: { $0.display.location < location && location < $0.display.upperBound }), !inside.linear || inside.source == nil {

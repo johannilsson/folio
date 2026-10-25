@@ -42,6 +42,6 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", infoPlist]),
             ]
         ),
-        .testTarget(name: "FolioKitTests", dependencies: ["FolioKit"]),
+        .testTarget(name: "FolioKitTests", dependencies: ["FolioKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )

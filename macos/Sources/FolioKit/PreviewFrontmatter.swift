@@ -3,20 +3,20 @@ import Foundation
 /// The YAML block at the top of a file. The preview shows it as a small box of key and value rows
 /// instead of reading it as markdown. The parsing is simple: top-level `key: value` pairs, list items
 /// joined onto their key.
-struct PreviewFrontmatter {
-    struct Entry {
-        var key: String
-        var keyRange: NSRange
-        var value: String
+public struct PreviewFrontmatter {
+    public struct Entry {
+        public var key: String
+        public var keyRange: NSRange
+        public var value: String
         /// Where the value is in the file, when it is written there as it is shown.
-        var valueRange: NSRange?
+        public var valueRange: NSRange?
     }
 
     /// From the opening `---` to the end of the closing one's line.
-    var range: NSRange
-    var entries: [Entry]
+    public var range: NSRange
+    public var entries: [Entry]
 
-    static func split(_ text: String) -> PreviewFrontmatter? {
+    public static func split(_ text: String) -> PreviewFrontmatter? {
         guard text.hasPrefix("---\n"),
               let block = try? NSRegularExpression(pattern: "^---\\n([\\s\\S]*?)\\n---[ \\t]*(?:\\n|$)"),
               let pair = try? NSRegularExpression(pattern: "^([^\\s:#-][^:]*):\\s*(.*)$") else { return nil }
