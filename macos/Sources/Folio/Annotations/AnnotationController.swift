@@ -232,7 +232,8 @@ final class AnnotationController {
         card.isFloating = true
         let height = card.layoutContent(width: cardWidth)
         if card.superview !== host.floatingHost { host.floatingHost.addSubview(card) }
-        card.frame.origin = floatingOrigin(width: cardWidth, height: height, left: anchor.left, top: anchor.top, bottom: anchor.bottom)
+        card.frame.origin = CardLayout.floatingOrigin(width: cardWidth, height: height, left: CGFloat(anchor.left), top: CGFloat(anchor.top),
+                                                      bottom: CGFloat(anchor.bottom), visible: host.visibleDocumentRect, textWidth: host.textWidth)
     }
 
     private func placeFloatingForm() {
@@ -240,14 +241,9 @@ final class AnnotationController {
         form.isFloating = true
         let height = form.layoutContent(width: cardWidth)
         if form.superview !== host.floatingHost { host.floatingHost.addSubview(form) }
-        form.frame.origin = floatingOrigin(width: cardWidth, height: height, left: formSelection.left,
-                                           top: formSelection.top, bottom: formSelection.endBottom)
-    }
-
-    /// Below `bottom`, or above `top` when it will not fit below but will fit above, and kept inside the text column.
-    private func floatingOrigin(width: CGFloat, height: CGFloat, left: Double, top: Double, bottom: Double) -> NSPoint {
-        CardLayout.floatingOrigin(width: width, height: height, left: CGFloat(left), top: CGFloat(top), bottom: CGFloat(bottom),
-                                  visible: host.visibleDocumentRect, textWidth: host.textWidth)
+        form.frame.origin = CardLayout.floatingOrigin(width: cardWidth, height: height, left: CGFloat(formSelection.left),
+                                                      top: CGFloat(formSelection.top), bottom: CGFloat(formSelection.endBottom),
+                                                      visible: host.visibleDocumentRect, textWidth: host.textWidth)
     }
 
     // MARK: the Comment button and the form

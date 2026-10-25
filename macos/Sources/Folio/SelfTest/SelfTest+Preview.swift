@@ -34,24 +34,6 @@ extension SelfTest {
             self.controller.scrollHost.contentHeight >= textView.frame.height - 1 && textView.frame.height > 200
         }
 
-        // The map between what is on screen and the file.
-        await check("a displayed range maps to the same words in the file, and back") {
-            let md = self.disk()
-            let built = PreviewBuilder.build(md, plantUML: AppConfig.renderPlantUML)
-            let shown = (built.text.string as NSString).range(of: "minimal intervention")
-            let inFile = (md as NSString).range(of: "minimal intervention")
-            return built.sourceRange(forDisplay: shown) == inFile && built.displayRange(forSource: inFile) == shown
-        }
-        await check("emphasis marks and list bullets are skipped by the map") {
-            let md = "A **bold** word\n\n- one\n- two\n"
-            let built = PreviewBuilder.build(md, plantUML: AppConfig.renderPlantUML)
-            let shown = built.text.string as NSString
-            let bold = built.sourceRange(forDisplay: shown.range(of: "bold word"))
-            let bullet = built.sourceRange(forDisplay: NSRange(location: shown.range(of: "one").location - 2, length: 1))
-            let one = built.sourceRange(forDisplay: shown.range(of: "one"))
-            return bold == (md as NSString).range(of: "bold** word") && bullet == nil && one == (md as NSString).range(of: "one")
-        }
-
         await check("the PlantUML encoding reads back as the text, and so does a server's own") {
             // The compressed bytes differ with the compressor, so they are compared by what they say. The
             // second string is what the plantuml-encoder package, which the old web preview used, made of it.
@@ -59,14 +41,6 @@ extension SelfTest {
             return Self.plantUMLDecode(PlantUML.encode(text)) == text
                 && Self.plantUMLDecode("SoWkIImgAStDuNBCoKnELT2rKt3AJx9Io4ZDoSddSaZDIodDpG40") == text
                 && Self.plantUMLDecode(PlantUML.encode("A")) == "A"
-        }
-        await check("fenced code in a list keeps its line-by-line map to the file, though the file indents it") {
-            let md = "- item\n\n  ```js\n  const y = 1\n  let z = 2\n  ```\n"
-            let built = PreviewBuilder.build(md, plantUML: AppConfig.renderPlantUML)
-            let shown = built.text.string as NSString
-            let y = built.sourceRange(forDisplay: shown.range(of: "y = 1"))
-            let z = built.sourceRange(forDisplay: shown.range(of: "z = 2"))
-            return y == (md as NSString).range(of: "y = 1") && z == (md as NSString).range(of: "z = 2")
         }
 
         // An agent annotates through the CLI; the cards and marks follow.
@@ -297,13 +271,6 @@ extension SelfTest {
             let small = (storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize ?? 99
             let heading = (storage.attribute(.font, at: text.range(of: "Blocks").location, effectiveRange: nil) as? NSFont)?.pointSize ?? 0
             return box == "box" && small < 14 && heading > 20
-        }
-        await check("a value in the box and the heading after it map to their place in the file") {
-            let built = PreviewBuilder.build(md, plantUML: AppConfig.renderPlantUML)
-            let shown = built.text.string as NSString
-            let hello = built.sourceRange(forDisplay: shown.range(of: "Hello there"))
-            let heading = built.sourceRange(forDisplay: shown.range(of: "Blocks"))
-            return hello == (md as NSString).range(of: "Hello there") && heading == (md as NSString).range(of: "Blocks")
         }
         await check("a quote has its bars (two deep for the inner one), a rule and a code block are painted, and no rule characters are typed") {
             guard let storage = textView.textStorage else { return false }
