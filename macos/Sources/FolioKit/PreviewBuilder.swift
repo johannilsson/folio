@@ -1,11 +1,10 @@
 import AppKit
-import FolioKit
 import Markdown
 
 /// Turns markdown into the preview's attributed string and the map of where its characters came
 /// from (`PreviewText`). Blocks swift-markdown reads that are not drawn yet (tables, raw HTML) are
 /// shown as their markdown, so nothing in the file is missing from the view.
-struct PreviewBuilder {
+public struct PreviewBuilder {
     private struct Context {
         var indent: CGFloat = 0
         var quoted = false
@@ -26,12 +25,14 @@ struct PreviewBuilder {
         var block = false
     }
 
-    static let bodySize: CGFloat = 15
+    public static let bodySize: CGFloat = 15
 
     /// What is parsed: the file, but with the frontmatter blanked out, so offsets stay the file's.
     private let markdown: String
     /// Where relative image paths start: the folder of the file.
     private let base: URL?
+    /// Whether PlantUML blocks are drawn as diagrams (a command or server is set up for them).
+    private let plantUML: Bool
     private let source: NSString
     private var lineStarts = [0]
     private var utf16At: [Int] = []
@@ -39,9 +40,9 @@ struct PreviewBuilder {
     /// Where the block being written starts, when a list marker has been written ahead of it.
     private var blockStart: Int?
 
-    static func build(_ markdown: String, base: URL? = nil) -> PreviewText {
+    public static func build(_ markdown: String, base: URL? = nil, plantUML: Bool) -> PreviewText {
         let front = PreviewFrontmatter.split(markdown)
-        var builder = PreviewBuilder(markdown, parsed: front.map { Self.blanked(markdown, $0.range) } ?? markdown, base: base)
+        var builder = PreviewBuilder(markdown, parsed: front.map { Self.blanked(markdown, $0.range) } ?? markdown, base: base, plantUML: plantUML)
         if let front { builder.frontmatterBox(front) }
         let document = Markdown.Document(parsing: builder.markdown)
         builder.blocks(of: document, Context())
@@ -55,9 +56,10 @@ struct PreviewBuilder {
         return String(decoding: units, as: UTF16.self)
     }
 
-    private init(_ original: String, parsed markdown: String, base: URL?) {
+    private init(_ original: String, parsed markdown: String, base: URL?, plantUML: Bool) {
         self.markdown = markdown
         self.base = base
+        self.plantUML = plantUML
         source = original as NSString
         // swift-markdown counts columns in UTF-8 bytes; the app counts UTF-16 units.
         var byte = 0, unit = 0
@@ -219,7 +221,7 @@ struct PreviewBuilder {
     private mutating func codeBlock(_ code: CodeBlock, _ context: Context) {
         var text = code.code
         while text.hasSuffix("\n") { text.removeLast() }
-        if AppConfig.renderPlantUML, code.language?.lowercased() == "plantuml" {
+        if plantUML, code.language?.lowercased() == "plantuml" {
             picture(PreviewAsset(.plantuml(text)), of: code, context)
             return
         }
