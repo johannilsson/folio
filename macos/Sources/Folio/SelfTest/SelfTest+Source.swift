@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The source editor: its annotation UI, saving, outside changes and formatting.
 extension SelfTest {

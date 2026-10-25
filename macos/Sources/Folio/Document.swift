@@ -1,3 +1,4 @@
+import FolioKit
 import Foundation
 
 /// One markdown file and its `.folio` sidecar: the file IO, and the

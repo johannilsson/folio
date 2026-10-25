@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The preview's annotation UI, the annotation store and Undo across the two modes.
 extension SelfTest {

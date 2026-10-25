@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds everything and runs all checks: the frontend build, Rust tests, and on macOS
-# the native app's self-test.
+# the app's unit tests (FolioKit) and its self-test.
 # Runs every step even if one fails, then reports a summary.
 # Usage: scripts/verify.sh [--skip-macos]
 cd "$(dirname "$0")/.."
@@ -18,6 +18,7 @@ step "rust tests" cargo test
 # The macOS app opens real windows, so it needs a logged-in desktop session.
 if [[ "$(uname)" == "Darwin" && " $* " != *" --skip-macos "* ]]; then
   step "macos build" bash -c 'cargo build --release && swift build --package-path macos'
+  step "macos unit tests" swift test --package-path macos
   step "macos self-test" macos/.build/debug/Folio --self-test macos/selftest.md
 fi
 

@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The rendered markdown, drawn natively: a read-only text view built from the file's markdown
 /// (`PreviewBuilder`), with the annotations drawn over it and the annotation UI's surface while the

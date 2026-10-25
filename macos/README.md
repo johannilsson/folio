@@ -84,6 +84,7 @@ Change `AppServer.swift` and `src/mcp.rs` together.
 ```bash
 cargo build                                                  # the `folio` CLI the test drives
 swift build --package-path macos
+swift test --package-path macos                              # FolioKit's unit tests, no windows
 macos/.build/debug/Folio --self-test macos/selftest.md       # exits 0 when every check passes
 ```
 

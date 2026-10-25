@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// What the two text surfaces, the markdown source and the preview, do the same way on their
 /// `NSTextView`: anchor annotations in the markdown, draw them as marks, say where a character is, build

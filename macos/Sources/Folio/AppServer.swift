@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// What the running app tells Folio's MCP server (src/mcp.rs): the windows with the annotation the
 /// reader has focused (`state`), and `reveal`. The server is a separate process that Claude desktop

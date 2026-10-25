@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// The round send button of a reply or comment field: grey while empty, dark once there is text.
 private final class SendButton: NSView {
