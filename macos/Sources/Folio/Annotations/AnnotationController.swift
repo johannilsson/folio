@@ -336,7 +336,7 @@ final class AnnotationController {
     }
 
     private func showToast(_ message: String, undo: (() -> Void)? = nil) {
-        toast.show(message, undo: undo, in: host, centerX: host.textWidth / 2, bottom: 24)
+        toast.show(message, undo: undo, in: host, centerX: host.textWidth / 2, bottom: 24 + host.contentInsets.top)
     }
 
     var toastMessage: String? { toast.isHidden ? nil : toast.message }

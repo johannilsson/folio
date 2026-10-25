@@ -46,13 +46,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         super.init(workspace: workspace, fullHeightSidebar: true)
 
         // The editor goes in the content pane of a split view, with the sidebar beside it.
-        // Its top edge is the bottom of the toolbar, which now floats over the content side.
+        // The text runs up under the toolbar, which floats over the content side.
         let content = NSViewController()
         let contentRoot = NSView()
         scrollHost.translatesAutoresizingMaskIntoConstraints = false
         contentRoot.addSubview(scrollHost)
         NSLayoutConstraint.activate([
-            scrollHost.topAnchor.constraint(equalTo: contentRoot.safeAreaLayoutGuide.topAnchor),
+            scrollHost.topAnchor.constraint(equalTo: contentRoot.topAnchor),
             scrollHost.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
             scrollHost.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
             scrollHost.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
