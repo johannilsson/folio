@@ -45,6 +45,8 @@ protocol AnnotationSurface: AnyObject {
     var hasKeyboardFocus: Bool { get }
     /// Gives the keyboard back to the text.
     func focusText()
+    /// Turns the selection into a caret after it, as after commenting on it: the Comment button goes.
+    func collapseSelection()
 
     /// The pending annotations changed. The preview reads the sidecar itself; the source anchors them here.
     func annotationsChanged(_ pending: [Annotation])

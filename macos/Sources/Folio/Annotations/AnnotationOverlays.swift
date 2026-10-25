@@ -46,12 +46,12 @@ final class CommentAdderView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 98, height: 32))
         wantsLayer = true
         shadow = NSShadow()
-        layer?.shadowOpacity = 0.25
-        layer?.shadowRadius = 8
-        layer?.shadowOffset = CGSize(width: 0, height: -2)
-        layer?.masksToBounds = false
+        AnnotationStyle.liftFloatingPill(layer)
         button.isBordered = false
-        button.font = .systemFont(ofSize: 13, weight: .semibold)
+        // The same text as the toast's message.
+        button.attributedTitle = NSAttributedString(string: "Comment", attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor,
+        ])
         button.target = self
         button.action = #selector(clicked)
         button.setAccessibilityIdentifier("comment")
@@ -69,9 +69,7 @@ final class CommentAdderView: NSView {
     @objc private func clicked() { onClick?() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        AnnotationStyle.floatFill.setFill()
-        path.fill()
+        AnnotationStyle.drawFloatingPill(in: bounds)
     }
 
     /// The button does not take focus: the selection in the page has to stay selected.
@@ -91,10 +89,7 @@ final class ToastView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.shadowOpacity = 0.2
-        layer?.shadowRadius = 8
-        layer?.shadowOffset = CGSize(width: 0, height: -2)
-        layer?.masksToBounds = false
+        AnnotationStyle.liftFloatingPill(layer)
         label.font = .systemFont(ofSize: 13)
         label.textColor = .labelColor
         undo.isBordered = false
@@ -129,7 +124,7 @@ final class ToastView: NSView {
         let padding: CGFloat = 16
         var width = label.frame.width + 2 * padding
         if action != nil { width += undo.frame.width + 12 }
-        let height: CGFloat = 36
+        let height: CGFloat = 32
         frame = NSRect(x: centerX - width / 2, y: bottom, width: width, height: height)
         label.frame.origin = NSPoint(x: padding, y: (height - label.frame.height) / 2)
         undo.frame.origin = NSPoint(x: label.frame.maxX + 12, y: (height - undo.frame.height) / 2)
@@ -147,11 +142,6 @@ final class ToastView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
-        AnnotationStyle.floatFill.setFill()
-        path.fill()
-        NSColor.separatorColor.setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        AnnotationStyle.drawFloatingPill(in: bounds)
     }
 }

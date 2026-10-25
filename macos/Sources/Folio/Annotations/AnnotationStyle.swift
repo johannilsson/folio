@@ -24,6 +24,24 @@ enum AnnotationStyle {
             : NSColor.white
     }
 
+    /// The look of the small things that float over the text, the Comment button and the toast: a
+    /// capsule with a hairline edge, lifted off the page by a soft shadow.
+    static func liftFloatingPill(_ layer: CALayer?) {
+        layer?.shadowOpacity = 0.22
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: -2)
+        layer?.masksToBounds = false
+    }
+
+    static func drawFloatingPill(in bounds: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        floatFill.setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
     static let authorFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     static let timeFont = NSFont.systemFont(ofSize: 11)
     static let bodyFont = NSFont.systemFont(ofSize: 12)
