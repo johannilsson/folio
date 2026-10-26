@@ -2,15 +2,13 @@ name: CI
 
 on:
   pull_request:
-    # `labeled` so adding the `pictures` label takes the pictures without a new push.
-    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
+  # Called by pictures.yml when the `pictures` label is added, to take the pictures without a new push.
+  workflow_call:
 
 jobs:
   verify:
-    # Adding some other label must not rerun CI.
-    if: github.event.action != 'labeled' || github.event.label.name == 'pictures'
     # Write access is for the pictures branch and comment, see scripts/ci-pictures.sh.
     permissions:
       contents: write
@@ -94,7 +92,7 @@ jobs:
   # `always()` matters: a skipped job counts as passing, so this must run and fail on its own.
   test:
     needs: verify
-    if: always() && (github.event.action != 'labeled' || github.event.label.name == 'pictures')
+    if: always()
     runs-on: ubuntu-24.04
     steps:
       - name: Every verify job passed
