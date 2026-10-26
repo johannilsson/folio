@@ -43,4 +43,17 @@ mod tests {
             assert_eq!(link, "folio://annotation/ann_k7mxpq2r?file=/definitely/not%20here/a%26b.md");
         }
     }
+
+    #[test]
+    fn run_rejects_an_unknown_annotation_id() {
+        let dir = std::env::temp_dir().join(format!("folio-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let file = dir.canonicalize().unwrap().join("a.md");
+        std::fs::write(&file, "Hello.\n").unwrap();
+        super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
+        let id = Sidecar::load(&super::super::folio_path(&file)).unwrap().annotations[0].id.clone();
+        assert!(run(&file, &id).is_ok());
+        let err = run(&file, "ann_nope").unwrap_err().to_string();
+        assert!(err.contains("no annotation ann_nope"), "{err}");
+    }
 }
