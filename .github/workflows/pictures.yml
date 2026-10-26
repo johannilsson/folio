@@ -1,0 +1,16 @@
+name: Pictures
+
+# Adding the `pictures` label runs CI again so the pictures are taken without a new push. A separate
+# workflow so that adding any other label leaves only a skipped `pictures` check, not a skipped `test`.
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  pictures:
+    if: github.event.label.name == 'pictures'
+    # Write access is for the pictures branch and comment, see scripts/ci-pictures.sh.
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/ci.yml
