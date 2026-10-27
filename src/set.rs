@@ -400,6 +400,30 @@ mod tests {
     }
 
     #[test]
+    fn list_names_is_sorted_and_skips_files_that_are_not_sets() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("names");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        save("zeta", &Set::empty()).unwrap();
+        save("alpha", &Set::empty()).unwrap();
+        std::fs::write(tmp.join("sets").join("notes.txt"), "x").unwrap();
+        assert_eq!(list_names().unwrap(), vec!["alpha".to_string(), "zeta".to_string()]);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn load_reports_a_malformed_set_file() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("malformed");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        std::fs::create_dir_all(tmp.join("sets")).unwrap();
+        std::fs::write(tmp.join("sets").join("bad.json"), "{ not json").unwrap();
+        let err = load("bad").unwrap_err().to_string();
+        assert!(err.contains("invalid set file"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
     fn rejects_bad_names() {
         assert!(validate_name("../evil").is_err());
         assert!(validate_name("").is_err());
