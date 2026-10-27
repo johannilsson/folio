@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(out["doc"], "# Title\n\nThe quick **brown** dog jumps.\n");
         let saved: Sidecar = serde_json::from_str(out["sidecar"].as_str().unwrap()).unwrap();
         assert!(saved.annotations[0].resolved);
-        assert_eq!(saved.annotations[0].resolved_as.as_deref(), Some("accepted"));
+        assert_eq!(saved.annotations[0].resolved_as, Some(crate::sidecar::ResolvedAs::Accepted));
     }
 
     #[test]

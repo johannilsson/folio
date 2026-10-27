@@ -53,6 +53,28 @@ pub struct ThreadReply {
     pub created: String,
 }
 
+/// How an annotation was resolved. `Resolved` is only read (spec value, never written).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolvedAs {
+    Accepted,
+    Rejected,
+    Resolved,
+    Dismissed,
+}
+
+impl ResolvedAs {
+    /// The outcome of accepting or rejecting an annotation: a comment is dismissed
+    /// either way; a suggestion or highlight is accepted or rejected.
+    pub fn outcome(kind: &AnnotationKind, accept: bool) -> Self {
+        match (kind, accept) {
+            (AnnotationKind::Comment, _) => Self::Dismissed,
+            (_, true) => Self::Accepted,
+            (_, false) => Self::Rejected,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: String,
@@ -69,7 +91,7 @@ pub struct Annotation {
     pub created: String,
     pub resolved: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_as: Option<String>,
+    pub resolved_as: Option<ResolvedAs>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

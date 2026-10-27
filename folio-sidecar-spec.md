@@ -79,7 +79,7 @@ Every annotation, regardless of kind or source, shares a common envelope:
 | `comment`        | string  | no       | Human-readable rationale or review note. Optional for all kinds. |
 | `created`        | string  | yes      | ISO 8601 timestamp. |
 | `resolved`       | boolean | yes      | `false` while pending. `true` once accepted, rejected, or dismissed. |
-| `resolved_as`    | string  | no       | Set on resolution. One of `accepted`, `rejected`, `resolved`, `dismissed`. |
+| `resolved_as`    | string  | no       | Set on resolution. One of `accepted`, `rejected`, `dismissed`: a comment is `dismissed`, a suggestion or highlight is `accepted` or `rejected`. `resolved` is still read but never written. |
 | `resolved_at`    | string  | no       | ISO 8601 timestamp set on resolution. |
 | `replies`        | array   | no       | Ordered list of `ThreadReply` objects. Omitted from JSON when empty. |
 

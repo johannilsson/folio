@@ -4,7 +4,7 @@
 //! (never to a copy of its own), so what an agent wrote in the meantime survives. Accepting
 //! is separate: it also patches the markdown (`commands::accept`).
 
-use crate::sidecar::{generate_id, now_iso8601, Annotation, AnnotationKind, AnnotationSource, Sidecar, ThreadReply};
+use crate::sidecar::{generate_id, now_iso8601, Annotation, AnnotationKind, AnnotationSource, ResolvedAs, Sidecar, ThreadReply};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -70,9 +70,7 @@ pub fn apply(mut sidecar: Sidecar, edit: Edit) -> Result<Edited, String> {
                 return Ok(Edited { sidecar, id: None });
             }
             ann.resolved = true;
-            // A comment is dismissed; a suggestion (or highlight) is rejected.
-            let outcome = if ann.kind == AnnotationKind::Comment { "dismissed" } else { "rejected" };
-            ann.resolved_as = Some(outcome.to_string());
+            ann.resolved_as = Some(ResolvedAs::outcome(&ann.kind, false));
             ann.resolved_at = Some(now_iso8601());
         }
         Edit::Restore { annotation } => {
@@ -142,8 +140,8 @@ mod tests {
     fn a_comment_is_dismissed_and_a_suggestion_rejected() {
         let out = apply(sidecar(), edit(r#"{"op":"resolve","id":"c1"}"#)).unwrap().sidecar;
         let out = apply(out, edit(r#"{"op":"resolve","id":"r1"}"#)).unwrap().sidecar;
-        assert_eq!(out.annotations[0].resolved_as.as_deref(), Some("dismissed"));
-        assert_eq!(out.annotations[1].resolved_as.as_deref(), Some("rejected"));
+        assert_eq!(out.annotations[0].resolved_as, Some(ResolvedAs::Dismissed));
+        assert_eq!(out.annotations[1].resolved_as, Some(ResolvedAs::Rejected));
         assert!(out.annotations.iter().all(|a| a.resolved && a.resolved_at.is_some()));
     }
 
@@ -151,10 +149,10 @@ mod tests {
     fn resolving_an_already_resolved_annotation_keeps_its_outcome() {
         let mut s = sidecar();
         s.annotations[1].resolved = true;
-        s.annotations[1].resolved_as = Some("accepted".into());
+        s.annotations[1].resolved_as = Some(ResolvedAs::Accepted);
         s.annotations[1].resolved_at = Some("2026-01-02T00:00:00Z".into());
         let out = apply(s, edit(r#"{"op":"resolve","id":"r1"}"#)).unwrap().sidecar;
-        assert_eq!(out.annotations[1].resolved_as.as_deref(), Some("accepted"));
+        assert_eq!(out.annotations[1].resolved_as, Some(ResolvedAs::Accepted));
         assert_eq!(out.annotations[1].resolved_at.as_deref(), Some("2026-01-02T00:00:00Z"));
     }
 
