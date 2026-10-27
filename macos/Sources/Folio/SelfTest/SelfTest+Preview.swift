@@ -194,7 +194,7 @@ extension SelfTest {
 
         await blockChecks()
         await wideBlockChecks()
-        await previewParityChecks()
+        await previewBehaviourChecks()
 
         // Another program replaces the file the way agents do.
         replaceFile(disk() + "\nAdded by another program.\n")
