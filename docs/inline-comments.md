@@ -46,6 +46,11 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 - Cards start expanded. Each can be **collapsed** to one line: a dot in the author's colour, the author, the first words of
   the comment (for a suggestion, `old → new`) and the reply count. Collapse is one of the card's
   hover actions; clicking a collapsed line expands it.
+- The collapsed line is the open card's header kept in place: the name where it is on the open
+  card, the dot in the avatar's column, the gist where the time is. Opening and folding animate
+  the card's height (0.2 s, eased like the pane), and the text under it moves with it; only what is
+  under the header comes and goes. A folding card keeps its content until it is one line tall.
+  With Reduce Motion it changes at once.
 - What is collapsed is kept per window, by annotation id, until the window closes. It survives
   switching files in a set, switching preview/source, and opening and closing the pane. It is
   never written to the sidecar or to the config.
@@ -65,9 +70,11 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 
 ### Switching layouts
 
-- Turning inline on or off, or opening or closing the pane, keeps the first visible line of text
-  where it is on screen (the room under rows changes the text's height, so the scroll fraction is
-  not enough here).
+- Whenever the room in the text changes (turning inline on or off, opening or closing the pane,
+  a card opening or folding, an agent adding a card), the line at the top of the window stays
+  where it is on screen. Room that comes or goes above it scrolls the window by as much.
+  Switching between the preview and the source keeps the scroll fraction, as before.
+- Turning Comments Inline on or off is not animated: it reflows the whole document.
 
 ## How it is built
 
@@ -132,8 +139,14 @@ quote), and a selection that ends on a row paints over the room.
 
 - Inline cards are placed in the scrolling canvas where the open card goes (`host.floatingHost`),
   at the column's left. The canvas is made tall enough for parked cards (`setGutterExtent`).
-- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (36 pt: a 10 pt dot in the author's colour without initials, the name, the first line of what
-  it says and the reply count).
+- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (40 pt, the header line of the open card: a 10 pt dot in the author's colour
+  without initials, the name, the first line of what it says and the reply count). `drawnHeight`
+  is the height it is drawn at while opening or folding; an inline card cuts off what is outside it
+  (`masksToBounds`, it has no shadow). The controller keeps the folds in progress (`folds`, a 60 fps
+  timer like the pane's) and hands `CardLayout.inline` the drawn heights, so the room follows.
+- `AnnotationController.setRoom` keeps the line at the top of the window in place: it asks the
+  surface for the line there (`lineMark`) before the room changes and where it is after
+  (`lineTop`), and scrolls by the difference (`EditorScrollView.scroll(by:)`).
 - `NewCommentView` is placed the same way for the form, under the selection's row.
 
 ## Tests
@@ -163,12 +176,12 @@ Done in the first pass (built and checked by CI only, on the pull request):
 3. The preference, the menu item and `layout()`'s inline branch: cards in place, focus.
 4. Collapse.
 5. The inline form.
-6. Self-test checks (`SelfTest+Inline.swift`) and pictures (`<base>-inline-preview.png`,
+6. Opening and folding animate; the line at the top of the window stays put when the room changes.
+7. Self-test checks (`SelfTest+Inline.swift`) and pictures (`<base>-inline-preview.png`,
    `<base>-inline-source.png`).
 
 Still to do:
 
-7. Keeping the first visible line when switching layouts (the scroll fraction is used now).
 8. Self-test checks still missing from the list above: two windows following the preference,
    collapse surviving a file switch in a set, the form under its row, `reveal` over MCP.
 9. `CLAUDE.md`'s "Annotation UI patterns" gets the inline layout once it settles.

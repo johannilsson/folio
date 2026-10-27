@@ -28,6 +28,12 @@ final class AnnotationController {
     private(set) var focusedID: String?
     /// The inline cards the reader folded to one line, kept while the window is open (any file, any mode).
     private(set) var collapsed: Set<String> = []
+    /// Inline cards opening or folding: the height they are drawn at moves from `from` to their new one
+    /// over `foldDuration`, and the room in the text with it. A folding card keeps its full content
+    /// until it is down to one line.
+    private var folds: [String: (from: CGFloat, start: Date, collapsing: Bool)] = [:]
+    private var foldTimer: Timer?
+    private static let foldDuration: TimeInterval = 0.2
     /// The annotation under the mouse, in the text or as a card.
     private var hoveredID: String?
     private(set) var cards: [String: AnnotationCardView] = [:]
@@ -95,7 +101,7 @@ final class AnnotationController {
             let previous = surface
             surface = showing
             // The other surface keeps no room for cards it does not show; what it reports now is not listened to.
-            previous.setInlineRoom([:])
+            _ = previous.setInlineRoom([:])
             anchors = [:]
             anchorsKnown = false
             selection = nil
@@ -229,7 +235,13 @@ final class AnnotationController {
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
             card.isInline = inlineShown
-            card.isCollapsed = inlineShown && collapsed.contains(annotation.id)
+            let collapse = inlineShown && collapsed.contains(annotation.id)
+            if collapse != card.isCollapsed, folds[annotation.id] == nil, card.isInline, card.superview === host.floatingHost,
+               card.frame.height > 0, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                folds[annotation.id] = (card.frame.height, Date(), collapse)
+                startFolding()
+            }
+            card.isCollapsed = collapse && folds[annotation.id]?.collapsing != true
         }
         surface.emphasized = Set([focusedID, hoveredID].compactMap { $0 })
         layout()
@@ -255,7 +267,11 @@ final class AnnotationController {
     /// Places the pane, the inline cards or the open card, the form and the Comment button.
     func layout() {
         let pending = store.pending
-        if !inlineShown || host.paneWidth > 0 { surface.setInlineRoom([:]) }
+        if !inlineShown || host.paneWidth > 0 {
+            folds = [:]
+            for card in cards.values { card.drawnHeight = nil }
+            setRoom([:])
+        }
         if paneShown || host.paneWidth > 0 {
             var items: [AnnotationGutterView.Item] = []
             for annotation in pending {
@@ -297,7 +313,13 @@ final class AnnotationController {
         for annotation in store.pending {
             guard let card = cards[annotation.id] else { continue }
             card.isFloating = false
-            let height = card.layoutContent(width: column.width)
+            card.drawnHeight = nil
+            let full = card.layoutContent(width: column.width)
+            var height = full
+            if let fold = folds[annotation.id] {
+                height = foldedHeight(fold, full: full)
+                card.drawnHeight = height
+            }
             let anchor = anchors[annotation.id]
             views.append(card)
             items.append(.init(row: anchor?.row, order: anchor?.from ?? Int.max, height: height))
@@ -316,7 +338,42 @@ final class AnnotationController {
         }
         host.setGutterExtent(laid.extent > 0 ? laid.extent + 48 : 0)
         // Last: the surface reports where the text went, and this is laid out again from there.
-        surface.setInlineRoom(laid.room)
+        setRoom(laid.room)
+    }
+
+    /// Leaves room in the text for the inline cards, keeping the line at the top of the window where
+    /// it is: room that comes or goes above it (a card opening, the pane opening) does not move what
+    /// is being read.
+    private func setRoom(_ room: [Int: CGFloat]) {
+        let mark = surface.lineMark(at: host.visibleDocumentRect.minY)
+        guard surface.setInlineRoom(room), let mark, let top = surface.lineTop(of: mark.index) else { return }
+        host.scroll(by: top - mark.top)
+    }
+
+    /// The height a card opening or folding is drawn at now, eased like the pane's slide.
+    private func foldedHeight(_ fold: (from: CGFloat, start: Date, collapsing: Bool), full: CGFloat) -> CGFloat {
+        let to = fold.collapsing ? AnnotationCardView.collapsedHeight : full
+        let t = min(1, Date().timeIntervalSince(fold.start) / Self.foldDuration)
+        let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+        return fold.from + (to - fold.from) * CGFloat(eased)
+    }
+
+    private func startFolding() {
+        guard foldTimer == nil else { return }
+        foldTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.foldStep() }
+        }
+    }
+
+    /// A frame of the cards opening and folding; a folded card shows its one line once it is down to it.
+    private func foldStep() {
+        let done = folds.filter { Date().timeIntervalSince($0.value.start) >= Self.foldDuration }.map(\.key)
+        for id in done { folds[id] = nil }
+        if folds.isEmpty {
+            foldTimer?.invalidate()
+            foldTimer = nil
+        }
+        if done.isEmpty { layout() } else { refresh() }
     }
 
     /// The card of the annotation clicked in the text, next to it; flips above near the bottom.

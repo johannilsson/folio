@@ -8,7 +8,9 @@ extension SelfTest {
         let original = disk()
         let wasInline = AppConfig.commentsInline
         AppConfig.commentsInline = false
-        replaceFile("# Inline\n\nFirst paragraph with two notes in it.\n\nSecond paragraph stays plain.\n\nLast line here.\n")
+        // Filler after it, so the window can scroll the lines with cards to its top.
+        let filler = (1...30).map { "Filler paragraph \($0)." }.joined(separator: "\n\n")
+        replaceFile("# Inline\n\nFirst paragraph with two notes in it.\n\nSecond paragraph stays plain.\n\nLast line here.\n\n\(filler)\n")
         _ = await until(seconds: 8) { self.previewText.contains("Last line here.") }
         replaceSidecar([
             commentJSON("in1", before: "First paragraph ", target: "with two"),
@@ -67,7 +69,7 @@ extension SelfTest {
         await check("Collapse folds an inline card to one line, and the card under it moves up") {
             await self.until {
                 guard let in1 = card("in1"), let in2 = card("in2") else { return false }
-                return in1.isCollapsed && in1.frame.height < 40 && in1.frame.height < fullHeight && abs(in2.frame.minY - (in1.frame.maxY + 6)) < 1
+                return in1.isCollapsed && in1.frame.height == AnnotationCardView.collapsedHeight && in1.frame.height < fullHeight && abs(in2.frame.minY - (in1.frame.maxY + 6)) < 1
             }
         }
         await check("focusing a collapsed card opens it") {
@@ -117,6 +119,23 @@ extension SelfTest {
                     && abs(next - row.next) < 1
             }
         }
+
+        // Room coming and going above the line at the top of the window does not move that line.
+        let host = controller.scrollHost
+        if let second = top(of: "Second paragraph") {
+            host.contentView.scroll(to: NSPoint(x: 0, y: second + 5 - host.contentInsets.top))
+            host.reflectScrolledClipView(host.contentView)
+        }
+        func onScreen() -> CGFloat { (top(of: "Second paragraph") ?? 0) - host.visibleDocumentRect.minY }
+        let before = onScreen()
+        send("toggleComments:")
+        await check("closing the pane puts the cards in the text without moving the line at the top of the window") {
+            await self.until {
+                !self.controller.commentsOn && host.paneWidth == 0 && card("in1")?.superview === canvas && abs(onScreen() - before) < 2
+            }
+        }
+        send("toggleComments:")
+        _ = await until { self.controller.commentsOn && host.paneWidth > 300 }
 
         AppConfig.commentsInline = wasInline
         replaceSidecar([])

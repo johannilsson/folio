@@ -516,11 +516,20 @@ final class PreviewView: NSView, AnnotationSurface {
         return TextSurface.row(ending: found.end, in: textView, room: room, below: found.painted ? 10 : 0)
     }
 
-    func setInlineRoom(_ new: [Int: CGFloat]) {
-        guard room.set(new, in: textView) else { return }
+    func setInlineRoom(_ new: [Int: CGFloat]) -> Bool {
+        guard room.set(new, in: textView) else { return false }
         relayout()
         textView.needsDisplay = true
         reportAnchors()
+        return true
+    }
+
+    func lineMark(at y: CGFloat) -> (index: Int, top: CGFloat)? {
+        TextSurface.mark(at: y, in: textView)
+    }
+
+    func lineTop(of index: Int) -> CGFloat? {
+        TextSurface.position(of: index, in: textView).map { CGFloat($0.top) }
     }
 
     var inlineColumn: (left: CGFloat, width: CGFloat) {

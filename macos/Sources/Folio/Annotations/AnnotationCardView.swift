@@ -222,12 +222,18 @@ final class AnnotationCardView: NSView {
         }
     }
 
-    /// In the text under its row: it can fold to one line.
+    /// In the text under its row: it can fold to one line. It has no shadow there, so what is outside
+    /// it is cut off, which is how it opens and folds (`drawnHeight`).
     var isInline = false {
         didSet {
             guard isInline != oldValue else { return }
+            layer?.masksToBounds = isInline
             rebuild()
         }
+    }
+    /// The height it is drawn at while it opens or folds; the content is laid out in full and cut off.
+    var drawnHeight: CGFloat? {
+        didSet { if drawnHeight != oldValue, let drawnHeight { frame.size.height = drawnHeight } }
     }
     /// Folded to one line (an inline card the reader collapsed): who wrote it, its first words and how
     /// many replies. Clicking it focuses it, which opens it again.
@@ -609,26 +615,31 @@ final class AnnotationCardView: NSView {
         }
 
         let height = y + pad
-        frame.size = NSSize(width: width, height: height)
+        frame.size = NSSize(width: width, height: drawnHeight ?? height)
         needsDisplay = true
         return height
     }
 
-    /// One line: a dot in the author's colour, the name, and the gist of the thread.
+    /// How tall a collapsed card is: its header line, padded as the open card's is.
+    static let collapsedHeight: CGFloat = 40
+
+    /// One line, the open card's header kept where it is: the name in its place, a dot in the author's
+    /// colour where the avatar is, and the gist of the thread where the time is. Opening the card only
+    /// adds what is under the header.
     private func layoutCollapsed(_ first: Entry, _ gist: PassthroughLabel, width: CGFloat) -> CGFloat {
         let pad = AnnotationStyle.cardPadding
-        let height: CGFloat = 36, avatar: CGFloat = 10
-        first.avatar.showsInitials = false
-        first.avatar.frame = NSRect(x: pad, y: (height - avatar) / 2, width: avatar, height: avatar)
+        let height = Self.collapsedHeight, dot: CGFloat = 10
         first.name.sizeToFit()
-        let nameW = min(first.name.frame.width, (width - 2 * pad) / 3)
-        first.name.frame = NSRect(x: pad + avatar + 8, y: (height - first.name.frame.height) / 2, width: nameW, height: first.name.frame.height)
+        let nameW = min(first.name.frame.width, (width - pad - Self.mainX) / 3)
+        first.name.frame = NSRect(x: Self.mainX, y: pad, width: nameW, height: first.name.frame.height)
+        first.avatar.showsInitials = false
+        first.avatar.frame = NSRect(x: pad + (AnnotationStyle.avatarSize - dot) / 2, y: first.name.frame.midY - dot / 2, width: dot, height: dot)
         gist.sizeToFit()
         let gistX = first.name.frame.maxX + 8
-        gist.frame = NSRect(x: gistX, y: (height - gist.frame.height) / 2, width: max(0, width - pad - gistX), height: gist.frame.height)
+        gist.frame = NSRect(x: gistX, y: first.name.frame.midY - gist.frame.height / 2, width: max(0, width - pad - gistX), height: gist.frame.height)
         lines = []
         rules = []
-        frame.size = NSSize(width: width, height: height)
+        frame.size = NSSize(width: width, height: drawnHeight ?? height)
         needsDisplay = true
         return height
     }

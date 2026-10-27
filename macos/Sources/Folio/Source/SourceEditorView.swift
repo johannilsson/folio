@@ -353,12 +353,21 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         return TextSurface.row(ending: line.upperBound - 1, in: textView, room: room)
     }
 
-    func setInlineRoom(_ new: [Int: CGFloat]) {
-        guard room.set(new, in: textView) else { return }
+    func setInlineRoom(_ new: [Int: CGFloat]) -> Bool {
+        guard room.set(new, in: textView) else { return false }
         relayout()
         textView.needsDisplay = true
         lineNumbers.needsDisplay = true
         reportAnchors()
+        return true
+    }
+
+    func lineMark(at y: CGFloat) -> (index: Int, top: CGFloat)? {
+        TextSurface.mark(at: y, in: textView)
+    }
+
+    func lineTop(of index: Int) -> CGFloat? {
+        TextSurface.position(of: index, in: textView).map { CGFloat($0.top) }
     }
 
     /// As wide as the text, up to the preview's text column: a card the width of a wide window is hard to read.

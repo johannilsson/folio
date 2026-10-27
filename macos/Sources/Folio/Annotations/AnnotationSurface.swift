@@ -75,8 +75,13 @@ protocol AnnotationSurface: AnyObject {
     /// The row holding the file's character at `index`: a block of the preview, a line of the source.
     func row(at index: Int) -> CardLayout.Row?
     /// Leaves room after rows (by `CardLayout.Row.end`) for the cards under them; empty for none.
-    /// The text moves, and the surface reports where the annotations are now.
-    func setInlineRoom(_ room: [Int: CGFloat])
+    /// The text moves, and the surface reports where the annotations are now. Returns whether the room changed.
+    @discardableResult
+    func setInlineRoom(_ room: [Int: CGFloat]) -> Bool
+    /// The character on the line at `y` (canvas coordinates), and the top of that line: what to keep in place.
+    func lineMark(at y: CGFloat) -> (index: Int, top: CGFloat)?
+    /// The top of the line the character at `index` is on, in the canvas's coordinates.
+    func lineTop(of index: Int) -> CGFloat?
     /// Where inline cards go across: the left of the text column and its width, in the canvas's coordinates.
     var inlineColumn: (left: CGFloat, width: CGFloat) { get }
 }

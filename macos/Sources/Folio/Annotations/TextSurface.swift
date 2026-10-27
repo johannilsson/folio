@@ -116,6 +116,17 @@ enum TextSurface {
         return CardLayout.Row(end: end, bottom: y + used.maxY + below, next: y + line.maxY - (room.room[end] ?? 0))
     }
 
+    /// The character on the line at `y` (in the coordinates of the view the text view is in), and the
+    /// top of that line.
+    static func mark(at y: CGFloat, in textView: NSTextView) -> (index: Int, top: CGFloat)? {
+        guard let layoutManager = textView.layoutManager, let container = textView.textContainer,
+              let length = textView.textStorage?.length, length > 0 else { return nil }
+        let local = NSPoint(x: 0, y: y - textView.frame.minY - textView.textContainerOrigin.y)
+        let index = layoutManager.characterIndexForGlyph(at: layoutManager.glyphIndex(for: local, in: container))
+        guard let spot = position(of: index, in: textView) else { return nil }
+        return (index, CGFloat(spot.top))
+    }
+
     /// The selection of `displayRange` (what is selected in the text view) as the annotation UI needs it.
     /// `fileRange` is the same text in the markdown `document`, whose rendered words anchor a comment
     /// (what agents and the preview anchor by, without markdown syntax); only a selection of markup or
