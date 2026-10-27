@@ -127,11 +127,11 @@ extension SelfTest {
             host.reflectScrolledClipView(host.contentView)
         }
         func onScreen() -> CGFloat { (top(of: "Second paragraph") ?? 0) - host.visibleDocumentRect.minY }
-        let before = onScreen()
+        let shownAt = onScreen()
         send("toggleComments:")
         await check("closing the pane puts the cards in the text without moving the line at the top of the window") {
             await self.until {
-                !self.controller.commentsOn && host.paneWidth == 0 && card("in1")?.superview === canvas && abs(onScreen() - before) < 2
+                !self.controller.commentsOn && host.paneWidth == 0 && card("in1")?.superview === canvas && abs(onScreen() - shownAt) < 2
             }
         }
         send("toggleComments:")
