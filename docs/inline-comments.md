@@ -43,7 +43,7 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 ### The card
 
 - The same `AnnotationCardView` as in the pane and the open card, with the same look. All kinds are inline: comments and highlights (Dismiss) and suggestions (Accept / Reject).
-- Cards start expanded. Each can be **collapsed** to one line: avatar, author, the first words of
+- Cards start expanded. Each can be **collapsed** to one line: a dot in the author's colour, the author, the first words of
   the comment (for a suggestion, `old → new`) and the reply count. Collapse is one of the card's
   hover actions; clicking a collapsed line expands it.
 - What is collapsed is kept per window, by annotation id, until the window closes. It survives
@@ -132,7 +132,7 @@ quote), and a selection that ends on a row paints over the room.
 
 - Inline cards are placed in the scrolling canvas where the open card goes (`host.floatingHost`),
   at the column's left. The canvas is made tall enough for parked cards (`setGutterExtent`).
-- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (36 pt: a small avatar, the name, the first line of what
+- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (36 pt: a 10 pt dot in the author's colour without initials, the name, the first line of what
   it says and the reply count).
 - `NewCommentView` is placed the same way for the form, under the selection's row.
 

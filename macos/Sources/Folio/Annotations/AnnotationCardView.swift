@@ -614,10 +614,11 @@ final class AnnotationCardView: NSView {
         return height
     }
 
-    /// One line: a small avatar, the name, and the gist of the thread.
+    /// One line: a dot in the author's colour, the name, and the gist of the thread.
     private func layoutCollapsed(_ first: Entry, _ gist: PassthroughLabel, width: CGFloat) -> CGFloat {
         let pad = AnnotationStyle.cardPadding
-        let height: CGFloat = 36, avatar: CGFloat = 20
+        let height: CGFloat = 36, avatar: CGFloat = 10
+        first.avatar.showsInitials = false
         first.avatar.frame = NSRect(x: pad, y: (height - avatar) / 2, width: avatar, height: avatar)
         first.name.sizeToFit()
         let nameW = min(first.name.frame.width, (width - 2 * pad) / 3)

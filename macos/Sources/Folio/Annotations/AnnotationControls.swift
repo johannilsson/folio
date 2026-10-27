@@ -169,6 +169,11 @@ final class PassthroughLabel: NSTextField {
 /// The round badge with a person's initials.
 final class AvatarView: NSView {
     private let name: String
+    /// The initials in the circle; without them it is a dot in the person's colour (a collapsed card,
+    /// where the name is written beside it).
+    var showsInitials = true {
+        didSet { needsDisplay = true }
+    }
 
     init(name: String) {
         self.name = AnnotationStyle.displayName(name)
@@ -183,6 +188,7 @@ final class AvatarView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         AnnotationStyle.avatarColor(for: name).setFill()
         NSBezierPath(ovalIn: bounds).fill()
+        guard showsInitials else { return }
         let text = NSAttributedString(string: AnnotationStyle.initials(for: name), attributes: [
             .font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: NSColor.white,
         ])
