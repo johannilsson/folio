@@ -103,6 +103,19 @@ enum TextSurface {
         return (Double(textView.frame.minY + line.minY + origin.y), Double(textView.frame.minY + line.maxY + origin.y), Double(textView.frame.minX + x))
     }
 
+    /// The row that ends with the character at `end`, which inline cards go under: where its text ends
+    /// (`below` further down, for what is painted round it) and where the text after it starts without
+    /// the room `room` leaves after it.
+    static func row(ending end: Int, in textView: NSTextView, room: InlineRoom, below: CGFloat = 0) -> CardLayout.Row? {
+        guard let layoutManager = textView.layoutManager, let length = textView.textStorage?.length, length > 0 else { return nil }
+        let end = min(max(0, end), length - 1)
+        let glyph = layoutManager.glyphIndexForCharacter(at: end)
+        let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let used = layoutManager.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+        let y = textView.frame.minY + textView.textContainerOrigin.y
+        return CardLayout.Row(end: end, bottom: y + used.maxY + below, next: y + line.maxY - (room.room[end] ?? 0))
+    }
+
     /// The selection of `displayRange` (what is selected in the text view) as the annotation UI needs it.
     /// `fileRange` is the same text in the markdown `document`, whose rendered words anchor a comment
     /// (what agents and the preview anchor by, without markdown syntax); only a selection of markup or
@@ -189,5 +202,48 @@ enum TextSurface {
         guard found.location != NSNotFound else { return }
         layoutManager.addTemporaryAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.5), forCharacterRange: found)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { restore() }
+    }
+}
+
+/// Room after some lines of a text view, for the cards shown under them (View ▸ Comments Inline). The
+/// line's fragment is made taller; its text and used rect stay as they are, so nothing is put into
+/// the text and what is painted behind the text (which follows the glyphs) does not grow into it.
+final class InlineRoom: NSObject, NSLayoutManagerDelegate {
+    /// Points to leave after the line that ends with each character: the last character of a row.
+    private(set) var room: [Int: CGFloat] = [:]
+
+    /// The text was replaced: what was kept is about characters that are gone.
+    func reset() {
+        room = [:]
+    }
+
+    /// Leaves `new` instead, and lays out again the rows that changed. Returns whether anything did.
+    @MainActor
+    func set(_ new: [Int: CGFloat], in textView: NSTextView) -> Bool {
+        let new = new.filter { $0.value > 0 }
+        guard new != room else { return false }
+        let changed = Set(room.keys).union(new.keys).filter { room[$0] != new[$0] }
+        room = new
+        let text = textView.string as NSString
+        for end in changed where end < text.length {
+            textView.layoutManager?.invalidateLayout(forCharacterRange: text.paragraphRange(for: NSRange(location: end, length: 0)),
+                                                     actualCharacterRange: nil)
+        }
+        return true
+    }
+
+    /// The text was edited: the rows move with it, as the annotations do.
+    func shift(_ map: (Int) -> Int) {
+        room = Dictionary(room.map { (map($0.key), $0.value) }, uniquingKeysWith: max)
+    }
+
+    func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+                       lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
+                       in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
+        guard !room.isEmpty, glyphRange.length > 0 else { return false }
+        let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        guard characters.length > 0, let extra = room[characters.upperBound - 1] else { return false }
+        lineFragmentRect.pointee.size.height += extra
+        return true
     }
 }

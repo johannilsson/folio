@@ -31,6 +31,12 @@ enum AppConfig {
         return url.hasSuffix("/") ? String(url.dropLast()) : url
     }
     static var renderPlantUML: Bool { plantumlCommand != nil || plantumlURL != nil }
+    /// With the comments pane closed, every card sits in the text under its row (View ▸ Comments Inline)
+    /// rather than only the focused one floating beside it. One choice for every window, kept across launches.
+    static var commentsInline: Bool {
+        get { UserDefaults.standard.bool(forKey: "CommentsInline") }
+        set { UserDefaults.standard.set(newValue, forKey: "CommentsInline") }
+    }
     /// `--set <name>`, `--screenshot <png>` and `--appearance light|dark`: see Screenshot.swift.
     static var openSet: String?
     static var screenshot: String?

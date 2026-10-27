@@ -391,6 +391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             source.keyEquivalentModifierMask = [.command, .shift]
             let comments = m.addItem(withTitle: "Toggle Comments", action: #selector(FolioWindowController.toggleComments(_:)), keyEquivalent: "m")
             comments.keyEquivalentModifierMask = [.command, .shift]
+            let inline = m.addItem(withTitle: "Comments Inline", action: #selector(EditorWindowController.toggleCommentsInline(_:)), keyEquivalent: "i")
+            inline.keyEquivalentModifierMask = [.command, .option]
             m.addItem(.separator())
             let full = m.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
             full.keyEquivalentModifierMask = [.command, .control]

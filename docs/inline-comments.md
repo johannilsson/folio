@@ -76,68 +76,67 @@ Follows "How the app is built" in `CLAUDE.md`. No Rust or sidecar changes.
 
 ### State
 
-- The preference is read by `EditorWindowController` (`commentsInline`, beside `commentsOn`).
-  `AppDelegate` owns the menu action: it writes the preference and calls `refreshMode()` on each
-  window controller it holds (no `NotificationCenter` broadcast).
+- The preference is `AppConfig.commentsInline` (`UserDefaults`, `CommentsInline`), read by
+  `EditorWindowController.commentsInline` beside `commentsOn`. The menu action
+  (`toggleCommentsInline`) is the window controller's, reached through the responder chain; it
+  writes the preference and calls `annotations.refreshMode()` on every editor window. The window
+  controller validates the item (`NSMenuItemValidation`): dimmed while its pane is open, ticked
+  from the preference.
 - `AnnotationController.collapsed: Set<String>`, the window's collapsed annotations. Not cleared
-  by `fileChanged`.
-- `AnnotationController` gets an `inlineShown` (`!paneShown && owner.commentsInline`) beside
-  `paneShown`; `layout()` gets a third branch.
+  by `fileChanged`. Focusing a card removes it; the card's Collapse button adds it (and drops the
+  focus if it had it).
+- `AnnotationController.inlineShown` (`!commentsOn && owner.commentsInline`) beside `paneShown`;
+  `layout()` has a third branch, `placeInline()`.
 
 ### Logic (FolioKit)
 
-`CardLayout.inline(_ cards: [InlineCard], end: CGFloat) -> InlineLayout`, a pure function:
-
-- `InlineCard`: the row it belongs to (a character location where the room goes, nil when not
-  found), its order in the document, its measured height.
-- Groups cards by row, orders them, stacks them 6 pt apart, and returns, per row, the room to
-  leave after it (cards' heights + gaps + top/bottom padding) and each card's offset below its
-  row; unanchored cards stacked from `end`.
-- Unit tests in `macos/Tests/FolioKitTests/` for: one card; several in one row in document order;
-  rows in any input order; not found parked at `end`; a collapsed height.
-
-The rows themselves come from the surfaces, because only they know what a block or line is.
+- `CardLayout.inline(_ cards: [InlineCard], end:) -> (placed, room, extent)`. A card's row is a
+  `CardLayout.Row`: `end` (the row's last character, which names it), `bottom` (where its text
+  ends) and `next` (where the text after it starts without room). Cards go 8 below `bottom`,
+  6 apart in document order, and the room makes the text after the row start 14 below the last
+  one (none when the row already has that much). Not found: stacked from `end`.
+- `PreviewText.row(at:in:)`: which row of the rendered text holds a character. A paragraph,
+  heading or list item; a block of code (or the frontmatter box) as a whole, flagged as painted;
+  a table as a whole, ending with the line after it, which is outside the table's text blocks.
+- Unit tests: `CardLayoutTests` (one card, several in a row, rows in any order, enough room
+  already, not found, none) and `PreviewTextTests` (paragraph, code block, table).
 
 ### Surfaces
 
-`AnnotationSurface` gets two members, implemented by `PreviewView` and `SourceEditorView`:
+`AnnotationSurface` gets three members, implemented by `PreviewView` and `SourceEditorView`:
 
-- Each `AnchorRect` also reports its row: `rowEnd` (the display location of the last character of
-  the row: the block's end in the preview, the line's end in the source) and `rowBottom` (the
-  bottom of the row's last line, without any room added after it).
-- `setInlineRoom(_ room: [Int: CGFloat])`: room to leave after the line fragment that ends at each
-  location. Both text views are TextKit 1: an `NSLayoutManagerDelegate` answers
-  `layoutManager(_:paragraphSpacingAfterGlyphAt:withProposedLineFragmentRect:)` from this table.
-  Setting an equal table does nothing; a different one invalidates the layout of the affected
-  rows only.
+- `row(at:)`: the row holding a character of the file. Each `AnchorRect` carries its row too.
+  The preview uses `PreviewText.row` and puts `bottom` 10 lower below a painted block (its paint
+  reaches 10 below the text); the source uses the line (`paragraphRange`).
+- `setInlineRoom(_:)`: room after rows, by `Row.end`. Laid out again, then the surface reports
+  its anchors, so the cards follow.
+- `inlineColumn`: the left of the text column and its width.
 
-The loop: the surface reports anchors → the controller measures cards at the column width and
-calls `CardLayout.inline` → it hands the room to the surface → the surface lays out and reports
-anchors again. Card heights depend on the column width, not on where the cards are, so the second
-report gives the same room and the loop stops (the equal-table check is what stops it).
+The room is `InlineRoom` (`TextSurface.swift`), each text view's `NSLayoutManagerDelegate`. In
+`layoutManager(_:shouldSetLineFragmentRect:…)` it makes the line fragment that ends a row taller.
+The used rect and the glyphs stay where they were, so nothing goes into the text, and the paint
+behind blocks (which follows the glyphs' bounding rects) does not grow into the room. Line numbers
+are drawn at a fragment's top, so the room gets none. The table is reset whenever the text is
+replaced (a load, a suggestion's preview put in), and in the source it moves with typing, as the
+annotation ranges do.
 
-Things to watch, from the rules in `CLAUDE.md`:
+The loop: the surface reports anchors → the controller measures the cards at the column width and
+calls `CardLayout.inline` → it places them and hands the room to the surface last → the surface
+lays out and reports again → the cards are placed from there. The room does not depend on where a
+row is, only on its own text and cards, so the second pass gives the same room, `InlineRoom.set`
+finds nothing changed, and it stops.
 
-- `PreviewTextView.drawBackground` (code blocks, quote bars, the frontmatter box) must not paint
-  into the room: a block's background ends at its last line's used rect, not its line fragment
-  rect.
-- Annotation marks are drawn line by line and never over a line break; the room after a line is
-  not part of any line's mark.
-- `LineNumberView` numbers each source line at its first fragment, so the room gets no number.
-- The suggestion previews the preview puts into the text change locations; the room table is
-  rebuilt from the anchors reported after each rebuild, never kept across it.
+Still to look at: a quote's bar runs past a card under one of its paragraphs (the bar spans the
+quote), and a selection that ends on a row paints over the room.
 
 ### UI
 
-- Inline cards are placed in the scrolling canvas where the open card goes today
-  (`host.floatingHost`), at `x` = the column's left and `y` = `rowBottom` + the offset from
-  `CardLayout.inline`.
-- `AnnotationCardView` gets an `isInline` look (left bar, column width) and an `isCollapsed` look
-  (one line), each measured like the others, and a Collapse hover action reporting through
-  `AnnotationCardHandlers`.
-- `NewCommentView` placed the same way for the form.
-- The View menu item validates against the key window's `commentsOn` (dimmed) and the preference
-  (checkmark).
+- Inline cards are placed in the scrolling canvas where the open card goes (`host.floatingHost`),
+  at the column's left. The canvas is made tall enough for parked cards (`setGutterExtent`).
+- `AnnotationCardView` has an `isInline` look (radius 8, a 3 pt purple bar on the left, a Collapse
+  hover action) and an `isCollapsed` one (36 pt: a small avatar, the name, the first line of what
+  it says and the reply count).
+- `NewCommentView` is placed the same way for the form, under the selection's row.
 
 ## Tests
 
@@ -159,14 +158,22 @@ Things to watch, from the rules in `CLAUDE.md`:
 
 ## Steps
 
-1. `CardLayout.inline` and its unit tests.
-2. Surfaces: `rowEnd` / `rowBottom` and `setInlineRoom` with the layout manager delegates, checked
-   with room but no cards (text moves, backgrounds and line numbers stay right).
+Done in the first pass (built and checked by CI only, on the pull request):
+
+1. `CardLayout.inline`, `PreviewText.row` and their unit tests.
+2. The surfaces: rows, `InlineRoom`, `setInlineRoom`, `inlineColumn`.
 3. The preference, the menu item and `layout()`'s inline branch: cards in place, focus.
 4. Collapse.
 5. The inline form.
-6. Keeping the first visible line when switching layouts.
-7. Self-test checks and pictures; `CLAUDE.md`'s "Annotation UI patterns" gets the inline layout.
+6. Self-test checks (`SelfTest+Inline.swift`) and pictures (`<base>-inline-preview.png`,
+   `<base>-inline-source.png`).
+
+Still to do:
+
+7. Keeping the first visible line when switching layouts (the scroll fraction is used now).
+8. Self-test checks still missing from the list above: two windows following the preference,
+   collapse surviving a file switch in a set, the form under its row, `reveal` over MCP.
+9. `CLAUDE.md`'s "Annotation UI patterns" gets the inline layout once it settles.
 
 ## Not in this change
 

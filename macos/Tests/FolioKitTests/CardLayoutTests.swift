@@ -45,6 +45,55 @@ import Testing
         #expect(stacked.extent == 0)
     }
 
+    // MARK: inline
+
+    func inline(_ end: Int?, bottom: CGFloat = 100, next: CGFloat = 110, order: Int = 0, height: CGFloat = 50) -> CardLayout.InlineCard {
+        CardLayout.InlineCard(row: end.map { CardLayout.Row(end: $0, bottom: bottom, next: next) }, order: order, height: height)
+    }
+
+    @Test func anInlineCardSitsEightBelowItsRow() {
+        let laid = CardLayout.inline([inline(40)], end: 1000)
+        #expect(laid.placed.map { $0.top } == [108])
+        // The text after the row starts 14 below the card: 108 + 50 + 14 = 172, where it started at 110.
+        #expect(laid.room == [40: 62])
+        #expect(laid.extent == 158)
+    }
+
+    @Test func cardsUnderOneRowStackSixApartInDocumentOrder() {
+        let laid = CardLayout.inline([inline(40, order: 9, height: 30), inline(40, order: 3, height: 20)], end: 1000)
+        #expect(laid.placed.map { $0.index } == [1, 0])
+        #expect(laid.placed.map { $0.top } == [108, 108 + 20 + 6] as [CGFloat])
+        #expect(laid.room == [40: 108 + 20 + 6 + 30 + 14 - 110])
+    }
+
+    @Test func eachRowGetsItsOwnRoom() {
+        let laid = CardLayout.inline([inline(90, bottom: 300, next: 310, order: 50), inline(40, order: 10)], end: 1000)
+        #expect(laid.placed.map { $0.index } == [1, 0])
+        #expect(laid.placed.map { $0.top } == [108, 308] as [CGFloat])
+        #expect(laid.room == [40: 62, 90: 62])
+    }
+
+    @Test func aRowWithRoomEnoughOfItsOwnGetsNoMore() {
+        // A tall gap after the row already (the end of a code block, say): no room is added.
+        let laid = CardLayout.inline([inline(40, next: 200, height: 20)], end: 1000)
+        #expect(laid.room == [40: 0])
+    }
+
+    @Test func anInlineCardNotFoundIsParkedAfterTheText() {
+        let laid = CardLayout.inline([inline(nil, height: 30), inline(nil, height: 40), inline(40)], end: 500)
+        #expect(laid.placed.map { $0.index } == [2, 0, 1])
+        #expect(laid.placed.map { $0.top } == [108, 508, 508 + 30 + 6] as [CGFloat])
+        #expect(laid.room == [40: 62])
+        #expect(laid.extent == 508 + 30 + 6 + 40)
+    }
+
+    @Test func noInlineCardsLeaveNoRoom() {
+        let laid = CardLayout.inline([], end: 500)
+        #expect(laid.placed.isEmpty)
+        #expect(laid.room.isEmpty)
+        #expect(laid.extent == 0)
+    }
+
     // MARK: floating
 
     let visible = CGRect(x: 0, y: 1000, width: 800, height: 600)

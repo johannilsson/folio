@@ -1,8 +1,8 @@
 import AppKit
 import FolioKit
 
-/// The window's annotation UI: the cards in the comments pane (or the one card that opens next to
-/// the text when the pane is closed), the Comment button over a selection, the form for a new
+/// The window's annotation UI: the cards in the comments pane (or, when the pane is closed, the one
+/// card that opens next to the text, or every card in the text under its row), the Comment button over a selection, the form for a new
 /// comment, the toast, and the keyboard shortcuts. The text itself is shown by a surface (the
 /// preview or the source); it draws the highlights and tells this where each annotation is, what
 /// is selected and what was clicked. Everything the reader does with an annotation happens here.
@@ -26,6 +26,8 @@ final class AnnotationController {
     private(set) var selection: SelectionInfo?
 
     private(set) var focusedID: String?
+    /// The inline cards the reader folded to one line, kept while the window is open (any file, any mode).
+    private(set) var collapsed: Set<String> = []
     /// The annotation under the mouse, in the text or as a card.
     private var hoveredID: String?
     private(set) var cards: [String: AnnotationCardView] = [:]
@@ -41,6 +43,8 @@ final class AnnotationController {
 
     private var cardWidth: CGFloat { AnnotationStyle.cardWidth }
     var paneShown: Bool { commentsOn }
+    /// With the pane closed, every card sits in the text under its row (View ▸ Comments Inline).
+    var inlineShown: Bool { !commentsOn && owner.commentsInline }
 
     init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, source: SourceEditorView, preview: PreviewView) {
         self.owner = owner
@@ -88,7 +92,10 @@ final class AnnotationController {
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
             cancelForm()
+            let previous = surface
             surface = showing
+            // The other surface keeps no room for cards it does not show; what it reports now is not listened to.
+            previous.setInlineRoom([:])
             anchors = [:]
             anchorsKnown = false
             selection = nil
@@ -150,6 +157,15 @@ final class AnnotationController {
     private func focus(_ id: String?) {
         guard id != focusedID else { return }
         focusedID = id
+        // A collapsed card opens when it takes the focus, and stays open.
+        if let id { collapsed.remove(id) }
+        refresh()
+    }
+
+    /// The Collapse button of an inline card: it folds to one line, and the focus goes if it had it.
+    private func collapse(_ id: String) {
+        collapsed.insert(id)
+        if focusedID == id { focusedID = nil }
         refresh()
     }
 
@@ -212,6 +228,8 @@ final class AnnotationController {
             card.update(annotation)
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
+            card.isInline = inlineShown
+            card.isCollapsed = inlineShown && collapsed.contains(annotation.id)
         }
         surface.emphasized = Set([focusedID, hoveredID].compactMap { $0 })
         layout()
@@ -227,15 +245,17 @@ final class AnnotationController {
             resolve: { [weak self] id in self?.resolve(id) },
             saveEdit: { [weak self] id, text in self?.saveEdit(id, text) ?? false },
             reply: { [weak self] id, text in self?.reply(id, text) ?? false },
+            collapse: { [weak self] id in self?.collapse(id) },
             relayout: { [weak self] in self?.layout() }
         )
         cards[annotation.id] = card
         return card
     }
 
-    /// Places the pane or the open card, the form and the Comment button.
+    /// Places the pane, the inline cards or the open card, the form and the Comment button.
     func layout() {
         let pending = store.pending
+        if !inlineShown || host.paneWidth > 0 { surface.setInlineRoom([:]) }
         if paneShown || host.paneWidth > 0 {
             var items: [AnnotationGutterView.Item] = []
             for annotation in pending {
@@ -253,6 +273,9 @@ final class AnnotationController {
             }
             let extent = host.gutter.stack(items, end: host.contentHeight)
             host.setGutterExtent(extent > 0 ? extent + 48 : 0)
+        } else if inlineShown {
+            _ = host.gutter.stack([], end: host.contentHeight)
+            placeInline()
         } else {
             host.setGutterExtent(0)
             _ = host.gutter.stack([], end: host.contentHeight)
@@ -262,6 +285,38 @@ final class AnnotationController {
         }
         updateAdder()
         refreshHover()
+    }
+
+    /// Every card under the row its text ends in, the form under the selection's, with room left in
+    /// the text for them (`CardLayout.inline`). The room moves the text, so this runs again with where
+    /// it is now; the second time the room is the same and the text stays.
+    private func placeInline() {
+        let column = surface.inlineColumn
+        var views: [NSView] = []
+        var items: [CardLayout.InlineCard] = []
+        for annotation in store.pending {
+            guard let card = cards[annotation.id] else { continue }
+            card.isFloating = false
+            let height = card.layoutContent(width: column.width)
+            let anchor = anchors[annotation.id]
+            views.append(card)
+            items.append(.init(row: anchor?.row, order: anchor?.from ?? Int.max, height: height))
+        }
+        if let form, let formSelection {
+            form.isFloating = false
+            let height = form.layoutContent(width: column.width)
+            views.append(form)
+            items.append(.init(row: surface.row(at: max(formSelection.from, formSelection.to - 1)), order: formSelection.from, height: height))
+        }
+        let laid = CardLayout.inline(items, end: host.contentHeight)
+        for (index, top) in laid.placed {
+            let view = views[index]
+            if view.superview !== host.floatingHost { host.floatingHost.addSubview(view) }
+            view.frame.origin = NSPoint(x: column.left, y: top)
+        }
+        host.setGutterExtent(laid.extent > 0 ? laid.extent + 48 : 0)
+        // Last: the surface reports where the text went, and this is laid out again from there.
+        surface.setInlineRoom(laid.room)
     }
 
     /// The card of the annotation clicked in the text, next to it; flips above near the bottom.

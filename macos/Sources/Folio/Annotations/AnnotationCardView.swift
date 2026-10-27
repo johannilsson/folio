@@ -189,12 +189,14 @@ struct AnnotationCardHandlers {
     var resolve: (String) -> Void = { _ in }
     var saveEdit: (String, String) -> Bool = { _, _ in true }
     var reply: (String, String) -> Bool = { _, _ in true }
+    /// Fold an inline card to one line.
+    var collapse: (String) -> Void = { _ in }
     /// Something changed the card's height.
     var relayout: () -> Void = {}
 }
 
-/// One annotation with its thread: the card in the comments pane, and the one that opens next
-/// to the text when the pane is closed.
+/// One annotation with its thread: the card in the comments pane, the one that opens next to the
+/// text when the pane is closed, and the one in the text under its row (View ▸ Comments Inline).
 final class AnnotationCardView: NSView {
     private(set) var annotation: Annotation
     var handlers = AnnotationCardHandlers()
@@ -220,6 +222,23 @@ final class AnnotationCardView: NSView {
         }
     }
 
+    /// In the text under its row: a bar in Folio's purple on its left, and it can fold to one line.
+    var isInline = false {
+        didSet {
+            guard isInline != oldValue else { return }
+            rebuild()
+        }
+    }
+    /// Folded to one line (an inline card the reader collapsed): who wrote it, its first words and how
+    /// many replies. Clicking it focuses it, which opens it again.
+    var isCollapsed = false {
+        didSet {
+            guard isCollapsed != oldValue else { return }
+            rebuild()
+            handlers.relayout()
+        }
+    }
+
     let replyBox = ReplyBoxView(placeholder: "Reply…")
     private var editor: EditBoxView?
 
@@ -237,6 +256,9 @@ final class AnnotationCardView: NSView {
     private var badge: PassthroughLabel?
     private var accept: ClosureButton?
     private var more: ClosureButton?
+    private var collapseButton: ClosureButton?
+    /// The one line of a collapsed card.
+    private var gist: PassthroughLabel?
     private(set) var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
@@ -312,8 +334,10 @@ final class AnnotationCardView: NSView {
         for entry in entries {
             for view in [entry.avatar, entry.name, entry.time] + entry.bodies { view.removeFromSuperview() }
         }
-        [badge, accept, more].forEach { $0?.removeFromSuperview() }
+        [badge, accept, more, collapseButton, gist].forEach { $0?.removeFromSuperview() }
         entries = []
+        collapseButton = nil
+        gist = nil
 
         if isUnanchored {
             badge = label(NSAttributedString(string: "Not found in document", attributes: [
@@ -342,6 +366,21 @@ final class AnnotationCardView: NSView {
                                  bodies: [AnnotationStyle.markdown(reply.body, font: AnnotationStyle.bodyFont, color: .secondaryLabelColor)],
                                  ruled: false))
         }
+        if isCollapsed, let first = entries.first {
+            // Only who wrote it, and a line of what it says and of the thread.
+            addSubview(first.avatar)
+            addSubview(first.name)
+            let gist = label(collapsedGist())
+            gist.maximumNumberOfLines = 1
+            gist.lineBreakMode = .byTruncatingTail
+            gist.cell?.wraps = false
+            addSubview(gist)
+            self.gist = gist
+            replyBox.removeFromSuperview()
+            needsLayout = true
+            needsDisplay = true
+            return
+        }
         for entry in entries {
             for view in [entry.avatar, entry.name, entry.time] + entry.bodies { addSubview(view) }
         }
@@ -351,6 +390,22 @@ final class AnnotationCardView: NSView {
         if let editor { addSubview(editor) }
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// The first line of what a collapsed card says, and how many replies it has.
+    private func collapsedGist() -> NSAttributedString {
+        let said = annotation.isComment ? (annotation.comment ?? "") : annotation.summary
+        let firstLine = said.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let text = NSMutableAttributedString(string: firstLine, attributes: [
+            .font: AnnotationStyle.bodyFont, .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        let replies = annotation.replies?.count ?? 0
+        if replies > 0 {
+            text.append(NSAttributedString(string: "  ·  \(replies) \(replies == 1 ? "reply" : "replies")", attributes: [
+                .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.tertiaryLabelColor,
+            ]))
+        }
+        return text
     }
 
     private func bodyAttributes(_ color: NSColor) -> [NSAttributedString.Key: Any] {
@@ -381,12 +436,21 @@ final class AnnotationCardView: NSView {
         addSubview(more)
         self.accept = accept
         self.more = more
+        guard isInline else { return }
+        let collapse = ClosureButton(symbol: "chevron.up", description: "Collapse", identifier: "collapse")
+        collapse.onClick = { [weak self] in
+            guard let self else { return }
+            handlers.collapse(annotation.id)
+        }
+        collapse.alphaValue = start
+        addSubview(collapse)
+        collapseButton = collapse
     }
 
     private func updateActions() {
         let alpha: CGFloat = actionsShown ? 1 : 0
         let fade = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        for button in [accept, more] {
+        for button in [accept, more, collapseButton] {
             guard let button else { continue }
             if fade {
                 NSAnimationContext.runAnimationGroup { context in
@@ -472,6 +536,9 @@ final class AnnotationCardView: NSView {
     @discardableResult
     func layoutContent(width: CGFloat) -> CGFloat {
         let pad = AnnotationStyle.cardPadding
+        if isCollapsed, let first = entries.first, let gist {
+            return layoutCollapsed(first, gist, width: width)
+        }
         let mainW = width - pad - Self.mainX
         var y = pad
         lines = []
@@ -488,7 +555,7 @@ final class AnnotationCardView: NSView {
 
             entry.name.sizeToFit()
             entry.time.sizeToFit()
-            let actionsW: CGFloat = index == 0 ? 48 : 0
+            let actionsW: CGFloat = index == 0 ? (collapseButton == nil ? 48 : 70) : 0
             let nameW = min(entry.name.frame.width, mainW - actionsW - entry.time.frame.width - 6)
             entry.name.frame = NSRect(x: Self.mainX, y: top, width: max(nameW, 20), height: entry.name.frame.height)
             entry.time.frame = NSRect(x: entry.name.frame.maxX + 6, y: top + 2, width: entry.time.frame.width, height: entry.time.frame.height)
@@ -532,6 +599,7 @@ final class AnnotationCardView: NSView {
         if let accept, let more {
             more.frame = NSRect(x: width - pad - 22, y: pad - 1, width: 22, height: 22)
             accept.frame = NSRect(x: more.frame.minX - 22, y: pad - 1, width: 22, height: 22)
+            collapseButton?.frame = NSRect(x: accept.frame.minX - 22, y: pad - 1, width: 22, height: 22)
         }
 
         if isFocused {
@@ -546,6 +614,24 @@ final class AnnotationCardView: NSView {
         return height
     }
 
+    /// One line: a small avatar, the name, and the gist of the thread.
+    private func layoutCollapsed(_ first: Entry, _ gist: PassthroughLabel, width: CGFloat) -> CGFloat {
+        let pad = AnnotationStyle.cardPadding
+        let height: CGFloat = 36, avatar: CGFloat = 20
+        first.avatar.frame = NSRect(x: pad, y: (height - avatar) / 2, width: avatar, height: avatar)
+        first.name.sizeToFit()
+        let nameW = min(first.name.frame.width, (width - 2 * pad) / 3)
+        first.name.frame = NSRect(x: pad + avatar + 8, y: (height - first.name.frame.height) / 2, width: nameW, height: first.name.frame.height)
+        gist.sizeToFit()
+        let gistX = first.name.frame.maxX + 8
+        gist.frame = NSRect(x: gistX, y: (height - gist.frame.height) / 2, width: max(0, width - pad - gistX), height: gist.frame.height)
+        lines = []
+        rules = []
+        frame.size = NSSize(width: width, height: height)
+        needsDisplay = true
+        return height
+    }
+
     override func layout() {
         super.layout()
         if frame.width > 0 { layoutContent(width: frame.width) }
@@ -554,9 +640,18 @@ final class AnnotationCardView: NSView {
     // MARK: drawing and events
 
     override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
+        let radius: CGFloat = isInline ? 8 : 12
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
         (isFloating ? AnnotationStyle.floatFill : AnnotationStyle.cardFill).setFill()
         path.fill()
+        if isInline {
+            // Folio's purple, which marks annotations in the text, ties the card to its row.
+            NSGraphicsContext.saveGraphicsState()
+            path.addClip()
+            NSColor.systemPurple.setFill()
+            NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
         if isFocused {
             path.lineWidth = 1
             NSColor.controlAccentColor.setStroke()
