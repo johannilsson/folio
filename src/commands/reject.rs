@@ -1,4 +1,4 @@
-use crate::sidecar::{now_iso8601, Sidecar};
+use crate::sidecar::{now_iso8601, ResolvedAs, Sidecar};
 use std::path::Path;
 use std::process;
 
@@ -45,7 +45,7 @@ pub fn run(
     for &idx in &indices {
         let ann = &mut sidecar.annotations[idx];
         ann.resolved = true;
-        ann.resolved_as = Some("rejected".to_string());
+        ann.resolved_as = Some(ResolvedAs::outcome(&ann.kind, false));
         ann.resolved_at = Some(now.clone());
     }
     sidecar.save(&folio_path)?;
@@ -94,7 +94,7 @@ mod tests {
 
         let s = Sidecar::load(&folio).unwrap();
         assert!(s.annotations[0].resolved);
-        assert_eq!(s.annotations[0].resolved_as.as_deref(), Some("rejected"));
+        assert_eq!(s.annotations[0].resolved_as, Some(ResolvedAs::Rejected));
         assert!(s.annotations[0].resolved_at.is_some());
         assert!(!s.annotations[1].resolved);
     }

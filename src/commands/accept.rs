@@ -1,4 +1,4 @@
-use crate::sidecar::{now_iso8601, AnnotationKind, Sidecar};
+use crate::sidecar::{now_iso8601, AnnotationKind, ResolvedAs, Sidecar};
 use std::path::Path;
 use std::process;
 
@@ -113,7 +113,7 @@ pub fn mark_accepted(sidecar: &mut Sidecar, indices: &[usize]) {
     for &idx in indices {
         let ann = &mut sidecar.annotations[idx];
         ann.resolved = true;
-        ann.resolved_as = Some("accepted".to_string());
+        ann.resolved_as = Some(ResolvedAs::outcome(&ann.kind, true));
         ann.resolved_at = Some(now.clone());
     }
 }
@@ -192,7 +192,17 @@ mod tests {
         mark_accepted(&mut s, &[1]);
         assert!(!s.annotations[0].resolved);
         assert!(s.annotations[1].resolved);
-        assert_eq!(s.annotations[1].resolved_as.as_deref(), Some("accepted"));
+        assert_eq!(s.annotations[1].resolved_as, Some(ResolvedAs::Dismissed));
         assert!(s.annotations[1].resolved_at.is_some());
+    }
+
+    #[test]
+    fn outcome_depends_on_kind_and_decision() {
+        use AnnotationKind::*;
+        for accept in [true, false] {
+            assert_eq!(ResolvedAs::outcome(&Comment, accept), ResolvedAs::Dismissed);
+        }
+        assert_eq!(ResolvedAs::outcome(&Highlight, true), ResolvedAs::Accepted);
+        assert_eq!(ResolvedAs::outcome(&Replace, false), ResolvedAs::Rejected);
     }
 }
