@@ -97,8 +97,9 @@ extension SelfTest {
         await check("typing above a line moves its cards down with it") {
             await self.until { (card("in1")?.frame.minY ?? 0) > before + 10 && underRows(next: "Second paragraph") }
         }
-        let firstLine = (textView.string as NSString).range(of: "with two notes")
-        textView.insertText("really ", replacementRange: NSRange(location: firstLine.location, length: 0))
+        // After the annotated words, so both annotations are still found when the preview anchors them again.
+        let notes = (textView.string as NSString).range(of: "notes in it")
+        textView.insertText(" really", replacementRange: NSRange(location: notes.location + 5, length: 0))
         await check("typing in the annotated line keeps its cards under it") {
             await self.until { underRows(next: "Second paragraph") }
         }

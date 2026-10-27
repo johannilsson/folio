@@ -157,8 +157,6 @@ final class AnnotationController {
     private func focus(_ id: String?) {
         guard id != focusedID else { return }
         focusedID = id
-        // A collapsed card opens when it takes the focus, and stays open.
-        if let id { collapsed.remove(id) }
         refresh()
     }
 
@@ -221,6 +219,8 @@ final class AnnotationController {
             cards[id] = nil
         }
         if let focusedID, !ids.contains(focusedID) { self.focusedID = nil }
+        // A collapsed card opens when it takes the focus (a click, ⌃J/⌃K, reveal), and stays open.
+        if let focusedID { collapsed.remove(focusedID) }
         // A card that goes away under the mouse never says the mouse left it.
         if let hoveredID, !ids.contains(hoveredID) { self.hoveredID = nil }
         for annotation in pending {
