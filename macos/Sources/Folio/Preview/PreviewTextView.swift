@@ -67,6 +67,20 @@ final class PreviewTextView: NSTextView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// AppKit scrolls a text view's selection into view whenever the view is resized. This one is resized
+    /// by the window (the pane sliding, room for inline cards), which must not scroll the window to the caret.
+    private var resizing = false
+
+    override func setFrameSize(_ newSize: NSSize) {
+        resizing = true
+        super.setFrameSize(newSize)
+        resizing = false
+    }
+
+    override func scrollToVisible(_ rect: NSRect) -> Bool {
+        resizing ? false : super.scrollToVisible(rect)
+    }
+
     // MARK: blocks painted behind the text
 
     /// The frontmatter box, the background of code blocks, the bars beside quotes and the rules: what

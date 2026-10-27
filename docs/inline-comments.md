@@ -147,6 +147,9 @@ quote), and a selection that ends on a row paints over the room.
 - `AnnotationController.setRoom` keeps the line at the top of the window in place: it asks the
   surface for the line there (`lineMark`) before the room changes and where it is after
   (`lineTop`), and scrolls by the difference (`EditorScrollView.scroll(by:)`).
+- The text views do not scroll their selection into view when they are resized
+  (`setFrameSize` / `scrollToVisible` in `PreviewTextView` and `SourceTextView`). AppKit does that
+  by default, and while the pane slides it scrolled the window back to the caret, undoing the above.
 - `NewCommentView` is placed the same way for the form, under the selection's row.
 
 ## Tests

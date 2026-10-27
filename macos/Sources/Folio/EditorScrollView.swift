@@ -98,15 +98,8 @@ final class EditorScrollView: NSScrollView {
 
     override func reflectScrolledClipView(_ cView: NSClipView) {
         super.reflectScrolledClipView(cView)
-        // TEMPORARY: who scrolls the window while the self-test watches (inline comments, PR #93).
-        if Self.traceScrolls, abs(cView.bounds.origin.y - tracedY) > 20 {
-            print("    scrolled \(tracedY) → \(cView.bounds.origin.y)\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n"))
-        }
-        tracedY = cView.bounds.origin.y
         onScroll?()
     }
-    static var traceScrolls = false
-    private var tracedY: CGFloat = 0
 
     init(source: SourceEditorView, preview: PreviewView) {
         self.source = source
