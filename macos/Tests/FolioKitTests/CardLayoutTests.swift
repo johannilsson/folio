@@ -84,7 +84,7 @@ import Testing
         #expect(laid.placed.map { $0.index } == [2, 0, 1])
         #expect(laid.placed.map { $0.top } == [108, 508, 508 + 30 + 6] as [CGFloat])
         #expect(laid.room == [40: 62])
-        #expect(laid.extent == 508 + 30 + 6 + 40)
+        #expect(laid.extent == (508 + 30 + 6 + 40 as CGFloat))
     }
 
     @Test func noInlineCardsLeaveNoRoom() {
