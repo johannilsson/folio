@@ -361,8 +361,9 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         reportAnchors()
     }
 
+    /// As wide as the text, up to the preview's text column: a card the width of a wide window is hard to read.
     var inlineColumn: (left: CGFloat, width: CGFloat) {
-        (textView.frame.minX + Self.insets.width, max(100, textView.frame.width - 2 * Self.insets.width))
+        (textView.frame.minX + Self.insets.width, max(100, min(PreviewView.column, textView.frame.width - 2 * Self.insets.width)))
     }
 
     /// Where each line starts, for the self-test.

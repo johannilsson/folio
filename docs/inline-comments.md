@@ -36,14 +36,13 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 - Several annotations ending in the same row: one card each, stacked under it in document order
   (the order the pane uses), 6 pt apart.
 - The card is the column's width: in the preview the text column (`column`, inset by `side`), in
-  the source the text's width after the line numbers. Tables and wide pictures do not widen it.
+  the source the text's width after the line numbers, up to the preview's column (760 pt). Tables and wide pictures do not widen it.
 - Annotations not found in the document are parked after the text, dimmed, "Not found in
   document", as in the pane.
 
 ### The card
 
-- The same `AnnotationCardView` as in the pane and the open card, with a 3 pt purple bar on its
-  left. All kinds are inline: comments and highlights (Dismiss) and suggestions (Accept / Reject).
+- The same `AnnotationCardView` as in the pane and the open card, with the same look. All kinds are inline: comments and highlights (Dismiss) and suggestions (Accept / Reject).
 - Cards start expanded. Each can be **collapsed** to one line: avatar, author, the first words of
   the comment (for a suggestion, `old → new`) and the reply count. Collapse is one of the card's
   hover actions; clicking a collapsed line expands it.
@@ -133,8 +132,7 @@ quote), and a selection that ends on a row paints over the room.
 
 - Inline cards are placed in the scrolling canvas where the open card goes (`host.floatingHost`),
   at the column's left. The canvas is made tall enough for parked cards (`setGutterExtent`).
-- `AnnotationCardView` has an `isInline` look (radius 8, a 3 pt purple bar on the left, a Collapse
-  hover action) and an `isCollapsed` one (36 pt: a small avatar, the name, the first line of what
+- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (36 pt: a small avatar, the name, the first line of what
   it says and the reply count).
 - `NewCommentView` is placed the same way for the form, under the selection's row.
 

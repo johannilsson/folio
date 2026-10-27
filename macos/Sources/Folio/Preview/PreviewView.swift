@@ -10,7 +10,7 @@ final class PreviewView: NSView, AnnotationSurface {
     private static let insets = NSSize(width: 32, height: 24)
     /// The text column. A window wider than it leaves the rest at the sides, which only tables and
     /// pictures use.
-    private static let column: CGFloat = 760
+    static let column: CGFloat = 760
 
     let textView = PreviewTextView()
     private(set) var document: Document?

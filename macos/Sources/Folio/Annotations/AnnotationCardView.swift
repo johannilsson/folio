@@ -222,7 +222,7 @@ final class AnnotationCardView: NSView {
         }
     }
 
-    /// In the text under its row: a bar in Folio's purple on its left, and it can fold to one line.
+    /// In the text under its row: it can fold to one line.
     var isInline = false {
         didSet {
             guard isInline != oldValue else { return }
@@ -640,18 +640,9 @@ final class AnnotationCardView: NSView {
     // MARK: drawing and events
 
     override func draw(_ dirtyRect: NSRect) {
-        let radius: CGFloat = isInline ? 8 : 12
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
         (isFloating ? AnnotationStyle.floatFill : AnnotationStyle.cardFill).setFill()
         path.fill()
-        if isInline {
-            // Folio's purple, which marks annotations in the text, ties the card to its row.
-            NSGraphicsContext.saveGraphicsState()
-            path.addClip()
-            NSColor.systemPurple.setFill()
-            NSRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
-            NSGraphicsContext.restoreGraphicsState()
-        }
         if isFocused {
             path.lineWidth = 1
             NSColor.controlAccentColor.setStroke()
