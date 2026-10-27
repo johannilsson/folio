@@ -63,7 +63,7 @@ import Testing
         let laid = CardLayout.inline([inline(40, order: 9, height: 30), inline(40, order: 3, height: 20)], end: 1000)
         #expect(laid.placed.map { $0.index } == [1, 0])
         #expect(laid.placed.map { $0.top } == [108, 108 + 20 + 6] as [CGFloat])
-        #expect(laid.room == [40: 108 + 20 + 6 + 30 + 14 - 110])
+        #expect(laid.room == [40: 108 + 20 + 6 + 30 + 14 - 110 as CGFloat])
     }
 
     @Test func eachRowGetsItsOwnRoom() {
