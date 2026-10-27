@@ -137,7 +137,8 @@ final class PreviewView: NSView, AnnotationSurface {
             lastReportedWidth = width
             reportAnchors()
         }
-        return height
+        // The report may have changed the room for inline cards, and with it the height.
+        return max(frame.height, minHeight)
     }
 
     // MARK: the text column

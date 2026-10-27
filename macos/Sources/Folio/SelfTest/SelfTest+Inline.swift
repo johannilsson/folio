@@ -128,11 +128,17 @@ extension SelfTest {
         }
         func onScreen() -> CGFloat { (top(of: "Second paragraph") ?? 0) - host.visibleDocumentRect.minY }
         let shownAt = onScreen()
+        let scrolledTo = host.visibleDocumentRect.minY
         send("toggleComments:")
         await check("closing the pane puts the cards in the text without moving the line at the top of the window") {
-            await self.until {
+            let kept = await self.until {
                 !self.controller.commentsOn && host.paneWidth == 0 && card("in1")?.superview === canvas && abs(onScreen() - shownAt) < 2
             }
+            if !kept {
+                print("    the line was \(shownAt) from the top, now \(onScreen()); the window was at \(scrolledTo), now \(host.visibleDocumentRect.minY);"
+                      + " the document is \(host.documentView?.frame.height ?? 0) tall, in1 is in the text: \(card("in1")?.superview === canvas)")
+            }
+            return kept
         }
         send("toggleComments:")
         _ = await until { self.controller.commentsOn && host.paneWidth > 300 }
