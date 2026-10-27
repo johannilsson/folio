@@ -235,8 +235,8 @@ final class AnnotationCardView: NSView {
     var drawnHeight: CGFloat? {
         didSet { if drawnHeight != oldValue, let drawnHeight { frame.size.height = drawnHeight } }
     }
-    /// Folded to one line (an inline card the reader collapsed): who wrote it, its first words and how
-    /// many replies. Clicking it focuses it, which opens it again.
+    /// Folded to its header and one line (an inline card the reader collapsed): who wrote it, when, how
+    /// many replies, and the first line of what it says. Clicking it focuses it, which opens it again.
     var isCollapsed = false {
         didSet {
             guard isCollapsed != oldValue else { return }
@@ -263,8 +263,9 @@ final class AnnotationCardView: NSView {
     private var accept: ClosureButton?
     private var more: ClosureButton?
     private var collapseButton: ClosureButton?
-    /// The one line of a collapsed card.
+    /// A collapsed card's first line of what it says, and how many replies it has.
     private var gist: PassthroughLabel?
+    private var replyCount: PassthroughLabel?
     private(set) var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
@@ -340,10 +341,11 @@ final class AnnotationCardView: NSView {
         for entry in entries {
             for view in [entry.avatar, entry.name, entry.time] + entry.bodies { view.removeFromSuperview() }
         }
-        [badge, accept, more, collapseButton, gist].forEach { $0?.removeFromSuperview() }
+        [badge, accept, more, collapseButton, gist, replyCount].forEach { $0?.removeFromSuperview() }
         entries = []
         collapseButton = nil
         gist = nil
+        replyCount = nil
 
         if isUnanchored {
             badge = label(NSAttributedString(string: "Not found in document", attributes: [
@@ -373,15 +375,23 @@ final class AnnotationCardView: NSView {
                                  ruled: false))
         }
         if isCollapsed, let first = entries.first {
-            // Only who wrote it, and a line of what it says and of the thread.
-            addSubview(first.avatar)
-            addSubview(first.name)
-            let gist = label(collapsedGist())
+            // The open card's header, and the first line of what it says where its text is.
+            for view in [first.avatar, first.name, first.time] { addSubview(view) }
+            let gist = label(first.bodies.first?.attributedStringValue ?? NSAttributedString())
             gist.maximumNumberOfLines = 1
             gist.lineBreakMode = .byTruncatingTail
             gist.cell?.wraps = false
             addSubview(gist)
             self.gist = gist
+            let replies = annotation.replies?.count ?? 0
+            if replies > 0 {
+                let count = label(NSAttributedString(string: "·  \(replies) \(replies == 1 ? "reply" : "replies")", attributes: [
+                    .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.tertiaryLabelColor,
+                ]))
+                count.maximumNumberOfLines = 1
+                addSubview(count)
+                replyCount = count
+            }
             replyBox.removeFromSuperview()
             needsLayout = true
             needsDisplay = true
@@ -396,22 +406,6 @@ final class AnnotationCardView: NSView {
         if let editor { addSubview(editor) }
         needsLayout = true
         needsDisplay = true
-    }
-
-    /// The first line of what a collapsed card says, and how many replies it has.
-    private func collapsedGist() -> NSAttributedString {
-        let said = annotation.isComment ? (annotation.comment ?? "") : annotation.summary
-        let firstLine = said.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        let text = NSMutableAttributedString(string: firstLine, attributes: [
-            .font: AnnotationStyle.bodyFont, .foregroundColor: NSColor.secondaryLabelColor,
-        ])
-        let replies = annotation.replies?.count ?? 0
-        if replies > 0 {
-            text.append(NSAttributedString(string: "  ·  \(replies) \(replies == 1 ? "reply" : "replies")", attributes: [
-                .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.tertiaryLabelColor,
-            ]))
-        }
-        return text
     }
 
     private func bodyAttributes(_ color: NSColor) -> [NSAttributedString.Key: Any] {
@@ -620,28 +614,30 @@ final class AnnotationCardView: NSView {
         return height
     }
 
-    /// How tall a collapsed card is: its header line, padded as the open card's is.
-    static let collapsedHeight: CGFloat = 40
+    /// How tall a collapsed card is: its header and one line of text, padded as the open card's is.
+    static let collapsedHeight: CGFloat = 62
 
-    /// One line, the open card's header kept where it is: the name in its place, a dot in the author's
-    /// colour where the avatar is, and the gist of the thread where the time is. Opening the card only
-    /// adds what is under the header.
+    /// The open card cut short: its header where it is (avatar, name, time, and how many replies), and
+    /// the first line of what it says where its text starts. Opening it only shows what is below.
     private func layoutCollapsed(_ first: Entry, _ gist: PassthroughLabel, width: CGFloat) -> CGFloat {
         let pad = AnnotationStyle.cardPadding
-        let height = Self.collapsedHeight, dot: CGFloat = 10
+        let mainW = width - pad - Self.mainX
+        first.avatar.frame.origin = NSPoint(x: pad, y: pad)
         first.name.sizeToFit()
-        let nameW = min(first.name.frame.width, (width - pad - Self.mainX) / 3)
-        first.name.frame = NSRect(x: Self.mainX, y: pad, width: nameW, height: first.name.frame.height)
-        first.avatar.showsInitials = false
-        first.avatar.frame = NSRect(x: pad + (AnnotationStyle.avatarSize - dot) / 2, y: first.name.frame.midY - dot / 2, width: dot, height: dot)
-        gist.sizeToFit()
-        let gistX = first.name.frame.maxX + 8
-        gist.frame = NSRect(x: gistX, y: first.name.frame.midY - gist.frame.height / 2, width: max(0, width - pad - gistX), height: gist.frame.height)
+        first.time.sizeToFit()
+        let nameW = min(first.name.frame.width, mainW / 2)
+        first.name.frame = NSRect(x: Self.mainX, y: pad, width: max(nameW, 20), height: first.name.frame.height)
+        first.time.frame = NSRect(x: first.name.frame.maxX + 6, y: pad + 2, width: first.time.frame.width, height: first.time.frame.height)
+        if let replyCount {
+            replyCount.sizeToFit()
+            replyCount.frame.origin = NSPoint(x: first.time.frame.maxX + 6, y: pad + 2)
+        }
+        gist.frame = NSRect(x: Self.mainX, y: pad + 20, width: mainW, height: 18)
         lines = []
         rules = []
-        frame.size = NSSize(width: width, height: drawnHeight ?? height)
+        frame.size = NSSize(width: width, height: drawnHeight ?? Self.collapsedHeight)
         needsDisplay = true
-        return height
+        return Self.collapsedHeight
     }
 
     override func layout() {

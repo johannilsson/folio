@@ -64,12 +64,11 @@ extension SelfTest {
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await snapshot("\(base)-inline-preview.png") }
 
         // Collapsing folds a card to one line; focusing it opens it again.
-        let fullHeight = card("in1")?.frame.height ?? 0
         press("collapse", inCardOf: "in1")
-        await check("Collapse folds an inline card to one line, and the card under it moves up") {
+        await check("Collapse folds an inline card to its header and one line, the card under it right below") {
             await self.until {
                 guard let in1 = card("in1"), let in2 = card("in2") else { return false }
-                return in1.isCollapsed && in1.frame.height == AnnotationCardView.collapsedHeight && in1.frame.height < fullHeight && abs(in2.frame.minY - (in1.frame.maxY + 6)) < 1
+                return in1.isCollapsed && in1.frame.height == AnnotationCardView.collapsedHeight && abs(in2.frame.minY - (in1.frame.maxY + 6)) < 1
             }
         }
         await check("focusing a collapsed card opens it") {

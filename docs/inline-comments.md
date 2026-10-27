@@ -43,14 +43,18 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 ### The card
 
 - The same `AnnotationCardView` as in the pane and the open card, with the same look. All kinds are inline: comments and highlights (Dismiss) and suggestions (Accept / Reject).
-- Cards start expanded. Each can be **collapsed** to one line: a dot in the author's colour, the author, the first words of
-  the comment (for a suggestion, `old → new`) and the reply count. Collapse is one of the card's
-  hover actions; clicking a collapsed line expands it.
-- The collapsed line is the open card's header kept in place: the name where it is on the open
-  card, the dot in the avatar's column, the gist where the time is. Opening and folding animate
-  the card's height (0.2 s, eased like the pane), and the text under it moves with it; only what is
-  under the header comes and goes. A folding card keeps its content until it is one line tall.
-  With Reduce Motion it changes at once.
+- Cards start expanded. Each can be **collapsed** to its header and one line: the open card cut
+  short. The header is the open card's (avatar with initials, author, time) with the reply count
+  after the time; the second row is the first line of the comment (for a suggestion,
+  `old → new`), where the comment is on the open card, cut off with "…". Collapse is one of the
+  card's hover actions, beside ✓ and ⋯; clicking a collapsed card focuses it, which opens it.
+- Opening only shows what is below those two rows (the rest of the comment, the replies, the reply
+  field); a short comment with no replies looks the same either way. Opening and folding animate
+  the card's height (0.2 s, eased like the pane), and the text under it moves with it. A folding
+  card keeps its content until it is down to the two rows. With Reduce Motion it changes at once.
+- The reply field shows on the focused card only, as in the pane (tried in the prototype against
+  one on every open card, which pushed the text too far apart).
+- Prototype: https://claude.ai/artifact/XNd9speuMvfkgvvweFcGrd ("Avatar, two rows").
 - What is collapsed is kept per window, by annotation id, until the window closes. It survives
   switching files in a set, switching preview/source, and opening and closing the pane. It is
   never written to the sidecar or to the config.
@@ -139,8 +143,8 @@ quote), and a selection that ends on a row paints over the room.
 
 - Inline cards are placed in the scrolling canvas where the open card goes (`host.floatingHost`),
   at the column's left. The canvas is made tall enough for parked cards (`setGutterExtent`).
-- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (40 pt, the header line of the open card: a 10 pt dot in the author's colour
-  without initials, the name, the first line of what it says and the reply count). `drawnHeight`
+- `AnnotationCardView` has an `isInline` state (the pane's look, plus a Collapse hover action) and an `isCollapsed` one (62 pt: the open card's header with the reply count after the time, and
+  the first line of the first comment's text, one line, where it is on the open card). `drawnHeight`
   is the height it is drawn at while opening or folding; an inline card cuts off what is outside it
   (`masksToBounds`, it has no shadow). The controller keeps the folds in progress (`folds`, a 60 fps
   timer like the pane's) and hands `CardLayout.inline` the drawn heights, so the room follows.
