@@ -23,6 +23,8 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 - It is one app-wide preference (`UserDefaults`, key `CommentsInline`), kept across launches,
   and off by default. Changing it updates every open window.
 - The toolbar does not change: its comments button still opens and closes the pane.
+- View ▸ **Collapse All Comments** / **Expand All Comments** fold or open every inline card of the
+  window (folding drops the focus). Both are dimmed unless the cards are inline.
 
 ### Where a card goes (its row)
 
@@ -31,6 +33,10 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
   its last row), a picture or diagram.
 - **Source**: after the source line that holds the end of the annotation's text. A wrapped line
   gets the card after its last wrapped fragment.
+- A suggestion's row is where its preview ends (the green text the preview puts in after it), so
+  the card is never above the text it suggests.
+- The mouse over a card belongs to the card: the text view behind it keeps reporting the
+  character under the mouse, which would otherwise make the hover flicker between them.
 - The text below the row moves down to make room. Nothing is put into the text: the room is
   layout only (see "How it is built"), so the file and the preview's map are untouched.
 - Several annotations ending in the same row: one card each, stacked under it in document order
