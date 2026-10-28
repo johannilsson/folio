@@ -17,17 +17,18 @@ public struct PreviewFrontmatter {
     public var entries: [Entry]
 
     public static func split(_ text: String) -> PreviewFrontmatter? {
-        guard text.hasPrefix("---\n"),
-              let block = try? NSRegularExpression(pattern: "^---\\n([\\s\\S]*?)\\n---[ \\t]*(?:\\n|$)"),
+        guard text.hasPrefix("---"),
+              let block = try? NSRegularExpression(pattern: "^---\\r?\\n([\\s\\S]*?)\\r?\\n---[ \\t]*(?:\\r?\\n|$)"),
               let pair = try? NSRegularExpression(pattern: "^([^\\s:#-][^:]*):\\s*(.*)$") else { return nil }
         let all = text as NSString
         guard let match = block.firstMatch(in: text, range: NSRange(location: 0, length: all.length)) else { return nil }
         let yaml = match.range(at: 1)
         var entries: [Entry] = []
         var lineStart = yaml.location
-        for line in all.substring(with: yaml).components(separatedBy: "\n") {
+        for raw in (all.substring(with: yaml) as NSString).components(separatedBy: "\n") {
+            defer { lineStart += (raw as NSString).length + 1 }
+            let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
             let text = line as NSString
-            defer { lineStart += text.length + 1 }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
             if let kv = pair.firstMatch(in: line, range: NSRange(location: 0, length: text.length)) {
