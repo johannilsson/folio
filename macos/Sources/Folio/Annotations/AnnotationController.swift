@@ -365,10 +365,15 @@ final class AnnotationController {
         }
     }
 
-    /// A frame of the cards opening and folding; a folded card shows its one line once it is down to it.
+    /// A frame of the cards opening and folding; a folding card shows its collapsed view once it is down to it.
     private func foldStep() {
         let done = folds.filter { Date().timeIntervalSince($0.value.start) >= Self.foldDuration }.map(\.key)
-        for id in done { folds[id] = nil }
+        for id in done {
+            folds[id] = nil
+            // A folded card shows its collapsed view now; `refresh` would otherwise see a card that is not
+            // collapsed yet and start folding it again, for ever.
+            cards[id]?.isCollapsed = inlineShown && collapsed.contains(id)
+        }
         if folds.isEmpty {
             foldTimer?.invalidate()
             foldTimer = nil
