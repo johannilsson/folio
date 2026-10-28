@@ -82,7 +82,8 @@ final class AnnotationController {
             if let self, let candidate, candidate === surface { focus(id) }
         }
         candidate.onHover = { [weak self, weak candidate] id in
-            if let self, let candidate, candidate === surface { hover(id) }
+            // The text view keeps reporting the mouse while it is over a card in front of it: the card wins.
+            if let self, let candidate, candidate === surface { hover(cards.values.first { $0.isHovered }?.annotation.id ?? id) }
         }
         candidate.onPointer = { [weak self, weak candidate] in
             if let self, let candidate, candidate === surface { pointerDown() }
@@ -170,6 +171,13 @@ final class AnnotationController {
     private func collapse(_ id: String) {
         collapsed.insert(id)
         if focusedID == id { focusedID = nil }
+        refresh()
+    }
+
+    /// View ▸ Collapse All Comments / Expand All Comments: every inline card folds to one line, or opens.
+    func setAllCollapsed(_ fold: Bool) {
+        collapsed = fold ? Set(store.pending.map(\.id)) : []
+        if fold { focusedID = nil }
         refresh()
     }
 

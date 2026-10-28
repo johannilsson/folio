@@ -53,6 +53,14 @@ extension SelfTest {
         await check("in the preview, every card sits under its paragraph, in document order") {
             await self.until(seconds: 8) { underRows(next: "Second paragraph") }
         }
+        await check("Collapse All Comments folds every inline card and Expand All Comments opens them again") {
+            let fold = NSMenuItem(title: "", action: #selector(EditorWindowController.collapseAllComments(_:)), keyEquivalent: "")
+            guard self.controller.validateMenuItem(fold) else { return false }
+            send("collapseAllComments:")
+            guard await self.until(seconds: 4, { self.pane.cards.values.allSatisfy(\.isCollapsed) }) else { return false }
+            send("expandAllComments:")
+            return await self.until(seconds: 4) { self.pane.cards.values.allSatisfy { !$0.isCollapsed } }
+        }
         await check("the text after a paragraph with cards moves down to make room for them") {
             guard let plainTop, let moved = top(of: "Second paragraph"), let in1 = card("in1"), let in2 = card("in2") else { return false }
             return moved >= plainTop + in1.frame.height + in2.frame.height

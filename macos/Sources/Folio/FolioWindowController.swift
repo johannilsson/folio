@@ -185,11 +185,21 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         }
     }
 
+    @objc func collapseAllComments(_ sender: Any?) { annotations.setAllCollapsed(true) }
+    @objc func expandAllComments(_ sender: Any?) { annotations.setAllCollapsed(false) }
+
     /// Comments Inline is about the pane being closed: dimmed while it is open, its tick the app's choice.
+    /// Collapse and expand are about the inline cards, so they are dimmed when none are shown.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        guard item.action == #selector(toggleCommentsInline(_:)) else { return true }
-        item.state = commentsInline ? .on : .off
-        return !commentsOn
+        switch item.action {
+        case #selector(toggleCommentsInline(_:)):
+            item.state = commentsInline ? .on : .off
+            return !commentsOn
+        case #selector(collapseAllComments(_:)), #selector(expandAllComments(_:)):
+            return annotations.inlineShown
+        default:
+            return true
+        }
     }
 
     /// Shows the preview or the source. What was typed in the one is saved first, and the other

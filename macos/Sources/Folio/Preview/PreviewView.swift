@@ -434,8 +434,10 @@ final class PreviewView: NSView, AnnotationSurface {
         guard !rebuilding else { return }
         let anchors: [AnchorRect] = pending.compactMap { annotation in
             guard let range = ranges[annotation.id], let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
+            // A suggestion's preview follows its text, so the inline card goes under the preview's last line.
+            let last = max(range.location, max(range.upperBound, ghostRanges[annotation.id]?.upperBound ?? 0) - 1)
             return AnchorRect(id: annotation.id, from: sourceRanges[annotation.id]?.location ?? range.location,
-                              top: spot.top, bottom: spot.bottom, left: spot.left, row: row(display: max(range.location, range.upperBound - 1)))
+                              top: spot.top, bottom: spot.bottom, left: spot.left, row: row(display: last))
         }
         onAnchors?(anchors)
     }
