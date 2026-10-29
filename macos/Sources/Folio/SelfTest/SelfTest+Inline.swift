@@ -12,10 +12,15 @@ extension SelfTest {
         let filler = (1...30).map { "Filler paragraph \($0)." }.joined(separator: "\n\n")
         replaceFile("# Inline\n\nFirst paragraph with two notes in it.\n\nSecond paragraph stays plain.\n\nLast line here.\n\n\(filler)\n")
         _ = await until(seconds: 8) { self.previewText.contains("Last line here.") }
+        // A thread a collapsed card has something to cut short in: a long comment and a reply.
+        var longThread = commentJSON("in3", before: "Last ", target: "line here")
+        longThread["comment"] = "A longer comment, so the collapsed card has more to cut off: it runs past the width of the column, on to a second line."
+        longThread["replies"] = [["id": "in3-r1", "author": "me", "source": "local", "body": "And a reply, which the collapsed card counts.",
+                                  "created": "2026-01-01T00:01:00Z"]]
         replaceSidecar([
             commentJSON("in1", before: "First paragraph ", target: "with two"),
             commentJSON("in2", before: "First paragraph with two ", target: "notes"),
-            commentJSON("in3", before: "Last ", target: "line here"),
+            longThread,
             commentJSON("in4", before: "no such text anywhere ", target: "nowhere"),
         ])
         _ = await until(seconds: 8) { self.pane.anchorsKnown && self.pane.anchors.count == 3 && self.pane.cards.count == 4 }
@@ -90,6 +95,10 @@ extension SelfTest {
         }
         press("collapse", inCardOf: "in3")
         _ = await until { card("in3")?.isCollapsed == true }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            await snapshot("\(base)-inline-collapsed.png")
+        }
 
         // The source: the cards under the lines, and they follow the text as it is typed.
         send("toggleSource:")
