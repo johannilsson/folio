@@ -132,4 +132,27 @@ public struct PreviewText {
         segments = result
         text.insert(ghost, at: location)
     }
+
+    // MARK: rows
+
+    /// The row of the rendered `text` that holds the character at `index`, which inline cards go under:
+    /// its last character, and whether it is a block painted behind (code, the frontmatter box), whose
+    /// paint reaches below its text. A paragraph, heading or list item is a row; a block of code and a
+    /// table are one row each, the table ending with the line after it, which is not in the table.
+    public static func row(at index: Int, in text: NSAttributedString) -> (end: Int, painted: Bool)? {
+        guard text.length > 0 else { return nil }
+        let string = text.string as NSString
+        let index = min(max(0, index), text.length - 1)
+        var end = string.paragraphRange(for: NSRange(location: index, length: 0)).upperBound - 1
+        var run = NSRange()
+        let kind = text.attribute(.folioBlock, at: index, longestEffectiveRange: &run, in: NSRange(location: 0, length: text.length)) as? String
+        let painted = kind == "code" || kind == "box"
+        // The block is marked up to its last line break, which ends it.
+        if painted { end = min(run.upperBound, text.length - 1) }
+        while end + 1 < text.length, let style = text.attribute(.paragraphStyle, at: end, effectiveRange: nil) as? NSParagraphStyle,
+              !style.textBlocks.isEmpty {
+            end = string.paragraphRange(for: NSRange(location: end + 1, length: 0)).upperBound - 1
+        }
+        return (end, painted)
+    }
 }

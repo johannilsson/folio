@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// A window for a named set of files: a sidebar of the files beside the editor, which
 /// swaps documents in place. The set itself lives in ~/.config/folio/sets, shared with
 /// `folio set`, so the sidebar follows changes made from a terminal too.
-final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMenuItemValidation {
+final class SetWindowController: EditorWindowController, NSWindowDelegate {
     let sidebar: SidebarViewController
     private(set) var currentID: String
 
@@ -203,11 +203,11 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate, NSMen
         if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(removeFromSet(_:)) {
             return workspace.entries.count > 1 && sidebar.selectedID != nil
         }
-        return true
+        return super.validateMenuItem(item)
     }
 
     // MARK: NSWindowDelegate

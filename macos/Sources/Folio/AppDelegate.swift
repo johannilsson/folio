@@ -391,6 +391,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             source.keyEquivalentModifierMask = [.command, .shift]
             let comments = m.addItem(withTitle: "Toggle Comments", action: #selector(FolioWindowController.toggleComments(_:)), keyEquivalent: "m")
             comments.keyEquivalentModifierMask = [.command, .shift]
+            let inline = m.addItem(withTitle: "Comments Inline", action: #selector(EditorWindowController.toggleCommentsInline(_:)), keyEquivalent: "i")
+            inline.keyEquivalentModifierMask = [.command, .option]
+            // Xcode's keys for folding code: ⌥⌘← and ⌥⌘→, with ⇧ for all of them.
+            let left = String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
+            let right = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+            for (title, action, key, all) in [
+                ("Collapse Comment", #selector(EditorWindowController.collapseComment(_:)), left, false),
+                ("Expand Comment", #selector(EditorWindowController.expandComment(_:)), right, false),
+                ("Collapse All Comments", #selector(EditorWindowController.collapseAllComments(_:)), left, true),
+                ("Expand All Comments", #selector(EditorWindowController.expandAllComments(_:)), right, true),
+            ] {
+                let item = m.addItem(withTitle: title, action: action, keyEquivalent: key)
+                item.keyEquivalentModifierMask = all ? [.command, .option, .shift] : [.command, .option]
+            }
             m.addItem(.separator())
             let full = m.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
             full.keyEquivalentModifierMask = [.command, .control]

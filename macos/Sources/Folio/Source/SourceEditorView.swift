@@ -40,12 +40,15 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     private var pendingRange: (from: Int, to: Int)?
     private var flash: String?
     private var lastLayoutWidth: CGFloat = 0
+    /// Room after lines for the cards under them, when the cards are inline.
+    private let room = InlineRoom()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         textView.delegate = self
         textView.textStorage?.delegate = self
         textView.textContainerInset = Self.insets
+        textView.layoutManager?.delegate = room
         lineNumbers.textView = textView
         textView.onPointer = { [weak self] in self?.onPointer?() }
         textView.onClick = { [weak self] index in self?.clicked(at: index) }
@@ -90,6 +93,7 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     private func replace(with text: String, keepingSelection: Bool) {
         let selection = textView.selectedRange()
         replacingText = true
+        room.reset()
         textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (textView.string as NSString).length), with: text)
         textStyled()
         let length = (text as NSString).length
@@ -197,6 +201,7 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
                 return editedRange.location + editedRange.length
             }
             ranges = ranges.mapValues { NSRange(location: map($0.location), length: max(0, map($0.upperBound) - map($0.location))) }
+            room.shift(map)
             if let pendingRange { self.pendingRange = (map(pendingRange.from), map(pendingRange.to)) }
         }
     }
@@ -269,7 +274,8 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         guard !replacingText else { return }
         let anchors: [AnchorRect] = pending.compactMap { annotation in
             guard let range = ranges[annotation.id], let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
-            return AnchorRect(id: annotation.id, from: range.location, top: spot.top, bottom: spot.bottom, left: spot.left)
+            return AnchorRect(id: annotation.id, from: range.location, top: spot.top, bottom: spot.bottom, left: spot.left,
+                              row: row(at: max(range.location, range.upperBound - 1)))
         }
         onAnchors?(anchors)
     }
@@ -335,6 +341,38 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         guard let text = flash else { return }
         flash = nil
         TextSurface.flash(text, in: textView) { [weak self] in self?.applyMarks() }
+    }
+
+    // MARK: inline cards
+
+    /// The line of the file that holds the character at `index`: a card goes after its last wrapped line.
+    func row(at index: Int) -> CardLayout.Row? {
+        let text = textView.string as NSString
+        guard text.length > 0 else { return nil }
+        let line = text.paragraphRange(for: NSRange(location: min(max(0, index), text.length - 1), length: 0))
+        return TextSurface.row(ending: line.upperBound - 1, in: textView, room: room)
+    }
+
+    func setInlineRoom(_ new: [Int: CGFloat]) -> Bool {
+        guard room.set(new, in: textView) else { return false }
+        relayout()
+        textView.needsDisplay = true
+        lineNumbers.needsDisplay = true
+        reportAnchors()
+        return true
+    }
+
+    func lineMark(at y: CGFloat) -> (index: Int, top: CGFloat)? {
+        TextSurface.mark(at: y, in: textView)
+    }
+
+    func lineTop(of index: Int) -> CGFloat? {
+        TextSurface.position(of: index, in: textView).map { CGFloat($0.top) }
+    }
+
+    /// As wide as the text, up to the preview's text column: a card the width of a wide window is hard to read.
+    var inlineColumn: (left: CGFloat, width: CGFloat) {
+        (textView.frame.minX + Self.insets.width, max(100, min(PreviewView.column, textView.frame.width - 2 * Self.insets.width)))
     }
 
     /// Where each line starts, for the self-test.

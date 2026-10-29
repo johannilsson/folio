@@ -2,7 +2,7 @@ import AppKit
 
 /// A window around the preview and the source, with the native toolbar for its two toggles. This is
 /// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
-class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFieldDelegate {
+class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation {
     /// Holds the preview and the source, each as tall as its text; this is what scrolls.
     let scrollHost: EditorScrollView
     let workspace: Workspace
@@ -15,6 +15,8 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     private(set) var mode: EditorMode = .preview
     private(set) var commentsOn = false
     var sourceOn: Bool { mode == .source }
+    /// Whether the cards are in the text when the pane is closed: the app's choice, for every window.
+    var commentsInline: Bool { AppConfig.commentsInline }
     private var switchingMode = false
     /// Unresolved annotations in the file on screen; the badge on the comments icon.
     var pendingCount: Int { currentStore.pending.count }
@@ -173,6 +175,35 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         commentsOn.toggle()
         annotations.refreshMode()
         syncButtons()
+    }
+
+    /// View ▸ Comments Inline: the cards go into the text, or float again, in every window whose pane is closed.
+    @objc func toggleCommentsInline(_ sender: Any?) {
+        AppConfig.commentsInline.toggle()
+        for window in NSApp.windows {
+            (window.windowController as? EditorWindowController)?.annotations.refreshMode()
+        }
+    }
+
+    @objc func collapseComment(_ sender: Any?) { annotations.collapseFocused() }
+    @objc func expandComment(_ sender: Any?) { annotations.expandFocused() }
+    @objc func collapseAllComments(_ sender: Any?) { annotations.setAllCollapsed(true) }
+    @objc func expandAllComments(_ sender: Any?) { annotations.setAllCollapsed(false) }
+
+    /// Comments Inline is about the pane being closed: dimmed while it is open, its tick the app's choice.
+    /// Collapse and expand are about the inline cards, so they are dimmed when none are shown.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleCommentsInline(_:)):
+            item.state = commentsInline ? .on : .off
+            return !commentsOn
+        case #selector(collapseComment(_:)), #selector(expandComment(_:)):
+            return annotations.canFoldFocused
+        case #selector(collapseAllComments(_:)), #selector(expandAllComments(_:)):
+            return annotations.inlineShown
+        default:
+            return true
+        }
     }
 
     /// Shows the preview or the source. What was typed in the one is saved first, and the other

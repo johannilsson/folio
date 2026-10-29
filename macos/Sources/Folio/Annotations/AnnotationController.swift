@@ -1,8 +1,8 @@
 import AppKit
 import FolioKit
 
-/// The window's annotation UI: the cards in the comments pane (or the one card that opens next to
-/// the text when the pane is closed), the Comment button over a selection, the form for a new
+/// The window's annotation UI: the cards in the comments pane (or, when the pane is closed, the one
+/// card that opens next to the text, or every card in the text under its row), the Comment button over a selection, the form for a new
 /// comment, the toast, and the keyboard shortcuts. The text itself is shown by a surface (the
 /// preview or the source); it draws the highlights and tells this where each annotation is, what
 /// is selected and what was clicked. Everything the reader does with an annotation happens here.
@@ -25,7 +25,22 @@ final class AnnotationController {
     private(set) var anchorsKnown = false
     private(set) var selection: SelectionInfo?
 
-    private(set) var focusedID: String?
+    private(set) var focusedID: String? {
+        didSet { if let focusedID { lastFocusedID = focusedID } }
+    }
+    /// The last annotation in focus, where ⌃J/⌃K carry on from when nothing is: after a card was
+    /// collapsed (which takes its focus) or Esc.
+    private var lastFocusedID: String?
+    /// The inline cards the reader collapsed, kept while the window is open (any file, any mode). One in
+    /// focus shows open, as a peek, and folds again when the focus moves on, unless the reader did
+    /// something with it (a reply typed or sent, the comment edited) or opened it for good (Expand).
+    private(set) var collapsed: Set<String> = []
+    /// Inline cards opening or folding: the height they are drawn at moves from `from` to their new one
+    /// over `foldDuration`, and the room in the text with it. A folding card keeps its full content
+    /// until it is down to one line.
+    private var folds: [String: (from: CGFloat, start: Date, collapsing: Bool)] = [:]
+    private var foldTimer: Timer?
+    private static let foldDuration: TimeInterval = 0.2
     /// The annotation under the mouse, in the text or as a card.
     private var hoveredID: String?
     private(set) var cards: [String: AnnotationCardView] = [:]
@@ -41,6 +56,8 @@ final class AnnotationController {
 
     private var cardWidth: CGFloat { AnnotationStyle.cardWidth }
     var paneShown: Bool { commentsOn }
+    /// With the pane closed, every card sits in the text under its row (View ▸ Comments Inline).
+    var inlineShown: Bool { !commentsOn && owner.commentsInline }
 
     init(owner: EditorWindowController, host: EditorScrollView, store: AnnotationStore, source: SourceEditorView, preview: PreviewView) {
         self.owner = owner
@@ -72,7 +89,8 @@ final class AnnotationController {
             if let self, let candidate, candidate === surface { focus(id) }
         }
         candidate.onHover = { [weak self, weak candidate] id in
-            if let self, let candidate, candidate === surface { hover(id) }
+            // The text view keeps reporting the mouse while it is over a card in front of it: the card wins.
+            if let self, let candidate, candidate === surface { hover(cards.values.first { $0.isHovered }?.annotation.id ?? id) }
         }
         candidate.onPointer = { [weak self, weak candidate] in
             if let self, let candidate, candidate === surface { pointerDown() }
@@ -88,7 +106,10 @@ final class AnnotationController {
         if modeChanged {
             // What the other surface reported is not about what is on screen now.
             cancelForm()
+            let previous = surface
             surface = showing
+            // The other surface keeps no room for cards it does not show; what it reports now is not listened to.
+            _ = previous.setInlineRoom([:])
             anchors = [:]
             anchorsKnown = false
             selection = nil
@@ -153,6 +174,45 @@ final class AnnotationController {
         refresh()
     }
 
+    /// The Collapse button of an inline card, or View ▸ Collapse Comment: it folds, and the focus goes
+    /// if it had it (a card in focus shows open).
+    private func collapse(_ id: String) {
+        collapsed.insert(id)
+        if focusedID == id { focusedID = nil }
+        refresh()
+    }
+
+    /// The reader did something with a card (typed a reply, sent one, edited the comment), or opened it
+    /// for good (View ▸ Expand Comment): it stays open when the focus moves on.
+    private func keepOpen(_ id: String) {
+        guard collapsed.remove(id) != nil else { return }
+        refresh()
+    }
+
+    /// Whether an inline card shows collapsed: collapsed by the reader and not being looked at.
+    private func showsCollapsed(_ id: String) -> Bool {
+        inlineShown && collapsed.contains(id) && id != focusedID
+    }
+
+    /// View ▸ Collapse Comment and Expand Comment: the inline card in focus.
+    func collapseFocused() {
+        if let focusedID { collapse(focusedID) }
+    }
+
+    func expandFocused() {
+        if let focusedID { keepOpen(focusedID) }
+    }
+
+    /// Whether Collapse Comment and Expand Comment have a card to act on.
+    var canFoldFocused: Bool { inlineShown && focusedID != nil }
+
+    /// View ▸ Collapse All Comments / Expand All Comments: every inline card folds to one line, or opens.
+    func setAllCollapsed(_ fold: Bool) {
+        collapsed = fold ? Set(store.pending.map(\.id)) : []
+        if fold { focusedID = nil }
+        refresh()
+    }
+
     /// Esc in a card's reply field: the focus is dropped and the keyboard goes back to the text.
     /// What was typed stays in the card.
     private func blur() {
@@ -212,6 +272,14 @@ final class AnnotationController {
             card.update(annotation)
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
+            card.isInline = inlineShown
+            let collapse = showsCollapsed(annotation.id)
+            if collapse != card.isCollapsed, folds[annotation.id] == nil, card.isInline, card.superview === host.floatingHost,
+               card.frame.height > 0, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                folds[annotation.id] = (card.frame.height, Date(), collapse)
+                startFolding()
+            }
+            card.isCollapsed = collapse && folds[annotation.id]?.collapsing != true
         }
         surface.emphasized = Set([focusedID, hoveredID].compactMap { $0 })
         layout()
@@ -227,15 +295,22 @@ final class AnnotationController {
             resolve: { [weak self] id in self?.resolve(id) },
             saveEdit: { [weak self] id, text in self?.saveEdit(id, text) ?? false },
             reply: { [weak self] id, text in self?.reply(id, text) ?? false },
+            collapse: { [weak self] id in self?.collapse(id) },
+            keepOpen: { [weak self] id in self?.keepOpen(id) },
             relayout: { [weak self] in self?.layout() }
         )
         cards[annotation.id] = card
         return card
     }
 
-    /// Places the pane or the open card, the form and the Comment button.
+    /// Places the pane, the inline cards or the open card, the form and the Comment button.
     func layout() {
         let pending = store.pending
+        if !inlineShown || host.paneWidth > 0 {
+            folds = [:]
+            for card in cards.values { card.drawnHeight = nil }
+            setRoom([:])
+        }
         if paneShown || host.paneWidth > 0 {
             var items: [AnnotationGutterView.Item] = []
             for annotation in pending {
@@ -253,6 +328,9 @@ final class AnnotationController {
             }
             let extent = host.gutter.stack(items, end: host.contentHeight)
             host.setGutterExtent(extent > 0 ? extent + 48 : 0)
+        } else if inlineShown {
+            _ = host.gutter.stack([], end: host.contentHeight)
+            placeInline()
         } else {
             host.setGutterExtent(0)
             _ = host.gutter.stack([], end: host.contentHeight)
@@ -262,6 +340,84 @@ final class AnnotationController {
         }
         updateAdder()
         refreshHover()
+    }
+
+    /// Every card under the row its text ends in, the form under the selection's, with room left in
+    /// the text for them (`CardLayout.inline`). The room moves the text, so this runs again with where
+    /// it is now; the second time the room is the same and the text stays.
+    private func placeInline() {
+        let column = surface.inlineColumn
+        var views: [NSView] = []
+        var items: [CardLayout.InlineCard] = []
+        for annotation in store.pending {
+            guard let card = cards[annotation.id] else { continue }
+            card.isFloating = false
+            card.drawnHeight = nil
+            let full = card.layoutContent(width: column.width)
+            var height = full
+            if let fold = folds[annotation.id] {
+                height = foldedHeight(fold, full: full)
+                card.drawnHeight = height
+            }
+            let anchor = anchors[annotation.id]
+            views.append(card)
+            items.append(.init(row: anchor?.row, order: anchor?.from ?? Int.max, height: height))
+        }
+        if let form, let formSelection {
+            form.isFloating = false
+            let height = form.layoutContent(width: column.width)
+            views.append(form)
+            items.append(.init(row: surface.row(at: max(formSelection.from, formSelection.to - 1)), order: formSelection.from, height: height))
+        }
+        let laid = CardLayout.inline(items, end: host.contentHeight)
+        for (index, top) in laid.placed {
+            let view = views[index]
+            if view.superview !== host.floatingHost { host.floatingHost.addSubview(view) }
+            view.frame.origin = NSPoint(x: column.left, y: top)
+        }
+        host.setGutterExtent(laid.extent > 0 ? laid.extent + 48 : 0)
+        // Last: the surface reports where the text went, and this is laid out again from there.
+        setRoom(laid.room)
+    }
+
+    /// Leaves room in the text for the inline cards, keeping the line at the top of the window where
+    /// it is: room that comes or goes above it (a card opening, the pane opening) does not move what
+    /// is being read.
+    private func setRoom(_ room: [Int: CGFloat]) {
+        let mark = surface.lineMark(at: host.visibleDocumentRect.minY)
+        guard surface.setInlineRoom(room), let mark, let top = surface.lineTop(of: mark.index) else { return }
+        host.scroll(by: top - mark.top)
+    }
+
+    /// The height a card opening or folding is drawn at now, eased like the pane's slide.
+    private func foldedHeight(_ fold: (from: CGFloat, start: Date, collapsing: Bool), full: CGFloat) -> CGFloat {
+        let to = fold.collapsing ? AnnotationCardView.collapsedHeight : full
+        let t = min(1, Date().timeIntervalSince(fold.start) / Self.foldDuration)
+        let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+        return fold.from + (to - fold.from) * CGFloat(eased)
+    }
+
+    private func startFolding() {
+        guard foldTimer == nil else { return }
+        foldTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.foldStep() }
+        }
+    }
+
+    /// A frame of the cards opening and folding; a folding card shows its collapsed view once it is down to it.
+    private func foldStep() {
+        let done = folds.filter { Date().timeIntervalSince($0.value.start) >= Self.foldDuration }.map(\.key)
+        for id in done {
+            folds[id] = nil
+            // A folded card shows its collapsed view now; `refresh` would otherwise see a card that is not
+            // collapsed yet and start folding it again, for ever.
+            cards[id]?.isCollapsed = showsCollapsed(id)
+        }
+        if folds.isEmpty {
+            foldTimer?.invalidate()
+            foldTimer = nil
+        }
+        if done.isEmpty { layout() } else { refresh() }
     }
 
     /// The card of the annotation clicked in the text, next to it; flips above near the bottom.
@@ -368,11 +524,11 @@ final class AnnotationController {
     }
 
     private func saveEdit(_ id: String, _ text: String) -> Bool {
-        do { try store.editComment(id, to: text); return true } catch { fail(error); return false }
+        do { try store.editComment(id, to: text); keepOpen(id); return true } catch { fail(error); return false }
     }
 
     private func reply(_ id: String, _ text: String) -> Bool {
-        do { try store.reply(to: id, body: text); return true } catch { fail(error); return false }
+        do { try store.reply(to: id, body: text); keepOpen(id); return true } catch { fail(error); return false }
     }
 
     private func showToast(_ message: String, undo: (() -> Void)? = nil) {
@@ -435,7 +591,7 @@ final class AnnotationController {
         let ordered = store.pending.compactMap { annotation in anchors[annotation.id].map { (annotation, $0) } }
             .sorted { $0.1.from < $1.1.from }
         guard !ordered.isEmpty else { return false }
-        let current = ordered.firstIndex { $0.0.id == focusedID }
+        let current = ordered.firstIndex { $0.0.id == (focusedID ?? lastFocusedID) }
         let next = current.map { (($0 + direction) % ordered.count + ordered.count) % ordered.count }
             ?? (direction > 0 ? 0 : ordered.count - 1)
         return reveal(annotation: ordered[next].0.id)
