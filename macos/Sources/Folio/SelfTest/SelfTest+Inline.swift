@@ -117,7 +117,7 @@ extension SelfTest {
             return kept
         }
         await check("⌥⌘← folds the card in focus, ⌃J carries on after it, and ⌥⌘→ keeps a card open") {
-            let view = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu
+            let view = NSApp.mainMenu?.items.compactMap(\.submenu).first { $0.title == "View" }
             let foldItem = view?.items.first { $0.action == #selector(EditorWindowController.collapseComment(_:)) }
             let allItem = view?.items.first { $0.action == #selector(EditorWindowController.collapseAllComments(_:)) }
             guard foldItem?.keyEquivalentModifierMask == [.command, .option], allItem?.keyEquivalentModifierMask == [.command, .option, .shift],

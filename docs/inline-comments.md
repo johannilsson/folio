@@ -75,7 +75,7 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 - A collapsed card in focus is a **peek**: it shows open while it has the focus and folds again
   when the focus moves on (⌃J/⌃K, a click elsewhere, Esc). It stays open if the reader did
   something with it: typed in its reply field (a draft is enough), sent a reply, or edited the
-  comment; and for good after Expand Comment, its chevron's opposite, or Expand All. Folding is
+  comment; and for good after Expand Comment or Expand All. Folding is
   "not now", so walking through a folded document does not unfold it a card at a time.
 - ⌃J/⌃K carry on from the last card in focus when none has it (after Collapse Comment, which takes
   the focus, or Esc), so the reader can fold cards as they go.
