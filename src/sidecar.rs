@@ -99,6 +99,34 @@ pub struct Annotation {
 }
 
 impl Annotation {
+    /// A new, unresolved annotation with no replies, created now.
+    pub fn pending(
+        id: String,
+        kind: AnnotationKind,
+        source: AnnotationSource,
+        author: String,
+        context_before: String,
+        target: Option<String>,
+        replacement: Option<String>,
+        comment: Option<String>,
+    ) -> Self {
+        Annotation {
+            id,
+            kind,
+            source,
+            author,
+            context_before,
+            target,
+            replacement,
+            comment,
+            created: now_iso8601(),
+            resolved: false,
+            resolved_as: None,
+            resolved_at: None,
+            replies: vec![],
+        }
+    }
+
     /// Returns `(raw_start, raw_end)` byte offsets of `target` within `doc`.
     ///
     /// Three-pass strategy:
@@ -1095,6 +1123,16 @@ impl Sidecar {
             return Err(e.into());
         }
         Ok(())
+    }
+}
+
+/// A generated id (`prefix` in place of `ann_`) that `taken` does not claim.
+pub fn fresh_id(taken: impl Fn(&str) -> bool, prefix: &str) -> String {
+    loop {
+        let candidate = generate_id().replacen("ann_", prefix, 1);
+        if !taken(&candidate) {
+            return candidate;
+        }
     }
 }
 
