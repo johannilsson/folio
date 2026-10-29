@@ -189,8 +189,10 @@ struct AnnotationCardHandlers {
     var resolve: (String) -> Void = { _ in }
     var saveEdit: (String, String) -> Bool = { _, _ in true }
     var reply: (String, String) -> Bool = { _, _ in true }
-    /// Fold an inline card to one line.
+    /// Fold an inline card.
     var collapse: (String) -> Void = { _ in }
+    /// Something was typed in the reply field: a collapsed card being looked at stays open.
+    var keepOpen: (String) -> Void = { _ in }
     /// Something changed the card's height.
     var relayout: () -> Void = {}
 }
@@ -303,7 +305,11 @@ final class AnnotationCardView: NSView {
             guard let self else { return }
             if handlers.reply(annotation.id, text) { replyBox.clear() }
         }
-        replyBox.onResize = { [weak self] in self?.handlers.relayout() }
+        replyBox.onResize = { [weak self] in
+            guard let self else { return }
+            if !replyBox.trimmed.isEmpty { handlers.keepOpen(self.annotation.id) }
+            handlers.relayout()
+        }
         replyBox.textView.onCancel = { [weak self] in self?.handlers.blur() }
         rebuild()
     }

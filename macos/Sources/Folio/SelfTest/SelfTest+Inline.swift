@@ -93,6 +93,47 @@ extension SelfTest {
         await check("a click on plain text drops the focus and leaves the cards in the text") {
             await self.until { self.pane.focusedID == nil && underRows(next: "Second paragraph") }
         }
+
+        // A collapsed card in focus is a peek: it folds again when the focus moves on, unless the reader
+        // did something with it or expanded it for good.
+        let j = keyEvent("j", .control, code: 38), k = keyEvent("k", .control, code: 40)
+        await check("the focus moving on folds a collapsed card it opened again") {
+            guard await self.until({ card("in1")?.isCollapsed == true }) else { return false }
+            self.send("collapseAllComments:")
+            _ = await self.until { self.pane.cards.values.allSatisfy(\.isCollapsed) }
+            self.pane.reveal(annotation: "in1")
+            let peek = await self.until { card("in1")?.isCollapsed == false }
+            _ = self.pane.handleKey(j)
+            let folded = await self.until { self.pane.focusedID == "in2" && card("in1")?.isCollapsed == true && card("in2")?.isCollapsed == false }
+            return peek && folded
+        }
+        await check("typing a reply in a card opened by the focus keeps it open when the focus moves on") {
+            guard let in2 = card("in2") else { return false }
+            in2.replyBox.textView.string = "A draft"
+            in2.replyBox.textView.didChangeText()
+            _ = self.pane.handleKey(j)
+            let kept = await self.until { self.pane.focusedID == "in3" && card("in2")?.isCollapsed == false && card("in3")?.isCollapsed == false }
+            in2.replyBox.clear()
+            return kept
+        }
+        await check("⌥⌘← folds the card in focus, ⌃J carries on after it, and ⌥⌘→ keeps a card open") {
+            let view = NSApp.mainMenu?.items.first { $0.title == "View" }?.submenu
+            let foldItem = view?.items.first { $0.action == #selector(EditorWindowController.collapseComment(_:)) }
+            let allItem = view?.items.first { $0.action == #selector(EditorWindowController.collapseAllComments(_:)) }
+            guard foldItem?.keyEquivalentModifierMask == [.command, .option], allItem?.keyEquivalentModifierMask == [.command, .option, .shift],
+                  let foldItem, self.controller.validateMenuItem(foldItem) else { return false }
+            self.send("collapseComment:")
+            let folded = await self.until { self.pane.focusedID == nil && card("in3")?.isCollapsed == true }
+            _ = self.pane.handleKey(j)
+            let carried = await self.until { self.pane.focusedID == "in1" }
+            self.send("expandComment:")
+            _ = self.pane.handleKey(k)
+            let kept = await self.until { self.pane.focusedID == "in3" && card("in1")?.isCollapsed == false }
+            return folded && carried && kept
+        }
+        send("expandAllComments:")
+        _ = pane.handleKey(keyEvent("\u{1b}", [], code: 53))
+        _ = await until { self.pane.focusedID == nil && self.pane.cards.values.allSatisfy { !$0.isCollapsed } }
         press("collapse", inCardOf: "in3")
         _ = await until { card("in3")?.isCollapsed == true }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {

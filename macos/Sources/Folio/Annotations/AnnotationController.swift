@@ -25,8 +25,15 @@ final class AnnotationController {
     private(set) var anchorsKnown = false
     private(set) var selection: SelectionInfo?
 
-    private(set) var focusedID: String?
-    /// The inline cards the reader folded to one line, kept while the window is open (any file, any mode).
+    private(set) var focusedID: String? {
+        didSet { if let focusedID { lastFocusedID = focusedID } }
+    }
+    /// The last annotation in focus, where ⌃J/⌃K carry on from when nothing is: after a card was
+    /// collapsed (which takes its focus) or Esc.
+    private var lastFocusedID: String?
+    /// The inline cards the reader collapsed, kept while the window is open (any file, any mode). One in
+    /// focus shows open, as a peek, and folds again when the focus moves on, unless the reader did
+    /// something with it (a reply typed or sent, the comment edited) or opened it for good (Expand).
     private(set) var collapsed: Set<String> = []
     /// Inline cards opening or folding: the height they are drawn at moves from `from` to their new one
     /// over `foldDuration`, and the room in the text with it. A folding card keeps its full content
@@ -167,12 +174,37 @@ final class AnnotationController {
         refresh()
     }
 
-    /// The Collapse button of an inline card: it folds to one line, and the focus goes if it had it.
+    /// The Collapse button of an inline card, or View ▸ Collapse Comment: it folds, and the focus goes
+    /// if it had it (a card in focus shows open).
     private func collapse(_ id: String) {
         collapsed.insert(id)
         if focusedID == id { focusedID = nil }
         refresh()
     }
+
+    /// The reader did something with a card (typed a reply, sent one, edited the comment), or opened it
+    /// for good (View ▸ Expand Comment): it stays open when the focus moves on.
+    private func keepOpen(_ id: String) {
+        guard collapsed.remove(id) != nil else { return }
+        refresh()
+    }
+
+    /// Whether an inline card shows collapsed: collapsed by the reader and not being looked at.
+    private func showsCollapsed(_ id: String) -> Bool {
+        inlineShown && collapsed.contains(id) && id != focusedID
+    }
+
+    /// View ▸ Collapse Comment and Expand Comment: the inline card in focus.
+    func collapseFocused() {
+        if let focusedID { collapse(focusedID) }
+    }
+
+    func expandFocused() {
+        if let focusedID { keepOpen(focusedID) }
+    }
+
+    /// Whether Collapse Comment and Expand Comment have a card to act on.
+    var canFoldFocused: Bool { inlineShown && focusedID != nil }
 
     /// View ▸ Collapse All Comments / Expand All Comments: every inline card folds to one line, or opens.
     func setAllCollapsed(_ fold: Bool) {
@@ -233,8 +265,6 @@ final class AnnotationController {
             cards[id] = nil
         }
         if let focusedID, !ids.contains(focusedID) { self.focusedID = nil }
-        // A collapsed card opens when it takes the focus (a click, ⌃J/⌃K, reveal), and stays open.
-        if let focusedID { collapsed.remove(focusedID) }
         // A card that goes away under the mouse never says the mouse left it.
         if let hoveredID, !ids.contains(hoveredID) { self.hoveredID = nil }
         for annotation in pending {
@@ -243,7 +273,7 @@ final class AnnotationController {
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
             card.isInline = inlineShown
-            let collapse = inlineShown && collapsed.contains(annotation.id)
+            let collapse = showsCollapsed(annotation.id)
             if collapse != card.isCollapsed, folds[annotation.id] == nil, card.isInline, card.superview === host.floatingHost,
                card.frame.height > 0, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                 folds[annotation.id] = (card.frame.height, Date(), collapse)
@@ -266,6 +296,7 @@ final class AnnotationController {
             saveEdit: { [weak self] id, text in self?.saveEdit(id, text) ?? false },
             reply: { [weak self] id, text in self?.reply(id, text) ?? false },
             collapse: { [weak self] id in self?.collapse(id) },
+            keepOpen: { [weak self] id in self?.keepOpen(id) },
             relayout: { [weak self] in self?.layout() }
         )
         cards[annotation.id] = card
@@ -380,7 +411,7 @@ final class AnnotationController {
             folds[id] = nil
             // A folded card shows its collapsed view now; `refresh` would otherwise see a card that is not
             // collapsed yet and start folding it again, for ever.
-            cards[id]?.isCollapsed = inlineShown && collapsed.contains(id)
+            cards[id]?.isCollapsed = showsCollapsed(id)
         }
         if folds.isEmpty {
             foldTimer?.invalidate()
@@ -493,11 +524,11 @@ final class AnnotationController {
     }
 
     private func saveEdit(_ id: String, _ text: String) -> Bool {
-        do { try store.editComment(id, to: text); return true } catch { fail(error); return false }
+        do { try store.editComment(id, to: text); keepOpen(id); return true } catch { fail(error); return false }
     }
 
     private func reply(_ id: String, _ text: String) -> Bool {
-        do { try store.reply(to: id, body: text); return true } catch { fail(error); return false }
+        do { try store.reply(to: id, body: text); keepOpen(id); return true } catch { fail(error); return false }
     }
 
     private func showToast(_ message: String, undo: (() -> Void)? = nil) {
@@ -560,7 +591,7 @@ final class AnnotationController {
         let ordered = store.pending.compactMap { annotation in anchors[annotation.id].map { (annotation, $0) } }
             .sorted { $0.1.from < $1.1.from }
         guard !ordered.isEmpty else { return false }
-        let current = ordered.firstIndex { $0.0.id == focusedID }
+        let current = ordered.firstIndex { $0.0.id == (focusedID ?? lastFocusedID) }
         let next = current.map { (($0 + direction) % ordered.count + ordered.count) % ordered.count }
             ?? (direction > 0 ? 0 : ordered.count - 1)
         return reveal(annotation: ordered[next].0.id)

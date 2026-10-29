@@ -185,6 +185,8 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         }
     }
 
+    @objc func collapseComment(_ sender: Any?) { annotations.collapseFocused() }
+    @objc func expandComment(_ sender: Any?) { annotations.expandFocused() }
     @objc func collapseAllComments(_ sender: Any?) { annotations.setAllCollapsed(true) }
     @objc func expandAllComments(_ sender: Any?) { annotations.setAllCollapsed(false) }
 
@@ -195,6 +197,8 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         case #selector(toggleCommentsInline(_:)):
             item.state = commentsInline ? .on : .off
             return !commentsOn
+        case #selector(collapseComment(_:)), #selector(expandComment(_:)):
+            return annotations.canFoldFocused
         case #selector(collapseAllComments(_:)), #selector(expandAllComments(_:)):
             return annotations.inlineShown
         default:

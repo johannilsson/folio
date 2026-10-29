@@ -23,8 +23,11 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 - It is one app-wide preference (`UserDefaults`, key `CommentsInline`), kept across launches,
   and off by default. Changing it updates every open window.
 - The toolbar does not change: its comments button still opens and closes the pane.
-- View ▸ **Collapse All Comments** / **Expand All Comments** fold or open every inline card of the
-  window (folding drops the focus). Both are dimmed unless the cards are inline.
+- View ▸ **Collapse Comment** (⌥⌘←) / **Expand Comment** (⌥⌘→) fold the card in focus, or keep it
+  open for good; **Collapse All Comments** (⌥⇧⌘←) / **Expand All Comments** (⌥⇧⌘→) fold or open
+  every inline card of the window (folding drops the focus). Xcode's keys for folding code; ⌃←/⌃→
+  are left to macOS, which switches desktops with them. Collapse/Expand Comment are dimmed with no
+  card in focus, all four unless the cards are inline.
 
 ### Where a card goes (its row)
 
@@ -67,8 +70,15 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 
 ### Focus and keys
 
-- Clicking annotated text, or ⌃J/⌃K, focuses its card: accent border, reply field, and expanded
-  if it was collapsed (it stays expanded). The window scrolls only if the card is not visible.
+- Clicking annotated text, or ⌃J/⌃K, focuses its card: accent border, reply field. The window
+  scrolls only if the card is not visible.
+- A collapsed card in focus is a **peek**: it shows open while it has the focus and folds again
+  when the focus moves on (⌃J/⌃K, a click elsewhere, Esc). It stays open if the reader did
+  something with it: typed in its reply field (a draft is enough), sent a reply, or edited the
+  comment; and for good after Expand Comment, its chevron's opposite, or Expand All. Folding is
+  "not now", so walking through a folded document does not unfold it a card at a time.
+- ⌃J/⌃K carry on from the last card in focus when none has it (after Collapse Comment, which takes
+  the focus, or Esc), so the reader can fold cards as they go.
 - Clicking plain text drops the focus. The cards stay; unlike the floating card, nothing closes.
 - Esc drops the focus, as today. ⌃↩ / ⌃⌫ act on the focused card, as today.
 - The MCP `reveal` tool focuses the card and scrolls it into view.
@@ -99,8 +109,9 @@ Follows "How the app is built" in `CLAUDE.md`. No Rust or sidecar changes.
   controller validates the item (`NSMenuItemValidation`): dimmed while its pane is open, ticked
   from the preference.
 - `AnnotationController.collapsed: Set<String>`, the window's collapsed annotations. Not cleared
-  by `fileChanged`. Focusing a card removes it; the card's Collapse button adds it (and drops the
-  focus if it had it).
+  by `fileChanged`. A card shows collapsed when it is in it and not in focus (`showsCollapsed`).
+  Collapse adds it (and drops the focus); `keepOpen` takes it out (a reply typed or sent, an edit,
+  Expand Comment), Expand All empties it. `lastFocusedID` is where ⌃J/⌃K carry on from.
 - `AnnotationController.inlineShown` (`!commentsOn && owner.commentsInline`) beside `paneShown`;
   `layout()` has a third branch, `placeInline()`.
 
