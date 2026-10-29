@@ -233,7 +233,11 @@ final class AnnotationCardView: NSView {
     }
     /// The height it is drawn at while it opens or folds; the content is laid out in full and cut off.
     var drawnHeight: CGFloat? {
-        didSet { if drawnHeight != oldValue, let drawnHeight { frame.size.height = drawnHeight } }
+        didSet {
+            guard drawnHeight != oldValue else { return }
+            if let drawnHeight { frame.size.height = drawnHeight }
+            needsDisplay = true
+        }
     }
     /// Folded to its header and one line (an inline card the reader collapsed): who wrote it, when, how
     /// many replies, and the first line of what it says. Clicking it focuses it, which opens it again.
@@ -661,6 +665,9 @@ final class AnnotationCardView: NSView {
             path.stroke()
         }
         NSColor.separatorColor.setFill()
+        // Opening or folding, the card is its header and text sliding: the thread line and the rules
+        // under them would be cut off at the moving edge.
+        guard drawnHeight == nil else { return }
         for (x, from, to) in lines where to > from { NSRect(x: x, y: from, width: 1, height: to - from).fill() }
         for rule in rules { rule.fill() }
     }
