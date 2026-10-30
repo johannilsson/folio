@@ -1,0 +1,46 @@
+name: Windows (experimental)
+
+# The Windows client in windows/ is an experiment, kept apart from the ordinary checks: this workflow runs
+# only when that folder (or this file) changes, and is not part of the `test` check in ci.yml, so it never
+# gates a merge. If it is ever made a required check, remove the `paths` filters first: a required check that
+# a filter skips stays pending forever.
+on:
+  pull_request:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  push:
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+# A branch with a pull request triggers both events; the newer run replaces the older.
+concurrency:
+  group: windows-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      # Engine DLL and CLI, the client's build and unit tests, then the app driven by its self-test.
+      - name: Verify
+        shell: bash
+        run: windows/verify.sh
+
+      - name: Upload self-test result and pictures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-selftest
+          path: |
+            windows/selftest-result.txt
+            windows/snapshots
+          if-no-files-found: ignore
