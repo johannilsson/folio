@@ -1,0 +1,26 @@
+<Window x:Class="Folio.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Folio (experimental)" Width="1100" Height="720">
+    <DockPanel>
+        <ToolBar DockPanel.Dock="Top">
+            <Button x:Name="OpenButton" Content="Open…" Padding="10,2" Click="OnOpen" />
+            <Separator />
+            <TextBlock x:Name="PathText" VerticalAlignment="Center" Text="No file open" />
+        </ToolBar>
+        <StatusBar DockPanel.Dock="Bottom">
+            <TextBlock x:Name="StatusText" />
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+            <RichTextBox x:Name="Text" IsReadOnly="True" BorderThickness="0" VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas" FontSize="14" />
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Background="#FAFAFB">
+                <StackPanel x:Name="Cards" Margin="12" />
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

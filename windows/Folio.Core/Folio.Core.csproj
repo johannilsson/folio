@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Folio.Core</RootNamespace>
+  </PropertyGroup>
+
+  <!-- The engine, built as a cdylib by windows/verify.sh (see the cargo rustc line there).
+       Copied next to whatever references this project: folio.dll on Windows, libfolio.so on Linux. -->
+  <PropertyGroup>
+    <FolioNativeDir Condition="'$(FolioNativeDir)' == ''">$(MSBuildThisFileDirectory)../../target/release</FolioNativeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(FolioNativeDir)/folio.dll" Condition="Exists('$(FolioNativeDir)/folio.dll')" Link="folio.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(FolioNativeDir)/libfolio.so" Condition="Exists('$(FolioNativeDir)/libfolio.so')" Link="libfolio.so" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

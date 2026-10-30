@@ -117,6 +117,10 @@ Where a piece of Swift goes, and so how it is tested. Most of the app already wo
 7. **UI code is on the main actor.** Move work off it only when it is measured to be slow (diagrams, very large files).
 8. **Test a rule in the layer where it lives.** A logic rule gets a unit test, a rule about where things land on screen an off-screen layout or picture test, a rule about wiring (focus, windows, files changing underneath, the CLI and MCP against the live app) a self-test check. The self-test is for the last kind; the others are faster and fail closer to the cause.
 
+## Windows client (experimental, `windows/`)
+
+A minimal .NET/WPF client on the engine as a DLL, kept apart from the product: it has its own workflow (`.github/workflows/windows.yml`, only when `windows/**` changes) and is not part of `./scripts/verify.sh` or the required `test` check. Check it with `windows/verify.sh`; `windows/README.md` has the layers and what the checks cover. Do not make the macOS app, the Rust crate or the shared workflows depend on it.
+
 ## Annotation Model
 
 Sidecar: `{ version: 1, annotations: Annotation[] }` stored in `<root>/.folio/<path relative to root>.folio` (root = the file's git root, else its folder).
