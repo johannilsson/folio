@@ -74,12 +74,16 @@ The rest is the desktop around it:
 - `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `client_snippets` (Folio ▸ Connect to MCP Clients…, what each tool needs) and `connect_claude` / `connect_codex` (that window's Add for Me, edit Claude Desktop's or Codex's config)
 - `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`)
 
+### Design tokens (`design/tokens.json`)
+
+Folio's own colours (the text background, cards, avatars, diagrams) in the W3C design tokens format, which Figma and Claude Design can import. `node scripts/tokens.mjs` generates `macos/Sources/FolioKit/Tokens.swift` and `frontend/src/tokens.ts` from it; edit the JSON, never the generated files (`verify.sh` fails when they are out of date). System colours are listed under `system` as samples for design tools only: the app uses them by name.
+
 ### Frontend (`frontend/src/`)
 
 Only the page a hidden web view loads (`diagram.html`); there is no editor in it.
 
 - `diagram.ts` — `window.__folioMermaid` draws a diagram (the app photographs it) and `window.__folioHighlight` gives the highlight.js scopes of a block of code
-- `mermaid-config.ts` — how mermaid is drawn, in Folio's colours
+- `mermaid-config.ts` — how mermaid is drawn, in Folio's colours (`tokens.ts`, generated)
 
 ## macOS app (`macos/`)
 

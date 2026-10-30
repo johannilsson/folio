@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// A window around the preview and the source, with the native toolbar for its two toggles. This is
 /// the shared part; `FolioWindowController` shows one file, `SetWindowController` a set.
@@ -69,11 +70,7 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         findWidth.isActive = true
 
         // The text's own background, so resizing never flashes white.
-        let background = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(srgbRed: 0.102, green: 0.102, blue: 0.102, alpha: 1)
-                : .white
-        }
+        let background = Tokens.background
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
