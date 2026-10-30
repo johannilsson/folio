@@ -15,6 +15,11 @@ step() {
 step "frontend build" bash -c 'cd frontend && pnpm build'
 step "rust build" cargo build
 step "rust tests" cargo test
+# A Windows client calls the engine as a DLL. Not a crate type in Cargo.toml: next to libfolio.a,
+# a libfolio.dylib would be what the macOS app links.
+if [[ "$OS" == "Windows_NT" ]]; then
+  step "windows dll" cargo rustc --release --lib --crate-type cdylib
+fi
 # The macOS app opens real windows, so it needs a logged-in desktop session.
 if [[ "$(uname)" == "Darwin" && " $* " != *" --skip-macos "* ]]; then
   step "macos build" bash -c 'cargo build --release && swift build --package-path macos'

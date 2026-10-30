@@ -447,7 +447,7 @@ mod tests {
         let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("folio-ffi-sets-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        let tmp = tmp.canonicalize().unwrap();
+        let tmp = dunce::canonicalize(&tmp).unwrap();
         std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
 
         // Two files in separate "repos".
