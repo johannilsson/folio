@@ -100,11 +100,13 @@ static class SelfTest
                 That(Math.Abs(window.ScrollOffset - before) < 5, $"scrolled from {before} to {window.ScrollOffset}");
             });
 
-            await checks.Check("an edit from outside parks an annotation that is no longer there", async () =>
+            await checks.Check("an edit from outside parks an annotation that is no longer there, without moving the text", async () =>
             {
+                var scrolled = window.ScrollOffset;
                 File.WriteAllText(path, File.ReadAllText(path).Replace("lazy ", ""));
                 await WaitFor(() => window.CardsById.TryGetValue(delete, out var card) && card.NotFound, "the card was not marked as not found");
                 That(!window.Marked.Any(m => m.Placed.Annotation.Id == delete), "the lost annotation is still marked");
+                That(Math.Abs(window.ScrollOffset - scrolled) < 5, $"the refresh drew the text at {window.ScrollOffset}, not {scrolled}");
             });
 
             Snapshot(window, snapshot, "after");

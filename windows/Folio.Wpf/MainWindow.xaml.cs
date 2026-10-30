@@ -70,7 +70,8 @@ public partial class MainWindow : Window
         {
             StatusText.Text = e.Message;   // a half-written file: the next change draws it again
         }
-        if (keepScroll) Dispatcher.BeginInvoke(() => Text.ScrollToVerticalOffset(scroll), DispatcherPriority.Loaded);
+        // Laid out now, not later: a callback after the next frame would draw one frame at the top first.
+        if (keepScroll) { Text.UpdateLayout(); Text.ScrollToVerticalOffset(scroll); }
     }
 
     /// <summary>One block per line, so an offset of the engine is a line and a column. All positions are taken
