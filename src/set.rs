@@ -171,7 +171,7 @@ pub struct AddOutcome {
 pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::Result<AddOutcome> {
     let root = match root {
         Some(r) => Some(
-            r.canonicalize()
+            dunce::canonicalize(r)
                 .map_err(|e| anyhow::anyhow!("cannot read root {}: {}", r.display(), e))?,
         ),
         None => None,
@@ -179,8 +179,7 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
     let mut current = load(name).unwrap_or_else(|_| Set::empty());
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for file in files {
-        let canonical = file
-            .canonicalize()
+        let canonical = dunce::canonicalize(file)
             .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
         if !canonical.is_file() {
             anyhow::bail!("{} is not a file", file.display());
@@ -201,7 +200,7 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
     let mut removed = Vec::new();
     for file in files {
         // The file may no longer exist, so fall back to the path as given.
-        let path = file.canonicalize().unwrap_or_else(|_| file.clone());
+        let path = dunce::canonicalize(file).unwrap_or_else(|_| file.clone());
         if !current.remove(&path) {
             anyhow::bail!("{} is not in set {}", path.display(), name);
         }
@@ -231,7 +230,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
+        dunce::canonicalize(dir).unwrap()
     }
 
     #[test]
@@ -299,6 +298,25 @@ mod tests {
         assert!(add_files("s", &[b.clone(), tmp.join("missing.md")], None).is_err());
         assert!(add_files("s", &[b.clone(), tmp.clone()], None).is_err());
         assert_eq!(load("s").unwrap().files.len(), 1);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    // Canonical paths on Windows start with `\\?\`, which a file dialog's path or `C:\...` typed by
+    // hand never does; the set and the sidecar keep the plain form so they compare equal.
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_are_kept_without_the_verbatim_prefix() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("verbatim");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        add_files("s", &[a.clone()], Some(&tmp)).unwrap();
+        let entry = &load("s").unwrap().files[0];
+        for path in [&entry.path, entry.root.as_ref().unwrap(), &describe(entry).folio_path] {
+            assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{}", path.display());
+        }
+        assert_eq!(entry.path, a);
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 

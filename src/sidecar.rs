@@ -321,7 +321,16 @@ pub fn rendered_selection(doc: &str, from: usize, to: usize) -> Option<(String, 
 ///
 /// Block boundaries (newlines) are dropped; text is concatenated with no separator.
 fn strip_markdown(doc: &str) -> (String, Vec<usize>, Vec<usize>) {
-    strip_markdown_impl(doc, true)
+    if !doc.contains("\r\n") {
+        return strip_markdown_impl(doc, true);
+    }
+    // Windows line endings: the line rules look for "\n" only, so strip each "\r\n" to "\n" and
+    // map the offsets back into `doc`. The k-th "\r" removed leaves its "\n" at `p - k`, and every
+    // offset from there on moves one byte further for it.
+    let removed: Vec<usize> = doc.match_indices("\r\n").enumerate().map(|(k, (p, _))| p - k).collect();
+    let (stripped, pos_map, raw_spans) = strip_markdown_impl(&doc.replace("\r\n", "\n"), true);
+    let pos_map = pos_map.into_iter().map(|p| p + removed.partition_point(|&r| r <= p)).collect();
+    (stripped, pos_map, raw_spans)
 }
 
 fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, Vec<usize>) {
@@ -1818,5 +1827,38 @@ mod tests {
         let (from, to) = anchor_raw_chars(doc, &context, Some(&target)).unwrap();
         let found: String = doc.chars().skip(from).take(to - from).collect();
         assert_eq!(found, "target");
+    }
+
+    const LF_DOC: &str = "# Title\n\nFirst **bold** words.\nSecond line.\n\n---\n\n- one\n- two\n\n| a | b |\n|---|---|\n| x | y |\n\n```\ncode\n```\n\nLast.\n";
+
+    #[test]
+    fn windows_line_endings_render_the_same_text() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        assert_eq!(render_plain_text(&crlf), render_plain_text(LF_DOC));
+        assert_eq!(render_plain_text(&crlf), "TitleFirst bold words.Second line.onetwoabxyLast.");
+    }
+
+    #[test]
+    fn windows_line_endings_anchor_across_lines_and_blocks() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        let found = |ctx: &str, target: Option<&str>| {
+            let (from, to) = anchor_raw_utf16(&crlf, ctx, target).unwrap();
+            String::from_utf16(&crlf.encode_utf16().collect::<Vec<_>>()[from..to]).unwrap()
+        };
+        assert_eq!(found("bold words.", Some("Second")), "Second");
+        assert_eq!(found("line.one", Some("two")), "two");
+        assert_eq!(found("ab", Some("x")), "x");
+        assert_eq!(found("xy", Some("Last")), "Last");
+        // An insertion point after a line lands before its "\r\n".
+        let (at, _) = anchor_raw_utf16(&crlf, "Second line.", None).unwrap();
+        assert!(crlf.encode_utf16().skip(at).take(2).eq("\r\n".encode_utf16()));
+    }
+
+    #[test]
+    fn windows_line_endings_select_without_carriage_returns() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        for selected in ["Second", "x", "Last"] {
+            assert_eq!(select(&crlf, selected), select(LF_DOC, selected), "{selected}");
+        }
     }
 }

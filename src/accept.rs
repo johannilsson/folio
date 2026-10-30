@@ -11,6 +11,8 @@ pub fn compute_ops(
     sidecar: &Sidecar,
     indices: &[usize],
 ) -> Result<Vec<(usize, usize, String)>, String> {
+    // A file with Windows line endings keeps them: line breaks in a replacement are written as "\r\n".
+    let crlf = doc.contains("\r\n");
     let mut ops = Vec::new();
     for &idx in indices {
         let ann = &sidecar.annotations[idx];
@@ -33,9 +35,24 @@ pub fn compute_ops(
             // comment/highlight: no doc change
             _ => continue,
         };
-        ops.push(op);
+        let op = if crlf { (op.0, op.1, op.2.replace("\r\n", "\n").replace('\n', "\r\n")) } else { op };
+        ops.push((idx, op));
     }
-    Ok(ops)
+
+    // Edits are applied back to front on the untouched offsets, so two that
+    // overlap would corrupt the text (or split a character). Refuse them.
+    let mut by_start: Vec<&(usize, (usize, usize, String))> = ops.iter().collect();
+    by_start.sort_by_key(|(_, op)| (op.0, op.1));
+    for pair in by_start.windows(2) {
+        let ((a, prev), (b, next)) = (pair[0], pair[1]);
+        if next.0 < prev.1 {
+            return Err(format!(
+                "{} and {} overlap; accept them one at a time",
+                sidecar.annotations[*a].id, sidecar.annotations[*b].id
+            ));
+        }
+    }
+    Ok(ops.into_iter().map(|(_, op)| op).collect())
 }
 
 /// Apply edits in reverse order so earlier byte offsets stay valid.
@@ -110,6 +127,45 @@ mod tests {
         let s = sidecar(vec![ann("gone", AnnotationKind::Delete, "nowhere ", Some("missing"), None)]);
         let err = compute_ops("some text", &s, &[0]).unwrap_err();
         assert!(err.contains("gone"), "{err}");
+    }
+
+    #[test]
+    fn overlapping_edits_are_refused() {
+        let doc = "The quick brown fox jumps.";
+        let s = sidecar(vec![
+            ann("r", AnnotationKind::Replace, "The ", Some("quick brown"), Some("slow")),
+            ann("d", AnnotationKind::Delete, "quick ", Some("brown fox"), None),
+        ]);
+        let err = compute_ops(doc, &s, &[0, 1]).unwrap_err();
+        assert!(err.contains('r') && err.contains('d') && err.contains("overlap"), "{err}");
+        // Either one alone is fine.
+        assert!(compute_ops(doc, &s, &[0]).is_ok());
+        assert!(compute_ops(doc, &s, &[1]).is_ok());
+    }
+
+    #[test]
+    fn touching_edits_are_not_overlapping() {
+        let doc = "The quick brown fox jumps.";
+        let s = sidecar(vec![
+            ann("r", AnnotationKind::Replace, "The ", Some("quick"), Some("slow")),
+            ann("i", AnnotationKind::Insert, "The quick", None, Some("!")),
+        ]);
+        assert_eq!(compute_ops(doc, &s, &[0, 1]).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_file_with_windows_line_endings_keeps_them() {
+        let doc = "First line.\r\nSecond line.\r\n";
+        let s = sidecar(vec![
+            ann("i", AnnotationKind::Insert, "First line.", None, Some("\nAdded.")),
+            ann("r", AnnotationKind::Replace, "line.", Some("Second"), Some("Two\r\nlines")),
+        ]);
+        let ops = compute_ops(doc, &s, &[0, 1]).unwrap();
+        assert_eq!(apply_ops(doc, ops), "First line.\r\nAdded.\r\nTwo\r\nlines line.\r\n");
+        // A file with "\n" gets the replacement as written.
+        let s = sidecar(vec![ann("i", AnnotationKind::Insert, "First line.", None, Some("\nAdded."))]);
+        let ops = compute_ops("First line.\n", &s, &[0]).unwrap();
+        assert_eq!(apply_ops("First line.\n", ops), "First line.\nAdded.\n");
     }
 
     #[test]
