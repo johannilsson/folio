@@ -20,9 +20,6 @@ pub fn run(
     let mut sidecar = if folio_path.exists() {
         Sidecar::load(&folio_path)?
     } else {
-        if let Some(parent) = folio_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         Sidecar::empty()
     };
 
@@ -60,6 +57,9 @@ pub fn run(
         );
     }
 
+    if let Some(parent) = folio_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     sidecar.annotations.push(annotation);
     sidecar.save(&folio_path)?;
     println!("{}", id);
@@ -181,7 +181,9 @@ mod tests {
         let err = run(&file, "delete", "Hello ", Some("nowhere"), None, None, "me", "local")
             .unwrap_err();
         assert!(err.to_string().contains("cannot be anchored"));
-        assert!(!super::super::folio_path(&file).exists());
+        let folio_path = super::super::folio_path(&file);
+        assert!(!folio_path.exists());
+        assert!(!folio_path.parent().unwrap().exists(), "no empty .folio dir left behind");
     }
 
     #[test]
