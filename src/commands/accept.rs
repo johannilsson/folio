@@ -71,6 +71,8 @@ pub fn compute_ops(
     sidecar: &Sidecar,
     indices: &[usize],
 ) -> Result<Vec<(usize, usize, String)>, String> {
+    // A file with Windows line endings keeps them: line breaks in a replacement are written as "\r\n".
+    let crlf = doc.contains("\r\n");
     let mut ops = Vec::new();
     for &idx in indices {
         let ann = &sidecar.annotations[idx];
@@ -93,6 +95,7 @@ pub fn compute_ops(
             // comment/highlight: no doc change
             _ => continue,
         };
+        let op = if crlf { (op.0, op.1, op.2.replace("\r\n", "\n").replace('\n', "\r\n")) } else { op };
         ops.push((idx, op));
     }
 
@@ -208,6 +211,21 @@ mod tests {
             ann("i", AnnotationKind::Insert, "The quick", None, Some("!")),
         ]);
         assert_eq!(compute_ops(doc, &s, &[0, 1]).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_file_with_windows_line_endings_keeps_them() {
+        let doc = "First line.\r\nSecond line.\r\n";
+        let s = sidecar(vec![
+            ann("i", AnnotationKind::Insert, "First line.", None, Some("\nAdded.")),
+            ann("r", AnnotationKind::Replace, "line.", Some("Second"), Some("Two\r\nlines")),
+        ]);
+        let ops = compute_ops(doc, &s, &[0, 1]).unwrap();
+        assert_eq!(apply_ops(doc, ops), "First line.\r\nAdded.\r\nTwo\r\nlines line.\r\n");
+        // A file with "\n" gets the replacement as written.
+        let s = sidecar(vec![ann("i", AnnotationKind::Insert, "First line.", None, Some("\nAdded."))]);
+        let ops = compute_ops("First line.\n", &s, &[0]).unwrap();
+        assert_eq!(apply_ops("First line.\n", ops), "First line.\nAdded.\n");
     }
 
     #[test]

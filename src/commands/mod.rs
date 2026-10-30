@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 /// The file as an absolute path: canonical when it exists.
 fn absolute(file: &Path) -> PathBuf {
-    file.canonicalize().unwrap_or_else(|_| {
+    dunce::canonicalize(file).unwrap_or_else(|_| {
         if file.is_absolute() {
             file.to_path_buf()
         } else {
@@ -45,7 +45,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
+        dunce::canonicalize(dir).unwrap()
     }
 
     #[test]
