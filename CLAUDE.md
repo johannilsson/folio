@@ -56,14 +56,21 @@ CI takes the pictures only for a pull request labeled `pictures` and shows them 
 ### Backend (`src/`)
 
 - `main.rs` — CLI entry point (clap); the modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use. `cargo build` does not touch the frontend.
-- `ffi.rs` — C API over anchoring, accept, editor actions, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
+
+The engine (`sidecar.rs`, `edit.rs`, `accept.rs`, `location.rs`) uses only itself: no CLI, MCP, sets, config folder or launching processes, so it could serve another app (e.g. mobile). Not enforced by the build; keep it that way by convention.
+
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
 - `edit.rs` — the editor's actions on a sidecar (resolve, add comment, reply, edit comment, restore for undo), applied to what is on disk so an agent's concurrent writes survive; the app's `AnnotationStore` calls it through `folio_edit`
-- `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), git-root detection, per-root sidecar paths
-- `commands/mod.rs` — `folio_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (same rule as sets and the app, via `set::detect_root`)
+- `accept.rs` — accepting: anchoring + reverse-order patch application, marking resolved (`folio accept` and `folio_accept`)
+- `location.rs` — `folio_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (`detect_root`, `folio_path_in`; the CLI, sets, MCP and the app use the same rule)
+
+The rest is the desktop around it:
+
+- `ffi.rs` — C API over anchoring, accept, editor actions, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
+- `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), explicit roots, how a set file is shown
+- `commands/` — the CLI subcommands, thin over the engine
 - `commands/set.rs` — `folio set add / rm / list`
 - `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app
-- `commands/accept.rs` — anchoring + reverse-order patch application
 - `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `client_snippets` (Folio ▸ Connect to MCP Clients…, what each tool needs) and `connect_claude` / `connect_codex` (that window's Add for Me, edit Claude Desktop's or Codex's config)
 - `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`)
 

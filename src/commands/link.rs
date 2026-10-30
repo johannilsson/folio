@@ -15,13 +15,13 @@ fn encode(path: &str) -> String {
 
 /// The link that opens `file` in Folio with the annotation `id` in view.
 pub fn url(file: &Path, id: &str) -> String {
-    let file = super::absolute(file);
+    let file = crate::location::absolute(file);
     format!("folio://annotation/{}?file={}", encode(id), encode(&file.to_string_lossy()))
 }
 
 /// Print the link to an annotation, for pasting into another document.
 pub fn run(file: &Path, id: &str) -> anyhow::Result<()> {
-    let sidecar = Sidecar::load(&super::folio_path(file))?;
+    let sidecar = Sidecar::load(&crate::location::folio_path(file))?;
     if !sidecar.annotations.iter().any(|a| a.id == id) {
         anyhow::bail!("no annotation {} in {}", id, file.display());
     }
@@ -51,7 +51,7 @@ mod tests {
         let file = dir.canonicalize().unwrap().join("a.md");
         std::fs::write(&file, "Hello.\n").unwrap();
         super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
-        let id = Sidecar::load(&super::super::folio_path(&file)).unwrap().annotations[0].id.clone();
+        let id = Sidecar::load(&crate::location::folio_path(&file)).unwrap().annotations[0].id.clone();
         assert!(run(&file, &id).is_ok());
         let err = run(&file, "ann_nope").unwrap_err().to_string();
         assert!(err.contains("no annotation ann_nope"), "{err}");

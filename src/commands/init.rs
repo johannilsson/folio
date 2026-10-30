@@ -2,7 +2,7 @@ use crate::sidecar::Sidecar;
 use std::path::Path;
 
 pub fn run(file: &Path) -> anyhow::Result<()> {
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     if folio_path.exists() {
         return Ok(());
     }
@@ -39,7 +39,7 @@ mod tests {
     fn creates_an_empty_sidecar() {
         let file = temp_file("create");
         run(&file).unwrap();
-        let s = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        let s = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         assert!(s.annotations.is_empty());
     }
 
@@ -48,7 +48,7 @@ mod tests {
         let file = temp_file("existing");
         super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
         run(&file).unwrap();
-        let s = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        let s = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         assert_eq!(s.annotations.len(), 1);
     }
 }

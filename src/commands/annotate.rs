@@ -16,7 +16,7 @@ pub fn run(
 
     validate_fields(&kind, target, replacement, comment)?;
 
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     let mut sidecar = if folio_path.exists() {
         Sidecar::load(&folio_path)?
     } else {
@@ -181,7 +181,7 @@ mod tests {
         let err = run(&file, "delete", "Hello ", Some("nowhere"), None, None, "me", "local")
             .unwrap_err();
         assert!(err.to_string().contains("cannot be anchored"));
-        assert!(!super::super::folio_path(&file).exists());
+        assert!(!crate::location::folio_path(&file).exists());
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
         std::fs::write(&file, "Hello world.\n").unwrap();
 
         run(&file, "delete", "Hello ", Some("world"), None, None, "me", "agent").unwrap();
-        let sidecar = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        let sidecar = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         assert_eq!(sidecar.annotations.len(), 1);
         assert_eq!(sidecar.annotations[0].target.as_deref(), Some("world"));
     }

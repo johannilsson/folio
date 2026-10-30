@@ -9,7 +9,7 @@ pub fn run(
     source_filter: Option<&str>,
     dry_run: bool,
 ) -> anyhow::Result<()> {
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     let mut sidecar = Sidecar::load(&folio_path)?;
 
     let indices: Vec<usize> = sidecar
@@ -81,7 +81,7 @@ mod tests {
         std::fs::write(&file, "Hello world.\n").unwrap();
         super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
         super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
-        let folio = super::super::folio_path(&file);
+        let folio = crate::location::folio_path(&file);
         (file, folio)
     }
 

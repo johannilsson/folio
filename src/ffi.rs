@@ -2,8 +2,9 @@
 //! file IO and calls these for the anchoring and accept logic, so there is one
 //! implementation shared with the CLI.
 
-use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
-use crate::set::{self, detect_root, folio_path_in};
+use crate::accept::{apply_ops, compute_ops, mark_accepted};
+use crate::location::{detect_root, folio_path_in};
+use crate::set;
 use crate::sidecar::{anchor_raw_utf16, anchor_text, rendered_selection, Sidecar};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
