@@ -8,7 +8,7 @@ use crate::commands::annotate::{parse_kind, validate_fields};
 use crate::edit::{self, Edit};
 use crate::live::{self, LiveError};
 use crate::set;
-use crate::sidecar::{generate_id, now_iso8601, render_plain_text, Annotation, AnnotationSource, Sidecar};
+use crate::sidecar::{fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -389,25 +389,9 @@ fn annotate(args: &Value) -> Result<Value, String> {
             let (target, replacement, comment) = (optional(item, "target"), optional(item, "replacement"), optional(item, "comment"));
             validate_fields(&kind, target.as_deref(), replacement.as_deref(), comment.as_deref())
                 .map_err(|e| e.to_string().replace("--", ""))?;
-            let mut id = generate_id();
-            while sidecar.annotations.iter().chain(&added).any(|a: &Annotation| a.id == id) {
-                id = generate_id();
-            }
-            let annotation = Annotation {
-                id,
-                kind,
-                source: AnnotationSource::Agent,
-                author: author.clone(),
-                context_before,
-                target,
-                replacement,
-                comment,
-                created: now_iso8601(),
-                resolved: false,
-                resolved_as: None,
-                resolved_at: None,
-                replies: vec![],
-            };
+            let id = fresh_id(|c| sidecar.annotations.iter().chain(&added).any(|a: &Annotation| a.id == c), "ann_");
+            let annotation =
+                Annotation::pending(id, kind, AnnotationSource::Agent, author.clone(), context_before, target, replacement, comment);
             if annotation.anchor(&content).is_none() {
                 return Err("does not anchor: `context_before` + `target` is not in the document's text. \
                             Copy both from `render`, without markdown syntax"
