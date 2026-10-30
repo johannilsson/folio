@@ -53,6 +53,8 @@ sealed class RenderedPreview
     readonly List<Entry> entries = [];
     readonly IReadOnlyList<Shown> shown;
     readonly string? focused;
+    /// <summary>Set while the lines of a code block are drawn.</summary>
+    bool codeBlock;
 
     public RenderedPreview(PreviewDocument preview, IReadOnlyList<Shown> shown, string? focused)
     {
@@ -167,7 +169,9 @@ sealed class RenderedPreview
         if (block.Spans.FirstOrDefault()?.Style.HasFlag(TextStyle.Marker) == true)
             paragraph.TextIndent = -20;
         if (block.Centered) paragraph.TextAlignment = TextAlignment.Center;
+        codeBlock = block.Kind == BlockKind.Code;
         Inlines(paragraph.Inlines, block.Spans, block.Kind == BlockKind.Diagram ? block.Diagram : null);
+        codeBlock = false;
         return paragraph;
     }
 
@@ -247,7 +251,8 @@ sealed class RenderedPreview
         {
             run.FontFamily = Look.Mono;
             run.FontSize = Look.BodySize * 0.88;
-            if (span.Kind == SpanKind.Text && piece.Marks.Count == 0) run.Background = Look.CodeBack;
+            // Code inline has a background of its own; a code block's lines have the block's.
+            if (span.Kind == SpanKind.Text && piece.Marks.Count == 0 && !codeBlock) run.Background = Look.CodeBack;
         }
         if (span.Style.HasFlag(TextStyle.Strike)) run.TextDecorations = TextDecorations.Strikethrough;
         if (span.Style.HasFlag(TextStyle.Marker)) run.Foreground = Look.Secondary;
