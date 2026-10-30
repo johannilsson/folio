@@ -4,7 +4,7 @@ namespace Folio.Wpf;
 
 public partial class App : Application
 {
-    /// <summary><c>Folio.exe [file]</c>, or <c>Folio.exe --self-test &lt;result file&gt;</c> to drive the app and report.</summary>
+    /// <summary><c>Folio.Wpf.exe [file]</c>, or <c>Folio.Wpf.exe --self-test &lt;result file&gt;</c> to drive the app and report.</summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);

@@ -29,7 +29,7 @@ windows/verify.sh      # engine DLL + CLI, build, unit tests; on Windows also th
 - **`Folio.Core.Tests`** (xunit) run the real engine library and the real CLI on throwaway files: UTF-16
   offsets, accept with CRLF, reject/dismiss, an agent's write surviving an action. `FOLIO_CLI` names the CLI
   (`verify.sh` sets it).
-- **`Folio.exe --self-test <result file>`** opens a CRLF file annotated by the CLI, clicks the real buttons,
+- **`Folio.Wpf.exe --self-test <result file>`** opens a CRLF file annotated by the CLI, clicks the real buttons,
   changes the files from outside and asserts what is visible: the text, that every mark covers exactly its
   target, the cards, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-after.png`).

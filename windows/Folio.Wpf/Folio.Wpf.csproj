@@ -4,8 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <AssemblyName>Folio</AssemblyName>
     <RootNamespace>Folio.Wpf</RootNamespace>
+    <!-- The assembly keeps the default name Folio.Wpf: one named Folio would be Folio.dll, the same file as the engine's folio.dll on Windows. -->
   </PropertyGroup>
 
   <ItemGroup>
