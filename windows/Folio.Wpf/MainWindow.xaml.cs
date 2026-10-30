@@ -1,43 +1,79 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
-using System.Windows.Media;
+using System.Windows.Input;
 using System.Windows.Threading;
 using Folio.Core;
+using Folio.Core.Preview;
 using Microsoft.Win32;
 
 namespace Folio.Wpf;
 
-/// <summary>One window, one file: the markdown as text with its annotations marked, and a card for each. The
-/// file and its sidecar on disk are the state; <see cref="Refresh"/> draws everything from them again, and a
-/// timer calls it when either changes.</summary>
+/// <summary>A window for one file, or for a set with its files in a sidebar: the rendered markdown with the annotations
+/// marked, and a card for each beside it. The files on disk are the state; <see cref="Refresh"/> draws everything from
+/// them again, and a timer calls it when the file, its sidecar or the set changes.</summary>
 public partial class MainWindow : Window
 {
-    static readonly Brush Purple = new SolidColorBrush(Color.FromArgb(0x66, 0xA7, 0x8B, 0xFA));
-    static readonly Brush Red = new SolidColorBrush(Color.FromArgb(0x55, 0xEF, 0x44, 0x44));
-
     readonly DispatcherTimer poll = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    readonly CardActions actions;
+    readonly Button adder;
+    /// <summary>Where each file was scrolled to, as a fraction, by its id in the set (its path otherwise).</summary>
+    readonly Dictionary<string, double> fractions = [];
+    readonly Dictionary<string, CardView> cards = [];
+
+    FolioSet? set;
+    string setStamp = "";
     ReviewFile? file;
+    string key = "";
     string stamp = "";
+    string? markdown;
+    PreviewDocument? preview;
+    List<Shown> shown = [];
+    RenderedPreview? rendered;
+    string? focused;
+    /// <summary>The selection the Comment button is for: where it starts on screen, and its range in the file.</summary>
+    (int Display, int From, int To)? selection;
+    /// <summary>The form for a new comment, and the selection it is about.</summary>
+    (CommentForm Form, int Display, int From, int To)? form;
+    /// <summary>Set while the sidebar is changed from code, so that is not taken as a click.</summary>
+    bool picking;
 
     // What the self-test looks at.
-    internal List<Placed> Shown { get; private set; } = [];
-    internal List<(Placed Placed, TextRange Range)> Marked { get; private set; } = [];
-    internal Dictionary<string, Card> CardsById { get; } = [];
-    internal double ScrollOffset => Text.VerticalOffset;
-    internal void ScrollTo(double offset) => Text.ScrollToVerticalOffset(offset);
+    internal FolioSet? Set => set;
+    internal SetFile? ShownFile => set?.Files.FirstOrDefault(f => f.Id == key);
+    internal ReviewFile? File => file;
+    internal PreviewDocument? Preview => preview;
+    internal RenderedPreview? Rendered => rendered;
+    internal IReadOnlyList<Shown> Shown => shown;
+    internal IReadOnlyDictionary<string, CardView> Cards => cards;
+    internal CommentForm? Form => form?.Form;
+    internal Button Adder => adder;
+    internal string? Focused => focused;
+    internal double ScrollOffset => Scroll.VerticalOffset;
     internal string VisibleText => new TextRange(Text.Document.ContentStart, Text.Document.ContentEnd).Text;
     internal string Status => StatusText.Text;
-
-    internal sealed record Card(FrameworkElement Element, Button Accept, Button Reject, bool NotFound);
 
     public MainWindow()
     {
         InitializeComponent();
-        poll.Tick += (_, _) => { if (file is not null && file.Stamp() != stamp) Refresh(keepScroll: true); };
+        actions = new CardActions(
+            Accept: id => Act(() => file!.Accept(id)),
+            Reject: id => Act(() => file!.Reject(id)),
+            Reply: (id, body) => Act(() => file!.Reply(id, body)),
+            Focus: id => FocusAnnotation(id, reveal: true));
+        // The Comment button does not take the keyboard, so the selection stays selected.
+        adder = new Button { Content = "Comment", Focusable = false, Padding = new Thickness(12, 4, 12, 4), Visibility = Visibility.Collapsed };
+        adder.Click += (_, _) => OpenForm();
+        Overlay.Children.Add(adder);
+
+        poll.Tick += (_, _) => Poll();
+        Text.PreviewMouseLeftButtonUp += (_, _) => Dispatcher.InvokeAsync(AfterClick, DispatcherPriority.Input);
+        Text.SelectionChanged += (_, _) => { if (Text.Selection.IsEmpty) HideAdder(); };
+        PreviewKeyDown += OnKey;
     }
+
+    // ---- opening
 
     void OnOpen(object sender, RoutedEventArgs e)
     {
@@ -45,105 +81,332 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) Open(dialog.FileName);
     }
 
+    void OnSetsOpened(object? sender, EventArgs e)
+    {
+        try { SetPicker.ItemsSource = Engine.SetNames(); }
+        catch (EngineException error) { StatusText.Text = error.Message; }
+    }
+
+    void OnSetPicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (!picking && SetPicker.SelectedItem is string name) OpenSet(name);
+    }
+
+    void OnSidebarPicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (!picking && Sidebar.SelectedItem is ListBoxItem { Tag: SetFile picked } && picked.Id != key) ShowSetFile(picked);
+    }
+
+    /// <summary>One file, without a sidebar.</summary>
     public void Open(string path)
     {
-        file = new ReviewFile(path);
-        PathText.Text = file.Path;
-        Refresh(keepScroll: false);
+        set = null;
+        SidebarColumn.Width = new GridLength(0);
+        var review = new ReviewFile(path);
+        Show(review, review.Path);
+    }
+
+    /// <summary>A set: its files in the sidebar, the first one shown.</summary>
+    public void OpenSet(string name)
+    {
+        try
+        {
+            set = Engine.SetLoad(name);
+            setStamp = Stamp(set.Manifest);
+        }
+        catch (EngineException error) { StatusText.Text = error.Message; return; }
+        SidebarColumn.Width = new GridLength(230);
+        picking = true;
+        SetPicker.ItemsSource = new[] { name };
+        SetPicker.SelectedItem = name;
+        picking = false;
+        FillSidebar();
+        if (set.Keep(null) is SetFile first) ShowSetFile(first);
         poll.Start();
     }
 
-    void Refresh(bool keepScroll)
+    internal void ShowSetFile(SetFile picked) => Show(new ReviewFile(picked.Path), picked.Id);
+
+    void Show(ReviewFile review, string id)
+    {
+        Remember();
+        file = review;
+        key = id;
+        markdown = null;
+        preview = null;
+        focused = null;
+        form = null;
+        PathText.Text = review.Path;
+        SelectInSidebar();
+        Refresh(fraction: fractions.GetValueOrDefault(id));
+        poll.Start();
+    }
+
+    /// <summary>The sidebar drawn from the set; the shown file stays selected (by id, never by its place in the list).</summary>
+    void FillSidebar()
+    {
+        picking = true;
+        Sidebar.Items.Clear();
+        var groups = set!.Files.Select(f => f.Group).Distinct().Count();
+        foreach (var f in set.Files)
+            Sidebar.Items.Add(new ListBoxItem { Content = groups > 1 ? $"{f.Group}/{f.Name}" : f.Name, Tag = f, ToolTip = f.Path, Padding = new Thickness(8, 4, 8, 4) });
+        picking = false;
+        SelectInSidebar();
+    }
+
+    void SelectInSidebar()
+    {
+        picking = true;
+        Sidebar.SelectedItem = Sidebar.Items.OfType<ListBoxItem>().FirstOrDefault(i => ((SetFile)i.Tag).Id == key);
+        picking = false;
+    }
+
+    void Remember()
+    {
+        if (file is not null) fractions[key] = Scroll.ScrollableHeight > 0 ? Scroll.VerticalOffset / Scroll.ScrollableHeight : 0;
+    }
+
+    // ---- following the disk
+
+    void Poll()
+    {
+        if (set is not null && Stamp(set.Manifest) != setStamp)
+        {
+            try
+            {
+                set = Engine.SetLoad(set.Name);
+                setStamp = Stamp(set.Manifest);
+                FillSidebar();
+                var kept = set.Keep(key);
+                if (kept is not null && kept.Id != key) ShowSetFile(kept);
+            }
+            catch (EngineException error) { StatusText.Text = error.Message; }
+        }
+        if (file is not null && file.Stamp() != stamp) Refresh();
+    }
+
+    /// <summary>Reads the file and its sidecar and draws everything again, keeping the scroll position (or going to
+    /// <paramref name="fraction"/> of the way down).</summary>
+    void Refresh(double? fraction = null)
     {
         if (file is null) return;
-        var scroll = Text.VerticalOffset;
+        var offset = Scroll.VerticalOffset;
         try
         {
             stamp = file.Stamp();   // before reading, so a write in between shows up as another change
-            var doc = file.ReadText();
-            Shown = Review.Place(doc, Sidecar.Parse(file.ReadSidecar()));
-            ShowText(doc);
-            ShowCards();
-            StatusText.Text = $"{Shown.Count} pending";
+            var text = file.ReadText();
+            if (text != markdown || preview is null)
+            {
+                markdown = text;
+                preview = PreviewBuilder.Build(text, Path.GetDirectoryName(file.Path));
+            }
+            shown = PreviewMarks.Show(preview, Review.Place(text, Sidecar.Parse(file.ReadSidecar())));
+            if (focused is not null && !shown.Any(s => s.Annotation.Id == focused)) focused = null;
+            Draw();
+            var lost = shown.Count(s => !s.Placed.Found);
+            StatusText.Text = $"{shown.Count} pending" + (lost > 0 ? $", {lost} not found" : "");
         }
-        catch (Exception e) when (e is IOException or EngineException or System.Text.Json.JsonException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or EngineException or System.Text.Json.JsonException)
         {
             StatusText.Text = e.Message;   // a half-written file: the next change draws it again
         }
-        // Laid out now, not later: a callback after the next frame would draw one frame at the top first.
-        if (keepScroll) { Text.UpdateLayout(); Text.ScrollToVerticalOffset(scroll); }
+        Scroll.UpdateLayout();
+        ScrollTo(fraction is double f ? f * Scroll.ScrollableHeight : offset);
     }
 
-    /// <summary>One block per line, so an offset of the engine is a line and a column. All positions are taken
-    /// before anything is marked: a mark splits its run, and offsets counted after that would include the split.</summary>
-    void ShowText(string doc)
+    /// <summary>Scrolls now: the scroll viewer takes the offset at its next layout, so that is done here, before the
+    /// next frame is drawn and before anyone reads the offset.</summary>
+    internal void ScrollTo(double offset)
     {
-        var lines = Lines.Split(doc);
-        var runs = lines.Select(l => new Run(doc.Substring(l.Start, l.Length))).ToList();
-        var flow = new FlowDocument(new Paragraph()) { PagePadding = new Thickness(16) };
-        flow.Blocks.Clear();
-        foreach (var run in runs) flow.Blocks.Add(new Paragraph(run) { Margin = new Thickness(0) });
-        Text.Document = flow;
-
-        TextPointer At(int offset)
-        {
-            var (line, column) = Lines.Locate(lines, offset);
-            return runs[line].ContentStart.GetPositionAtOffset(column)!;
-        }
-        Marked = Shown.Where(p => p.Found && p.To > p.From)
-            .Select(p => (p, new TextRange(At(p.From!.Value), At(p.To!.Value)))).ToList();
-        foreach (var (placed, range) in Marked)
-        {
-            var suggestion = placed.Annotation.Kind is "replace" or "delete";
-            range.ApplyPropertyValue(TextElement.BackgroundProperty, suggestion ? Red : Purple);
-            if (suggestion) range.ApplyPropertyValue(Inline.TextDecorationsProperty, TextDecorations.Strikethrough);
-        }
+        Scroll.UpdateLayout();
+        Scroll.ScrollToVerticalOffset(offset);
+        Scroll.UpdateLayout();
     }
 
-    void ShowCards()
+    void Draw()
     {
-        Cards.Children.Clear();
-        CardsById.Clear();
-        foreach (var placed in Shown)
-        {
-            var card = MakeCard(placed);
-            CardsById[placed.Annotation.Id] = card;
-            Cards.Children.Add(card.Element);
-        }
+        rendered = new RenderedPreview(preview!, shown, focused);
+        Text.Document = rendered.Document;
+        HideAdder();
+        Text.UpdateLayout();
+        LayoutCards();
     }
 
-    Card MakeCard(Placed placed)
+    /// <summary>Draws again with the same files, as after focusing a card, keeping the scroll position.</summary>
+    void Redraw()
     {
-        var a = placed.Annotation;
-        var accept = new Button { Content = a.IsComment ? "Dismiss" : "Accept", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
-        var reject = new Button { Content = "Reject", Padding = new Thickness(10, 2, 10, 2), Visibility = a.IsComment ? Visibility.Collapsed : Visibility.Visible };
-        // A comment is dismissed, which resolves it like a rejection and changes no text.
-        accept.Click += (_, _) => Act(() => { if (a.IsComment) file!.Reject(a.Id); else file!.Accept(a.Id); });
-        reject.Click += (_, _) => Act(() => file!.Reject(a.Id));
-
-        var body = new StackPanel();
-        body.Children.Add(new TextBlock { Text = $"{a.Kind} · {a.Author}", FontWeight = FontWeights.SemiBold });
-        body.Children.Add(new TextBlock { Text = a.Summary, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 6) });
-        if (!placed.Found)
-            body.Children.Add(new TextBlock { Text = "Not found in document", Foreground = Brushes.Gray, FontStyle = FontStyles.Italic, Margin = new Thickness(0, 0, 0, 6) });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
-        buttons.Children.Add(accept);
-        buttons.Children.Add(reject);
-        body.Children.Add(buttons);
-
-        var border = new Border
-        {
-            Child = body, Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 8), CornerRadius = new CornerRadius(6),
-            BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(1), Background = Brushes.White, Opacity = placed.Found ? 1 : 0.6,
-        };
-        border.MouseLeftButtonUp += (_, _) => Marked.FirstOrDefault(m => m.Placed.Annotation.Id == a.Id).Range?.Start.Paragraph?.BringIntoView();
-        return new Card(border, accept, reject, !placed.Found);
+        var offset = Scroll.VerticalOffset;
+        Draw();
+        ScrollTo(offset);
     }
 
-    void Act(Action action)
+    // ---- cards
+
+    void LayoutCards()
+    {
+        Pane.Children.Clear();
+        cards.Clear();
+        var items = new List<(FrameworkElement View, CardLayout.Card Card)>();
+        foreach (var s in shown)
+        {
+            var view = new CardView(s, s.Annotation.Id == focused, actions);
+            cards[s.Annotation.Id] = view;
+            Pane.Children.Add(view);
+            items.Add((view, new CardLayout.Card(AnchorOf(s.At), view.Measured())));
+        }
+        if (form is var (pending, display, _, _))
+        {
+            Pane.Children.Add(pending);
+            items.Add((pending, new CardLayout.Card(AnchorOf(display), pending.Measured())));
+        }
+        var textHeight = Text.ActualHeight;
+        var (placed, extent) = CardLayout.Stack(items.Select(i => i.Card).ToList(), end: textHeight);
+        foreach (var (index, top) in placed)
+        {
+            Canvas.SetLeft(items[index].View, 12);
+            Canvas.SetTop(items[index].View, top);
+        }
+        Pane.Height = Math.Max(textHeight, extent + 24);
+    }
+
+    CardLayout.Anchor? AnchorOf(int? at) =>
+        at is int offset && rendered?.Pointer(offset, forward: true) is TextPointer pointer ? new CardLayout.Anchor(TopOf(pointer), offset) : null;
+
+    /// <summary>Where a position's line starts, in the page's coordinates (which the pane shares).</summary>
+    internal double TopOf(TextPointer pointer)
+    {
+        var rect = pointer.GetCharacterRect(LogicalDirection.Forward);
+        return rect.IsEmpty ? 0 : Text.TranslatePoint(rect.TopLeft, Page).Y;
+    }
+
+    internal double AnchorTop(string id) => shown.FirstOrDefault(s => s.Annotation.Id == id)?.At is int at && rendered?.Pointer(at, true) is TextPointer p ? TopOf(p) : double.NaN;
+
+    internal double CardTop(string id) => cards.TryGetValue(id, out var card) ? Canvas.GetTop(card) : double.NaN;
+
+    // ---- focus, selection, new comments
+
+    void AfterClick()
+    {
+        if (rendered is null) return;
+        if (!Text.Selection.IsEmpty)
+        {
+            ShowAdder();
+            return;
+        }
+        var at = rendered.Offset(Text.Selection.Start);
+        var hit = shown.Where(s => s.Marked && s.From <= at && at < s.To).OrderByDescending(s => s.From).FirstOrDefault();
+        if (hit is not null) FocusAnnotation(hit.Annotation.Id, reveal: false);
+        else if (focused is not null) FocusAnnotation(null, reveal: false);
+    }
+
+    /// <summary>Focuses an annotation (null: none): its card gets the accent border and its reply field.</summary>
+    internal void FocusAnnotation(string? id, bool reveal)
+    {
+        if (focused == id && !reveal) return;
+        focused = id;
+        Redraw();
+        if (id is null || !cards.TryGetValue(id, out var card)) return;
+        if (reveal) Reveal(id);
+        card.ReplyBox?.Focus();
+    }
+
+    /// <summary>Scrolls the annotation's text into view when it is not.</summary>
+    void Reveal(string id)
+    {
+        var top = AnchorTop(id);
+        if (double.IsNaN(top)) return;
+        if (top < Scroll.VerticalOffset + 40 || top > Scroll.VerticalOffset + Scroll.ViewportHeight - 80)
+            ScrollTo(Math.Max(0, top - 80));
+    }
+
+    /// <summary>Selects shown offsets <paramref name="from"/>..<paramref name="to"/> as a person would, and shows the Comment button.</summary>
+    internal void Select(int from, int to)
+    {
+        if (rendered?.Pointer(from, forward: true) is not TextPointer start || rendered.Pointer(to, forward: false) is not TextPointer end) return;
+        Text.Selection.Select(start, end);
+        ShowAdder();
+    }
+
+    void ShowAdder()
+    {
+        if (rendered is null || preview is null) return;
+        var (a, b) = (rendered.Offset(Text.Selection.Start), rendered.Offset(Text.Selection.End));
+        if (b <= a || preview.Map.SourceRange(a, b) is not var (from, to))
+        {
+            HideAdder();
+            return;
+        }
+        selection = (a, from, to);
+        var first = Text.Selection.Start.GetCharacterRect(LogicalDirection.Forward);
+        var last = Text.Selection.End.GetCharacterRect(LogicalDirection.Backward);
+        var topLeft = Text.TranslatePoint(first.TopLeft, Overlay);
+        var right = Math.Abs(last.Top - first.Top) < 2 ? Text.TranslatePoint(last.TopRight, Overlay).X : topLeft.X + 80;
+        adder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var (x, y) = CardLayout.AdderOrigin(adder.DesiredSize.Width, adder.DesiredSize.Height, topLeft.X, right, topLeft.Y, topLeft.Y + first.Height,
+                                            visibleTop: Scroll.VerticalOffset, textWidth: Text.ActualWidth);
+        Canvas.SetLeft(adder, x);
+        Canvas.SetTop(adder, y);
+        adder.Visibility = Visibility.Visible;
+    }
+
+    void HideAdder()
+    {
+        adder.Visibility = Visibility.Collapsed;
+        selection = null;
+    }
+
+    void OpenForm()
+    {
+        if (selection is not var (display, from, to)) return;
+        var pending = new CommentForm(add: AddComment, cancel: CloseForm);
+        form = (pending, display, from, to);
+        HideAdder();
+        LayoutCards();
+        pending.Box.Focus();
+    }
+
+    void AddComment(string comment)
+    {
+        if (form is not var (_, _, from, to) || file is null) return;
+        string? id = null;
+        Act(() => id = file.AddComment(from, to, comment), after: () =>
+        {
+            form = null;
+            if (id is null) StatusText.Text = "There is no text in the selection to comment on";
+            focused = id;
+        });
+    }
+
+    void CloseForm()
+    {
+        form = null;
+        LayoutCards();
+    }
+
+    void OnKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        if (form is not null) CloseForm();
+        else if (focused is not null) FocusAnnotation(null, reveal: false);
+        else return;
+        e.Handled = true;
+    }
+
+    // ---- actions
+
+    /// <summary>Does an action on the files and draws them again; a file in use is a message, not a crash.</summary>
+    void Act(Action action, Action? after = null)
     {
         try { action(); }
-        catch (Exception e) when (e is IOException or EngineException) { StatusText.Text = e.Message; return; }
-        Refresh(keepScroll: true);
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or EngineException)
+        {
+            StatusText.Text = e.Message;
+            return;
+        }
+        after?.Invoke();
+        Refresh();
     }
+
+    static string Stamp(string path) =>
+        System.IO.File.Exists(path) ? $"{System.IO.File.GetLastWriteTimeUtc(path).Ticks}:{new FileInfo(path).Length}" : "-";
 }

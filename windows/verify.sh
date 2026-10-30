@@ -13,11 +13,14 @@ step() {
   "$@" || failed+=("$name")
 }
 
-# Not a crate type in Cargo.toml: next to libfolio.a, a libfolio.dylib would be what the macOS app links.
-step "engine library" cargo rustc --release --lib --crate-type cdylib
+# Not a crate type in Cargo.toml, and built in a target folder of its own: next to the macOS app's libfolio.a in
+# target/release, a libfolio.dylib would be what the app links.
+step "engine library" cargo rustc --release --lib --crate-type cdylib --target-dir target/cdylib
 step "cli" cargo build
 exe=folio; [[ "$OS" == "Windows_NT" ]] && exe=folio.exe
 export FOLIO_CLI="$PWD/target/debug/$exe"
+# Sets made by the tests and the self-test go to a throwaway folder, not the real ~/.config/folio.
+export FOLIO_CONFIG_DIR="$(mktemp -d)"
 
 step "build" dotnet build windows/Folio.Windows.sln --nologo
 step "unit tests" dotnet test windows/Folio.Core.Tests --nologo --no-build

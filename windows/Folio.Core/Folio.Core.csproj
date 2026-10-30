@@ -5,10 +5,15 @@
     <RootNamespace>Folio.Core</RootNamespace>
   </PropertyGroup>
 
-  <!-- The engine, built as a cdylib by windows/verify.sh (see the cargo rustc line there).
+  <ItemGroup>
+    <!-- CommonMark and GFM (tables, task lists, strikethrough) with the source position of every node. -->
+    <PackageReference Include="Markdig" Version="0.42.0" />
+  </ItemGroup>
+
+  <!-- The engine, built as a cdylib into target/cdylib by windows/verify.sh (see the cargo rustc line there).
        Copied next to whatever references this project: folio.dll on Windows, libfolio.so on Linux. -->
   <PropertyGroup>
-    <FolioNativeDir Condition="'$(FolioNativeDir)' == ''">$(MSBuildThisFileDirectory)../../target/release</FolioNativeDir>
+    <FolioNativeDir Condition="'$(FolioNativeDir)' == ''">$(MSBuildThisFileDirectory)../../target/cdylib/release</FolioNativeDir>
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(FolioNativeDir)/folio.dll" Condition="Exists('$(FolioNativeDir)/folio.dll')" Link="folio.dll" CopyToOutputDirectory="PreserveNewest" />

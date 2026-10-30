@@ -1,24 +1,41 @@
 # Folio for Windows (experimental)
 
-How far a minimal Windows client gets on the Rust engine. It is an experiment: kept apart from the
-product, checked by its own workflow, and not part of `./scripts/verify.sh` or the required `test` check.
+A native Windows client on the Rust engine: .NET 8 and WPF, no web view except (later) the hidden one for
+diagrams. It is kept apart from the product: checked by its own workflow, and not part of
+`./scripts/verify.sh` or the required `test` check.
 
-What it does: opens a markdown file, shows its text with the annotations marked, and a card for each
-pending one with Accept / Reject (Dismiss for a comment). It follows the file and its `.folio` sidecar on
-disk, so what an agent writes with the CLI shows up. What it does not do: no rendered preview or diagrams
-(the text is the source), no new comments or replies, no undo, no sets, no installer.
+What it does: opens a markdown file (`Folio.Wpf.exe <file>`) or a set (`Folio.Wpf.exe --set <name>`, or the
+Set box in the toolbar) with its files in a sidebar. The markdown is rendered (headings, emphasis, lists and task
+lists, tables, code, quotes, frontmatter, pictures), with the annotations marked in it and a card for each in the
+pane beside the text, which scrolls with it. Cards sit at their text, in document order. A card accepts, rejects
+or dismisses; the focused one (click its text or the card) takes a reply. Selecting text shows a Comment button
+for a new comment. It follows the file, its `.folio` sidecar and the set on disk, so what an agent writes with
+the CLI shows up.
+
+Not yet: mermaid diagrams (shown as their source) and code colours, the source editor, the card that opens
+beside the text with the pane closed, undo, the live link for the MCP server, an installer.
 
 ## Layers
 
 The same three as the macOS app (CLAUDE.md, "How the app is built"):
 
-- **Engine**: `folio.dll`, the Rust crate built as a `cdylib` (`cargo rustc --release --lib --crate-type
-  cdylib`; not a crate type in `Cargo.toml`). The C API is `src/ffi.rs`.
-- **`Folio.Core`** (plain .NET, no UI): `Native`/`Engine` call the DLL; `Sidecar` is the model; `Review.Place`
-  (what is shown and where) and `Lines` (offset to line and column) are the rules as functions; `ReviewFile`
-  is the file and sidecar on disk, changed only through the engine. Runs on any OS, so it is tested on Linux.
-- **`Folio.Wpf`**: the window. It draws from the disk state and applies what `Folio.Core` decides.
-  `--self-test` drives it (below).
+- **Engine**: `folio.dll`, the Rust crate built as a `cdylib` into `target/cdylib` (`cargo rustc --release --lib
+  --crate-type cdylib --target-dir target/cdylib`; not a crate type in `Cargo.toml`, and not in `target/release`,
+  where a `libfolio.dylib` would be what the macOS app links). The C API is `src/ffi.rs`.
+- **`Folio.Core`** (plain .NET, no UI; runs on any OS, so it is tested on Linux):
+  - `Native`/`Engine` call the DLL: anchoring, accept, edits, rendered selections, sets.
+  - `Sidecar` is the model, `Review.Place` puts the pending annotations in document order.
+  - `Preview/PreviewBuilder` turns the markdown (Markdig) into blocks of spans and a `PreviewMap` between the shown
+    text and the file, like `PreviewBuilder`/`PreviewText` in FolioKit. Anchors and selections go through the map
+    to the engine, which works on the markdown itself.
+  - `Preview/PreviewMarks` says what is marked where and cuts spans into pieces at the marks and the previews of
+    suggestions; `CardLayout` stacks the cards and places the Comment button; `FolioSet.Keep` is which file stays
+    shown when the set changes.
+  - `ReviewFile` is a file and its sidecar on disk, changed only through the engine (accept, reject, reply, new
+    comment), read without locking out an agent's write and written through a temp file of its own.
+- **`Folio.Wpf`**: the window. `PreviewRenderer` draws the blocks as a `FlowDocument`, a run per piece, and keeps
+  each piece's element, so a shown offset is a `TextPointer` and back. `MainWindow` draws from the disk state and
+  applies what `Folio.Core` decides. `--self-test` drives it (below).
 
 ## Checks
 
@@ -26,16 +43,23 @@ The same three as the macOS app (CLAUDE.md, "How the app is built"):
 windows/verify.sh      # engine DLL + CLI, build, unit tests; on Windows also the app's self-test
 ```
 
-- **`Folio.Core.Tests`** (xunit) run the real engine library and the real CLI on throwaway files: UTF-16
-  offsets, accept with CRLF, reject/dismiss, an agent's write surviving an action. `FOLIO_CLI` names the CLI
-  (`verify.sh` sets it).
-- **`Folio.Wpf.exe --self-test <result file>`** opens a CRLF file annotated by the CLI, clicks the real buttons,
-  changes the files from outside and asserts what is visible: the text, that every mark covers exactly its
-  target, the cards, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
+- **`Folio.Core.Tests`** (xunit) run the real engine library and the real CLI on throwaway files: the preview's
+  text and map (CRLF too), that what the engine anchors is what the preview marks, the marks and cards, sets,
+  accept with CRLF and a byte order mark, reject/dismiss, replies and new comments, an agent's write surviving an
+  action. `FOLIO_CLI` names the CLI and `FOLIO_CONFIG_DIR` a throwaway folder for sets (`verify.sh` sets both).
+- **`Folio.Wpf.exe --self-test <result file>`** opens a set made by the CLI of CRLF files annotated by the CLI,
+  clicks the real buttons, changes the files and the set from outside and asserts what is visible: the rendered
+  text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
+  selection, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-after.png`).
 - **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025`, only when `windows/**` or the
   workflow changes, and uploads the result and pictures as the `windows-selftest` artifact.
 
 On Linux or macOS the WPF project can be compiled (`EnableWindowsTargeting`) but not run, and needs
 Microsoft's .NET 8 SDK: distribution builds of the SDK leave out the WindowsDesktop targets. The unit tests
-need only the Core project.
+need only the Core project:
+
+```bash
+cargo rustc --release --lib --crate-type cdylib --target-dir target/cdylib && cargo build
+FOLIO_CLI=$PWD/target/debug/folio FOLIO_CONFIG_DIR=$(mktemp -d) dotnet test windows/Folio.Core.Tests
+```

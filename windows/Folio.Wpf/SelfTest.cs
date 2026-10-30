@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -11,15 +11,23 @@ using Folio.Core;
 
 namespace Folio.Wpf;
 
-/// <summary>Drives the real window against a throwaway copy of a file and the real CLI, the way the macOS app's
-/// self-test does: what an agent writes shows up, the buttons change the files, and the text and marks that
-/// are visible are what the files say. Writes a line per check to the result file and exits non-zero on a failure.
-/// Needs a desktop session. <c>FOLIO_CLI</c> names the CLI; <c>FOLIO_SNAPSHOT</c> is a path to save pictures under.</summary>
+/// <summary>Drives the real window against throwaway files in a set made with the real CLI, the way the macOS app's
+/// self-test does: what an agent writes shows up, the buttons change the files, and what is visible (the rendered
+/// text, the marks, the cards, the scroll position) is what the files say. Writes a line per check to the result file
+/// and exits non-zero on a failure. Needs a desktop session. <c>FOLIO_CLI</c> names the CLI, <c>FOLIO_CONFIG_DIR</c>
+/// a throwaway folder for the set; <c>FOLIO_SNAPSHOT</c> is a path to save pictures under.</summary>
 static class SelfTest
 {
     // CRLF, as a file from Windows has it, and long enough to scroll.
-    static readonly string Markdown = string.Join("\r\n",
-        ["# Self-test", "", "The quick brown fox jumps over the lazy dog.", "", "Natural wine is made with minimal intervention.", "", .. Enumerable.Range(1, 60).Select(i => $"Filler line {i}."), "", "The last paragraph.", ""]);
+    static readonly string Markdown = string.Join("\r\n", [
+        "---", "title: Self-test", "---", "# Self-test", "",
+        "The **quick** brown fox jumps over the lazy dog.", "",
+        "Natural *wine* is made with minimal intervention.", "",
+        "- first item", "- second item", "",
+        "| Name | Note |", "|---|---|", "| alpha | a cell note |", "",
+        "```js", "let code = 1;", "```", "",
+        .. Enumerable.Range(1, 40).SelectMany(i => new[] { $"Filler paragraph {i}.", "" }),
+        "The last paragraph.", ""]);
 
     public static async Task Run(MainWindow window, string resultFile)
     {
@@ -28,84 +36,169 @@ static class SelfTest
         var checks = new Checks(log, () => failures++);
         var snapshot = Environment.GetEnvironmentVariable("FOLIO_SNAPSHOT") is { Length: > 0 } s ? Path.GetFullPath(s) : null;
         var dir = Directory.CreateTempSubdirectory("folio-selftest-").FullName;
-        var path = Path.Combine(dir, "doc.md");
-        File.WriteAllText(path, Markdown);
+        var doc = Path.Combine(dir, "doc.md");
+        var notes = Path.Combine(dir, "notes.md");
+        var third = Path.Combine(dir, "third.md");
+        File.WriteAllText(doc, Markdown);
+        File.WriteAllText(notes, "# Notes\r\n\r\nA second file in the set.\r\n");
+        File.WriteAllText(third, "# Third\r\n");
+        var setName = $"selftest-{Environment.ProcessId}";
 
         void Finish(int code)
         {
             File.WriteAllText(resultFile, log.ToString() + (failures == 0 && code == 0 ? "✓ all checks passed\n" : "✗ failed\n"));
             Application.Current.Shutdown(code);
         }
-        _ = Task.Delay(TimeSpan.FromMinutes(2)).ContinueWith(_ => Application.Current.Dispatcher.Invoke(() => { log.AppendLine("✗ timed out"); Finish(2); }));
+        _ = Task.Delay(TimeSpan.FromMinutes(3)).ContinueWith(_ => Application.Current.Dispatcher.Invoke(() => { log.AppendLine("✗ timed out"); Finish(2); }));
 
         try
         {
-            var replace = Cli("annotate", path, "--kind", "replace", "--context-before", "The ", "--target", "quick", "--replacement", "slow");
-            var delete = Cli("annotate", path, "--kind", "delete", "--context-before", "over the ", "--target", "lazy ");
-            var comment = Cli("annotate", path, "--kind", "comment", "--context-before", "Natural ", "--target", "wine", "--comment", "Which one?");
-            window.Open(path);
+            That(Environment.GetEnvironmentVariable("FOLIO_CONFIG_DIR") is { Length: > 0 }, "FOLIO_CONFIG_DIR must name a throwaway folder for the set");
+            var replace = Cli("annotate", doc, "--kind", "replace", "--context-before", "The ", "--target", "quick", "--replacement", "slow");
+            var delete = Cli("annotate", doc, "--kind", "delete", "--context-before", "over the ", "--target", "lazy ");
+            var comment = Cli("annotate", doc, "--kind", "comment", "--context-before", "Natural ", "--target", "wine", "--comment", "Which one?");
+            var highlight = Cli("annotate", doc, "--kind", "highlight", "--context-before", "alpha", "--target", "a cell note");
+            Cli("set", "add", setName, doc, notes);
+            window.OpenSet(setName);
             await Settle();
 
-            await checks.Check("the window shows the file's text", () =>
-                That(Flat(window.VisibleText) == Flat(Markdown), "the text shown differs from the file"));
+            await checks.Check("the set's files are in the sidebar, and the first is shown", () =>
+            {
+                That(window.Sidebar.Items.Count == 2, $"{window.Sidebar.Items.Count} files in the sidebar");
+                That(window.ShownFile?.Name == "doc.md", $"shown: {window.ShownFile?.Name}");
+                That(window.Sidebar.SelectedItem is ListBoxItem { Tag: SetFile { Name: "doc.md" } }, "the shown file is not the one selected in the sidebar");
+            });
+
+            await checks.Check("the preview shows the rendered text, not the markdown", () =>
+            {
+                var text = window.VisibleText;
+                foreach (var markup in new[] { "**", "# Self", "|---", "```", "- first" })
+                    That(!text.Contains(markup, StringComparison.Ordinal), $"\"{markup}\" is shown");
+                foreach (var words in new[] { "Self-test", "brown fox jumps", "first item", "a cell note", "let code = 1;", "The last paragraph." })
+                    That(text.Contains(words, StringComparison.Ordinal), $"\"{words}\" is not shown");
+                MapIsTrue(window);
+            });
 
             await checks.Check("a card for each pending annotation, in document order", () =>
             {
-                That(window.Shown.Select(p => p.Annotation.Id).SequenceEqual([replace, delete, comment]), $"cards: {string.Join(", ", window.Shown.Select(p => p.Annotation.Id))}");
-                That(window.CardsById.Count == 3, $"{window.CardsById.Count} cards shown");
+                That(window.Shown.Select(p => p.Annotation.Id).SequenceEqual([replace, delete, comment, highlight]), $"cards: {string.Join(", ", window.Shown.Select(p => p.Annotation.Id))}");
+                That(window.Cards.Count == 4, $"{window.Cards.Count} cards shown");
             });
 
-            await checks.Check("every mark covers exactly its target", () => MarksCoverTargets(window, 3));
+            await checks.Check("every mark covers exactly its target, in the table too", () => MarksCoverTargets(window, 4));
+
+            await checks.Check("a suggestion shows its replacement after the text it replaces", () =>
+            {
+                That(window.Rendered!.Ghosts.TryGetValue(replace, out var ghost), "no preview of the replacement");
+                That(ghost!.Text == "slow", $"the preview says \"{ghost.Text}\"");
+                var marked = window.Shown.Single(x => x.Annotation.Id == replace);
+                That(ghost.ElementStart.CompareTo(window.Rendered.Pointer(marked.To!.Value, forward: false)) >= 0, "the preview is not after the text");
+            });
+
+            await checks.Check("cards sit beside their text, in order, without overlapping", () => CardsBesideText(window));
 
             Snapshot(window, snapshot, "before");
 
-            await checks.Check("accepting a replacement patches the file, keeps its line endings and re-marks the rest", () =>
+            await checks.Check("accepting a replacement patches the file, keeps its line endings and re-marks the rest", async () =>
             {
-                Click(window.CardsById[replace].Accept);
-                var text = File.ReadAllText(path);
-                That(text.Contains("The slow brown fox") && !text.Contains("quick"), "the file was not patched");
-                That(!Regex.IsMatch(text, "(?<!\r)\n"), "a bare line feed was written into a CRLF file");
-                That(window.VisibleText.Contains("The slow brown fox"), "the text shown was not updated");
-                That(!window.CardsById.ContainsKey(replace), "the accepted card is still there");
-                MarksCoverTargets(window, 2);
+                Click(window.Cards[replace].Accept);
+                await WaitFor(() => !window.Cards.ContainsKey(replace), "the card is still there");
+                var text = File.ReadAllText(doc);
+                That(text.Contains("The **slow** brown fox", StringComparison.Ordinal), "the file was not patched");
+                That(!text.Replace("\r\n", "").Contains('\n'), "a line ending changed");
+                MarksCoverTargets(window, 3);
             });
 
-            await checks.Check("dismissing a comment resolves it and leaves the text alone", () =>
+            await checks.Check("dismissing a comment resolves it and leaves the text alone", async () =>
             {
-                var before = File.ReadAllText(path);
-                Click(window.CardsById[comment].Accept);
-                That(File.ReadAllText(path) == before, "the file changed");
-                var resolved = Sidecar.Parse(File.ReadAllText(Engine.SidecarPath(path))).Single(a => a.Id == comment);
-                That(resolved is { Resolved: true, ResolvedAs: "dismissed" }, $"resolved as {resolved.ResolvedAs}");
-                That(!window.CardsById.ContainsKey(comment), "the dismissed card is still there");
+                var before = File.ReadAllText(doc);
+                Click(window.Cards[comment].Accept);
+                await WaitFor(() => !window.Cards.ContainsKey(comment), "the card is still there");
+                That(File.ReadAllText(doc) == before, "the file changed");
+                That(Sidecar.Parse(window.File!.ReadSidecar()).Single(a => a.Id == comment).ResolvedAs == "dismissed", "not dismissed");
             });
 
-            string added = "";
+            await checks.Check("the focused card takes a reply, which is the reader's", async () =>
+            {
+                window.FocusAnnotation(highlight, reveal: true);
+                var card = window.Cards[highlight];
+                That(card.ReplyBox is not null, "the focused card has no reply field");
+                card.ReplyBox!.Text = "Agreed";
+                Click(card.ReplyButton!);
+                await WaitFor(() => window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies?.Count == 1, "the reply did not arrive");
+                var reply = window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies![0];
+                That((reply.Author, reply.Source, reply.Body) == ("me", "local", "Agreed"), $"reply: {reply.Author}/{reply.Source}/{reply.Body}");
+            });
+
+            string? mine = null;
+            await checks.Check("selecting text shows the Comment button, and its form adds a comment on those words", async () =>
+            {
+                window.FocusAnnotation(null, reveal: false);
+                var at = window.Preview!.Text.IndexOf("brown fox", StringComparison.Ordinal);
+                window.Select(at, at + "brown fox".Length);
+                That(window.Text.Selection.Text == "brown fox", $"selected \"{window.Text.Selection.Text}\"");
+                That(window.Adder.Visibility == Visibility.Visible, "no Comment button");
+                var left = Canvas.GetLeft(window.Adder);
+                That(left >= 0 && left + window.Adder.ActualWidth <= window.Text.ActualWidth + 1, $"the button is outside the text column (x {left})");
+                Click(window.Adder);
+                That(window.Form is not null, "no form");
+                That(window.Text.Selection.Text == "brown fox", "the selection was lost");
+                window.Form!.Box.Text = "Nice phrase";
+                Click(window.Form.Add);
+                await WaitFor(() => window.Shown.Any(x => x.Annotation.Comment == "Nice phrase"), "the comment did not arrive");
+                var added = window.Shown.Single(x => x.Annotation.Comment == "Nice phrase");
+                mine = added.Annotation.Id;
+                That((added.Annotation.Target, added.Annotation.Author) == ("brown fox", "me"), $"anchored to \"{added.Annotation.Target}\" by {added.Annotation.Author}");
+                That(window.Form is null, "the form is still open");
+                MarksCoverTargets(window, 3);
+            });
+
             await checks.Check("an annotation an agent adds shows up without a click", async () =>
             {
-                added = Cli("annotate", path, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph", "--comment", "Cut?", "--author", "agent");
-                await WaitFor(() => window.CardsById.ContainsKey(added), "the new card did not appear");
-                MarksCoverTargets(window, 2);
+                var added = Cli("annotate", doc, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph", "--comment", "Cut?", "--author", "agent");
+                await WaitFor(() => window.Cards.ContainsKey(added), "the new card did not appear");
+                MarksCoverTargets(window, 4);
+                CardsBesideText(window);
+            });
+
+            await checks.Check("switching files in the sidebar shows the other file, and coming back returns to where it was", async () =>
+            {
+                window.ScrollTo(600);
+                var before = window.ScrollOffset;
+                That(before > 100, $"the text could not be scrolled (offset {before})");
+                Pick(window, "notes.md");
+                await WaitFor(() => window.ShownFile?.Name == "notes.md", "the other file is not shown");
+                That(window.VisibleText.Contains("A second file in the set.", StringComparison.Ordinal), "its text is not shown");
+                That(window.Cards.Count == 0, $"{window.Cards.Count} cards for a file without annotations");
+                Pick(window, "doc.md");
+                await WaitFor(() => window.ShownFile?.Name == "doc.md", "the first file is not shown again");
+                That(Math.Abs(window.ScrollOffset - before) < 5, $"came back at {window.ScrollOffset}, not {before}");
+            });
+
+            await checks.Check("a set changed from outside keeps showing the same file", async () =>
+            {
+                Cli("set", "add", setName, third);
+                await WaitFor(() => window.Sidebar.Items.Count == 3, "the sidebar did not get the new file");
+                await Settle();
+                That(window.ShownFile?.Name == "doc.md", $"the window went to {window.ShownFile?.Name}");
+                That(window.Sidebar.SelectedItem is ListBoxItem { Tag: SetFile { Name: "doc.md" } }, "the sidebar selection moved");
             });
 
             await checks.Check("a refresh keeps the scroll position", async () =>
             {
                 window.ScrollTo(400);
-                await Settle();
                 var before = window.ScrollOffset;
-                That(before > 100, $"the text could not be scrolled (offset {before})");
-                var second = Cli("annotate", path, "--kind", "comment", "--context-before", "Filler line 30", "--target", ".", "--comment", "Here", "--author", "agent");
-                await WaitFor(() => window.CardsById.ContainsKey(second), "the new card did not appear");
-                await Settle();
+                var second = Cli("annotate", doc, "--kind", "comment", "--context-before", "Filler paragraph 30", "--target", ".", "--comment", "Here", "--author", "agent");
+                await WaitFor(() => window.Cards.ContainsKey(second), "the new card did not appear");
                 That(Math.Abs(window.ScrollOffset - before) < 5, $"scrolled from {before} to {window.ScrollOffset}");
             });
 
             await checks.Check("an edit from outside parks an annotation that is no longer there, without moving the text", async () =>
             {
                 var scrolled = window.ScrollOffset;
-                File.WriteAllText(path, File.ReadAllText(path).Replace("lazy ", ""));
-                await WaitFor(() => window.CardsById.TryGetValue(delete, out var card) && card.NotFound, "the card was not marked as not found");
-                That(!window.Marked.Any(m => m.Placed.Annotation.Id == delete), "the lost annotation is still marked");
+                File.WriteAllText(doc, File.ReadAllText(doc).Replace("lazy ", ""));
+                await WaitFor(() => window.Cards.TryGetValue(delete, out var card) && card.NotFound, "the card was not marked as not found");
+                That(!window.Shown.Single(x => x.Annotation.Id == delete).Marked, "the lost annotation is still marked");
                 That(Math.Abs(window.ScrollOffset - scrolled) < 5, $"the refresh drew the text at {window.ScrollOffset}, not {scrolled}");
             });
 
@@ -128,21 +221,54 @@ static class SelfTest
 
     static void That(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
 
-    /// <summary>Text without its line breaks: the blocks of the view and the lines of the file break differently.</summary>
-    static string Flat(string text) => text.Replace("\r", "").Replace("\n", "");
+    /// <summary>Every run of the document shows the text of its piece, and that is the preview's text at its offsets.</summary>
+    static void MapIsTrue(MainWindow window)
+    {
+        var preview = window.Preview!;
+        foreach (var entry in window.Rendered!.Entries.Where(e => e.IsRun))
+        {
+            var run = (Run)entry.Element;
+            That(run.Text == entry.Piece.Text, $"a run shows \"{run.Text}\", its piece is \"{entry.Piece.Text}\"");
+            That(preview.Text.Substring(entry.Piece.Start, entry.Piece.Text.Length) == entry.Piece.Text, $"\"{entry.Piece.Text}\" is not at {entry.Piece.Start}");
+        }
+    }
 
-    /// <summary>What a person sees marked is what the annotation points at.</summary>
+    /// <summary>What a person sees marked is what the annotation points at, and it is drawn marked.</summary>
     static void MarksCoverTargets(MainWindow window, int expected)
     {
-        That(window.Marked.Count == expected, $"{window.Marked.Count} marks, expected {expected}");
-        foreach (var (placed, range) in window.Marked)
-            That(Flat(range.Text) == Flat(placed.Annotation.Target!), $"{placed.Annotation.Id} marks \"{Flat(range.Text)}\", its target is \"{placed.Annotation.Target}\"");
+        var marked = window.Shown.Where(x => x.Marked).ToList();
+        That(marked.Count == expected, $"{marked.Count} marks, expected {expected}");
+        foreach (var x in marked)
+        {
+            var range = new TextRange(window.Rendered!.Pointer(x.From!.Value, forward: true)!, window.Rendered.Pointer(x.To!.Value, forward: false)!);
+            That(range.Text == x.Annotation.Target, $"{x.Annotation.Id} marks \"{range.Text}\", its target is \"{x.Annotation.Target}\"");
+            var runs = window.Rendered.Entries.Where(e => e.Piece.Marks.Contains(x.Annotation.Id)).ToList();
+            That(runs.Count > 0 && runs.All(e => e.Element.Background is not null), $"{x.Annotation.Id} is not drawn marked");
+        }
     }
+
+    /// <summary>A card is at its text's top minus 4, or pushed down below the card above it; never overlapping it.</summary>
+    static void CardsBesideText(MainWindow window)
+    {
+        double? bottom = null;
+        foreach (var x in window.Shown.Where(x => x.Placed.Found))
+        {
+            var (anchor, top) = (window.AnchorTop(x.Annotation.Id), window.CardTop(x.Annotation.Id));
+            That(!double.IsNaN(anchor) && !double.IsNaN(top), $"{x.Annotation.Id} has no anchor or card");
+            That(top >= anchor - 4 - 0.5, $"{x.Annotation.Id}: card at {top:0}, above its text at {anchor:0}");
+            That(bottom is null || top >= bottom.Value + 6 - 0.5, $"{x.Annotation.Id}: card at {top:0} overlaps the one above (ends at {bottom:0})");
+            That(Math.Abs(top - (anchor - 4)) < 0.5 || bottom is not null && Math.Abs(top - (bottom.Value + 6)) < 0.5, $"{x.Annotation.Id}: card at {top:0}, its text at {anchor:0}");
+            bottom = top + window.Cards[x.Annotation.Id].ActualHeight;
+        }
+    }
+
+    static void Pick(MainWindow window, string name) =>
+        window.Sidebar.SelectedItem = window.Sidebar.Items.OfType<ListBoxItem>().First(i => ((SetFile)i.Tag).Name == name);
 
     static void Click(ButtonBase button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
 
     /// <summary>Lets layout and the poll timer run.</summary>
-    static Task Settle() => Task.Delay(300);
+    static Task Settle() => Task.Delay(400);
 
     static async Task WaitFor(Func<bool> condition, string failure)
     {

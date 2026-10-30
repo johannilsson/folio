@@ -29,5 +29,14 @@ internal static class Native
     public static extern IntPtr folio_sidecar_path([MarshalAs(UnmanagedType.LPUTF8Str)] string file);
 
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_rendered_selection([MarshalAs(UnmanagedType.LPUTF8Str)] string doc, nuint from, nuint to);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_set_names();
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_set_load([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern void folio_free(IntPtr ptr);
 }

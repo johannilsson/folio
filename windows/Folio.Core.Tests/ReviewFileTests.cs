@@ -81,6 +81,44 @@ public class ReviewFileTests
     }
 
     [Fact]
+    public void A_reply_and_a_new_comment_are_the_local_readers_and_the_cli_reads_them()
+    {
+        using var fixture = new Fixture("The **quick** brown fox.\n");
+        var agent = fixture.Annotate("comment", "The ", "quick", comment: "Fast?");
+        var review = new ReviewFile(fixture.File);
+
+        review.Reply(agent, "Yes, fast.");
+        // "quick** brown" selected in the markdown: anchored by its rendered words, without the stars.
+        var doc = review.ReadText();
+        var mine = review.AddComment(doc.IndexOf("quick", StringComparison.Ordinal), doc.IndexOf(" fox", StringComparison.Ordinal), "Two words");
+
+        var all = Sidecar.Parse(review.ReadSidecar());
+        var reply = Assert.Single(all.Single(a => a.Id == agent).Replies!);
+        Assert.Equal(("me", "local", "Yes, fast."), (reply.Author, reply.Source, reply.Body));
+        var comment = all.Single(a => a.Id == mine);
+        Assert.Equal(("quick brown", "The ", "local"), (comment.Target, comment.ContextBefore, comment.Source));
+        Assert.Contains(mine!, fixture.RunCli("review", fixture.File));
+        // Only markup selected: nothing to anchor a comment to.
+        Assert.Null(review.AddComment(doc.IndexOf("**", StringComparison.Ordinal), doc.IndexOf("**", StringComparison.Ordinal) + 2, "Stars"));
+    }
+
+    [Fact]
+    public void Accept_keeps_a_byte_order_mark_and_the_offsets_do_not_count_it()
+    {
+        using var fixture = new Fixture("");
+        File.WriteAllBytes(fixture.File, [0xEF, 0xBB, 0xBF, .. "The quick fox.\r\n"u8.ToArray()]);
+        var id = fixture.Annotate("replace", "The ", "quick", replacement: "slow");
+        var review = new ReviewFile(fixture.File);
+        var placed = Review.Place(review.ReadText(), Sidecar.Parse(review.ReadSidecar())).Single();
+        Assert.Equal((4, 9), (placed.From, placed.To));
+
+        review.Accept(id);
+
+        Assert.Equal([0xEF, 0xBB, 0xBF, .. "The slow fox.\r\n"u8.ToArray()], File.ReadAllBytes(fixture.File));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(review.SidecarPath)!, "*.tmp"));
+    }
+
+    [Fact]
     public void Stamp_changes_when_the_cli_writes_and_not_when_nothing_does()
     {
         using var fixture = new Fixture("Hello world.\n");

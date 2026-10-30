@@ -47,6 +47,30 @@ public static class Engine
         return (result["sidecar"]!.GetValue<string>(), result["id"]?.GetValue<string>());
     }
 
+    /// <summary>The words a selection of the markdown (UTF-16 offsets) is anchored by, as rendered text, which is
+    /// what a new comment stores; null when none of it is rendered text (only markup, or code in a fence).</summary>
+    public static (string Target, string ContextBefore)? RenderedSelection(string doc, int from, int to)
+    {
+        var result = JsonNode.Parse(Take(Native.folio_rendered_selection(doc, (nuint)from, (nuint)to)))!;
+        return result["target"] is JsonValue target
+            ? (target.GetValue<string>(), result["context_before"]!.GetValue<string>())
+            : null;
+    }
+
+    /// <summary>The names of the sets (<c>folio set</c>), sorted.</summary>
+    public static List<string> SetNames() =>
+        JsonNode.Parse(Take(Native.folio_set_names()))!["names"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+
+    /// <summary>A set's files, as the CLI and the macOS app see them.</summary>
+    public static FolioSet SetLoad(string name)
+    {
+        var result = JsonNode.Parse(Take(Native.folio_set_load(name)))!;
+        var files = result["files"]!.AsArray().Select(f => new SetFile(
+            f!["id"]!.GetValue<string>(), f["name"]!.GetValue<string>(), f["group"]!.GetValue<string>(),
+            f["path"]!.GetValue<string>(), f["folio_path"]!.GetValue<string>())).ToList();
+        return new FolioSet(result["name"]!.GetValue<string>(), result["manifest"]!.GetValue<string>(), files);
+    }
+
     /// <summary>Copies the result out, frees it, and turns <c>{"error": ...}</c> into an exception.</summary>
     static string Take(IntPtr ptr)
     {

@@ -19,32 +19,3 @@ public static class Review
             .Concat(placed.Where(p => !p.Found)).ToList();
     }
 }
-
-/// <summary>Where the lines of a text are, for a view that shows one block per line. Offsets are UTF-16, as
-/// the engine's are; the line break ("\n" or "\r\n") belongs to no line's text.</summary>
-public static class Lines
-{
-    public readonly record struct Line(int Start, int Length);
-
-    public static List<Line> Split(string text)
-    {
-        var lines = new List<Line>();
-        var start = 0;
-        while (true)
-        {
-            var end = text.IndexOf('\n', start);
-            if (end < 0) { lines.Add(new Line(start, text.Length - start)); return lines; }
-            lines.Add(new Line(start, end > start && text[end - 1] == '\r' ? end - 1 - start : end - start));
-            start = end + 1;
-        }
-    }
-
-    /// <summary>The line holding <paramref name="offset"/> and the column in it. An offset inside a line break is
-    /// the end of its line.</summary>
-    public static (int Line, int Column) Locate(IReadOnlyList<Line> lines, int offset)
-    {
-        var index = 0;
-        for (var i = 0; i < lines.Count && lines[i].Start <= offset; i++) index = i;
-        return (index, Math.Min(offset - lines[index].Start, lines[index].Length));
-    }
-}
