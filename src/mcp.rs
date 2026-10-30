@@ -350,7 +350,7 @@ fn render(args: &Value) -> Result<Value, String> {
 fn list_annotations(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let all = args.get("include_resolved").and_then(Value::as_bool).unwrap_or(false);
     let annotations: Vec<Value> = load_sidecar(&folio)?
         .annotations
@@ -376,7 +376,7 @@ fn annotate(args: &Value) -> Result<Value, String> {
         .ok_or("`annotations` is required (a list with at least one annotation)")?;
     let author = author_arg(args);
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let mut sidecar = load_sidecar(&folio)?;
 
     let optional = |item: &Value, key: &str| item.get(key).and_then(Value::as_str).map(str::to_string);
@@ -435,7 +435,7 @@ fn annotate(args: &Value) -> Result<Value, String> {
 
 fn reply(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     if !folio.exists() {
         return Err(format!("{} has no annotations yet", file.display()));
     }
@@ -454,7 +454,7 @@ fn reply(args: &Value) -> Result<Value, String> {
 fn verify(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let sidecar = load_sidecar(&folio)?;
     let pending: Vec<&Annotation> = sidecar.annotations.iter().filter(|a| !a.resolved).collect();
     let unanchored: Vec<&str> = pending.iter().filter(|a| a.anchor(&content).is_none()).map(|a| a.id.as_str()).collect();
@@ -938,7 +938,7 @@ mod tests {
             ] }),
         );
         assert_eq!(out["added"].as_array().unwrap().len(), 2);
-        let folio = crate::commands::folio_path(&file);
+        let folio = crate::location::folio_path(&file);
         assert_eq!(out["sidecar"], json!(folio));
         let sidecar = Sidecar::load(&folio).unwrap();
         assert_eq!(sidecar.annotations.len(), 2);
@@ -974,7 +974,7 @@ mod tests {
         assert!(message.contains("annotations[1]: does not anchor"), "{message}");
         assert!(message.contains("annotations[2]") && message.contains("replacement"), "{message}");
         assert!(message.contains("annotations[3]") && message.contains("unknown kind"), "{message}");
-        assert!(!crate::commands::folio_path(&file).exists());
+        assert!(!crate::location::folio_path(&file).exists());
         assert!(err(&NoApp, "annotate", json!({ "file": file, "annotations": [] })).contains("`annotations` is required"));
     }
 
@@ -989,7 +989,7 @@ mod tests {
         assert_eq!(empty["annotations"], json!([]));
 
         // The text changes underneath one of them, and the person rejects the other.
-        let folio = crate::commands::folio_path(&file);
+        let folio = crate::location::folio_path(&file);
         let mut sidecar = Sidecar::load(&folio).unwrap();
         let rejected = edit::apply(sidecar.clone(), Edit::Resolve { id: sidecar.annotations[1].id.clone() }).unwrap();
         sidecar = rejected.sidecar;
@@ -1020,7 +1020,7 @@ mod tests {
 
         let replied = ok(&NoApp, "reply", json!({ "file": file, "id": id, "body": "Because.", "author": "claude-2" }));
         assert!(replied["reply_id"].as_str().unwrap().starts_with("reply_"));
-        let sidecar = Sidecar::load(&crate::commands::folio_path(&file)).unwrap();
+        let sidecar = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         let thread = &sidecar.annotations[0].replies;
         assert_eq!((thread[0].body.as_str(), thread[0].author.as_str(), thread[0].source.clone()), ("Because.", "claude-2", AnnotationSource::Agent));
         assert!(err(&NoApp, "reply", json!({ "file": file, "id": "nope", "body": "x" })).contains("no annotation with id"));
@@ -1054,7 +1054,7 @@ mod tests {
         json!({
             "front": front,
             "file": file,
-            "sidecar": crate::commands::folio_path(file),
+            "sidecar": crate::location::folio_path(file),
             "mode": "preview",
             "pending": 1,
             "focused": focused,

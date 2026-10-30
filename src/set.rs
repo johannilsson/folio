@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Component, Path, PathBuf};
+use crate::location::{detect_root, folio_path_in};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetFile {
@@ -137,17 +138,6 @@ pub fn list_names() -> anyhow::Result<Vec<String>> {
     Ok(names)
 }
 
-/// Nearest ancestor of `file` that contains `.git` (a directory, or a file for
-/// worktrees); falls back to the file's own directory.
-pub fn detect_root(file: &Path) -> PathBuf {
-    let parent = file.parent().unwrap_or(Path::new("/")).to_path_buf();
-    parent
-        .ancestors()
-        .find(|dir| dir.join(".git").exists())
-        .map(Path::to_path_buf)
-        .unwrap_or(parent)
-}
-
 pub fn resolve_root(entry: &SetFile) -> PathBuf {
     entry.root.clone().unwrap_or_else(|| detect_root(&entry.path))
 }
@@ -220,20 +210,6 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
     Ok(removed)
 }
 
-/// `<root>/.folio/<file relative to root>.folio` — what `folio annotate` writes
-/// when run from `root`. Files outside `root` fall back to their absolute path
-/// under `.folio/`, like `commands::folio_path`.
-pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
-    // Without its root (`/`, or `C:\` on Windows), or joining it would replace `root`.
-    let relative: PathBuf = match file.strip_prefix(root) {
-        Ok(relative) => relative.to_path_buf(),
-        Err(_) => file.components().filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir)).collect(),
-    };
-    let dir = relative.parent().unwrap_or(Path::new(""));
-    let name = relative.file_name().unwrap().to_string_lossy();
-    root.join(".folio").join(dir).join(format!("{}.folio", name))
-}
-
 // FOLIO_CONFIG_DIR is process-wide, so tests that set it (here and in ffi.rs) run one at a time.
 #[cfg(test)]
 pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -255,49 +231,6 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dunce::canonicalize(dir).unwrap()
-    }
-
-    #[test]
-    fn detect_root_finds_git_dir() {
-        let tmp = temp_dir("gitdir");
-        std::fs::create_dir_all(tmp.join(".git")).unwrap();
-        std::fs::create_dir_all(tmp.join("docs/deep")).unwrap();
-        let file = tmp.join("docs/deep/a.md");
-        assert_eq!(detect_root(&file), tmp);
-    }
-
-    #[test]
-    fn detect_root_accepts_git_file_for_worktrees() {
-        let tmp = temp_dir("gitfile");
-        std::fs::write(tmp.join(".git"), "gitdir: /elsewhere").unwrap();
-        std::fs::create_dir_all(tmp.join("docs")).unwrap();
-        assert_eq!(detect_root(&tmp.join("docs/a.md")), tmp);
-    }
-
-    #[test]
-    fn detect_root_falls_back_to_parent() {
-        let tmp = temp_dir("nogit");
-        std::fs::create_dir_all(tmp.join("notes")).unwrap();
-        // temp dir lives outside any repo, so no .git is found above it
-        let file = tmp.join("notes/a.md");
-        let root = detect_root(&file);
-        assert!(root == tmp.join("notes") || root.join(".git").exists());
-    }
-
-    #[test]
-    fn sidecar_path_is_relative_to_root() {
-        let root = Path::new("/r/repo");
-        assert_eq!(
-            folio_path_in(root, Path::new("/r/repo/docs/spec.md")),
-            PathBuf::from("/r/repo/.folio/docs/spec.md.folio")
-        );
-        assert_eq!(
-            folio_path_in(root, Path::new("/r/repo/spec.md")),
-            PathBuf::from("/r/repo/.folio/spec.md.folio")
-        );
-        // A file outside the root keeps its whole path, inside `.folio/`.
-        let outside = if cfg!(windows) { r"C:\elsewhere\spec.md" } else { "/elsewhere/spec.md" };
-        assert_eq!(folio_path_in(root, Path::new(outside)), root.join(".folio").join("elsewhere").join("spec.md.folio"));
     }
 
     #[test]
