@@ -43,6 +43,8 @@ public partial class MainWindow : Window
     (CommentForm Form, int Display, int From, int To)? form;
     /// <summary>Set while the sidebar is changed from code, so that is not taken as a click.</summary>
     bool picking;
+    /// <summary>Whether the sidebar is wanted; it is shown when it is and a set is open.</summary>
+    bool sidebarWanted = true;
 
     // What the self-test looks at.
     internal FolioSet? Set => set;
@@ -108,7 +110,7 @@ public partial class MainWindow : Window
     public void Open(string path)
     {
         set = null;
-        SidebarColumn.Width = new GridLength(0);
+        ShowSidebar();
         var review = new ReviewFile(path);
         Show(review, review.Path);
     }
@@ -122,7 +124,7 @@ public partial class MainWindow : Window
             setStamp = Stamp(set.Manifest);
         }
         catch (EngineException error) { StatusText.Text = error.Message; return; }
-        SidebarColumn.Width = new GridLength(230);
+        ShowSidebar();
         picking = true;
         SetPicker.ItemsSource = new[] { name };
         SetPicker.SelectedItem = name;
@@ -131,6 +133,32 @@ public partial class MainWindow : Window
         if (set.Keep(null) is SetFile first) ShowSetFile(first);
         poll.Start();
     }
+
+    void OnSidebarToggled(object sender, RoutedEventArgs e)
+    {
+        sidebarWanted = !sidebarWanted;
+        ShowSidebar();
+    }
+
+    /// <summary>The sidebar for the window's state: shown when a set is open and it is wanted. The text reflows, so the
+    /// cards are placed again, and the page stays at the same place in the text.</summary>
+    void ShowSidebar()
+    {
+        var on = set is not null && sidebarWanted;
+        SidebarToggle.IsEnabled = set is not null;
+        SidebarToggle.IsChecked = sidebarWanted;
+        Sidebar.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (SidebarColumn.Width.Value == (on ? 230 : 0)) return;
+        var fraction = Scroll.ScrollableHeight > 0 ? Scroll.VerticalOffset / Scroll.ScrollableHeight : 0;
+        SidebarColumn.Width = new GridLength(on ? 230 : 0);
+        if (rendered is null) return;
+        Scroll.UpdateLayout();
+        LayoutCards();
+        Scroll.UpdateLayout();
+        ScrollTo(fraction * Scroll.ScrollableHeight);
+    }
+
+    internal bool SidebarShown => Sidebar.IsVisible && SidebarColumn.ActualWidth > 0;
 
     internal void ShowSetFile(SetFile picked) => Show(new ReviewFile(picked.Path), picked.Id);
 

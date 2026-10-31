@@ -143,16 +143,31 @@ static class SelfTest
                 That(Sidecar.Parse(window.File!.ReadSidecar()).Single(a => a.Id == comment).ResolvedAs == "dismissed", "not dismissed");
             });
 
-            await checks.Check("the focused card takes a reply, which is the reader's", async () =>
+            await checks.Check("an agent's reply shows in the thread, and the focused card takes the reader's reply under it", async () =>
             {
+                // An agent replies through the engine, as the MCP server does; the CLI has no reply command.
+                var file = window.File!;
+                var agent = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["op"] = "reply", ["id"] = highlight, ["body"] = "Should this note say more?", ["author"] = "agent", ["source"] = "agent",
+                };
+                File.WriteAllText(file.SidecarPath, Engine.Edit(file.ReadSidecar(), agent).Sidecar);
+                await WaitFor(() => window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies?.Count == 1, "the agent's reply did not show");
+
                 window.FocusAnnotation(highlight, reveal: true);
                 var card = window.Cards[highlight];
                 That(card.ReplyBox is not null, "the focused card has no reply field");
-                card.ReplyBox!.Text = "Agreed";
+                card.ReplyBox!.Text = "Agreed, I will expand it.";
                 Click(card.ReplyButton!);
-                await WaitFor(() => window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies?.Count == 1, "the reply did not arrive");
-                var reply = window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies![0];
-                That((reply.Author, reply.Source, reply.Body) == ("me", "local", "Agreed"), $"reply: {reply.Author}/{reply.Source}/{reply.Body}");
+                await WaitFor(() => window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies?.Count == 2, "the reply did not arrive");
+                var replies = window.Shown.Single(x => x.Annotation.Id == highlight).Annotation.Replies!;
+                That((replies[0].Author, replies[1].Author, replies[1].Source, replies[1].Body) == ("agent", "me", "local", "Agreed, I will expand it."),
+                     $"thread: {string.Join(" / ", replies.Select(r => $"{r.Author}: {r.Body}"))}");
+                That(window.Focused == highlight && window.Cards[highlight].ReplyBox is not null, "the card lost its focus after the reply");
+                That(window.Cards[highlight].ActualHeight > 0 && window.Cards[highlight].ActualHeight > window.Cards.Values.Where(c => c != window.Cards[highlight]).Max(c => c.ActualHeight),
+                     "the focused card with its thread is not the tallest");
+                CardsBesideText(window);
+                Snapshot(window, snapshot, "thread");
             });
 
             string? mine = null;
@@ -183,6 +198,23 @@ static class SelfTest
                 var added = Cli("annotate", doc, "--kind", "comment", "--context-before", "The last ", "--target", "paragraph", "--comment", "Cut?", "--author", "agent");
                 await WaitFor(() => window.Cards.ContainsKey(added), "the new card did not appear");
                 MarksCoverTargets(window, 4);
+                CardsBesideText(window);
+            });
+
+            await checks.Check("the sidebar can be hidden and shown again; the text reflows and the shown file stays", () =>
+            {
+                That(window.SidebarShown, "the sidebar is not shown for a set");
+                var width = window.Text.ActualWidth;
+                Click(window.SidebarToggle);
+                That(!window.SidebarShown, "the sidebar is still shown");
+                That(window.Text.ActualWidth > width + 100, $"the text did not take the room ({width:0} to {window.Text.ActualWidth:0})");
+                That(window.ShownFile?.Name == "doc.md", $"the window went to {window.ShownFile?.Name}");
+                MarksCoverTargets(window, 4);
+                CardsBesideText(window);
+                Snapshot(window, snapshot, "sidebar-hidden");
+                Click(window.SidebarToggle);
+                That(window.SidebarShown, "the sidebar did not come back");
+                That(window.Sidebar.SelectedItem is ListBoxItem { Tag: SetFile { Name: "doc.md" } }, "the sidebar selection moved");
                 CardsBesideText(window);
             });
 

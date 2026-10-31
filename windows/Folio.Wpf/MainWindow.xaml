@@ -4,6 +4,9 @@
         Title="Folio" Width="1240" Height="820" Background="White">
     <DockPanel>
         <ToolBar DockPanel.Dock="Top" ToolBarTray.IsLocked="True">
+            <ToggleButton x:Name="SidebarToggle" Content="Sidebar" Padding="10,2" IsChecked="True" IsEnabled="False"
+                          ToolTip="Show or hide the set's files" Click="OnSidebarToggled" />
+            <Separator />
             <Button x:Name="OpenButton" Content="Open File…" Padding="10,2" Click="OnOpen" />
             <Separator />
             <TextBlock Text="Set" VerticalAlignment="Center" Margin="6,0,6,0" />

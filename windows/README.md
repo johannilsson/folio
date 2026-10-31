@@ -5,7 +5,7 @@ mermaid diagrams and colours code. It is kept apart from the product: checked by
 `./scripts/verify.sh` or the required `test` check.
 
 What it does: opens a markdown file (`Folio.Wpf.exe <file>`) or a set (`Folio.Wpf.exe --set <name>`, or the
-Set box in the toolbar) with its files in a sidebar. The markdown is rendered (headings, emphasis, lists and task
+Set box in the toolbar) with its files in a sidebar, which the Sidebar button hides and shows. The markdown is rendered (headings, emphasis, lists and task
 lists, tables, code in colour, quotes, frontmatter, pictures, mermaid diagrams), with the annotations marked in it and a card for each in the
 pane beside the text, which scrolls with it. Cards sit at their text, in document order. A card accepts, rejects
 or dismisses; the focused one (click its text or the card) takes a reply. Selecting text shows a Comment button
@@ -55,8 +55,10 @@ windows/verify.sh      # engine DLL, CLI, diagram page, build, unit tests; on Wi
 - **`Folio.Wpf.exe --self-test <result file>`** opens a set made by the CLI of CRLF files annotated by the CLI,
   clicks the real buttons, changes the files and the set from outside and asserts what is visible: the rendered
   text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
-  selection, a mermaid diagram drawn as a picture, coloured code, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
-  (`<base>-before.png`, `<base>-after.png`).
+  selection, a thread of an agent's and the reader's replies, a mermaid diagram drawn as a picture, coloured code,
+  hiding the sidebar, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
+  (`<base>-before.png`, `<base>-thread.png` with a focused card and its replies, `<base>-sidebar-hidden.png`,
+  `<base>-after.png`).
 - **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025` for a pull request (and on `main`)
   that changes `windows/**`, `frontend/**` (the diagram page) or the workflow. It uploads the result and pictures
   as the `windows-selftest` artifact, and on a pull request from this repository puts the pictures in a comment
