@@ -7,11 +7,14 @@ name: Windows (experimental)
 on:
   pull_request:
     paths: ['windows/**', 'frontend/**', '.github/workflows/windows.yml']
+  # Only main, as ci.yml: a push to a pull request's branch would start a second run that cancels the one that
+  # puts the pictures on the pull request.
   push:
+    branches: [main]
     paths: ['windows/**', 'frontend/**', '.github/workflows/windows.yml']
   workflow_dispatch:
 
-# A branch with a pull request triggers both events; the newer run replaces the older.
+# A newer run on the same branch replaces the older.
 concurrency:
   group: windows-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -19,6 +22,10 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-2025
+    # Write access is for the pictures branch and comment, see scripts/ci-pictures.sh.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
 
@@ -59,3 +66,21 @@ jobs:
             windows/selftest-result.txt
             windows/snapshots
           if-no-files-found: ignore
+
+      # The pictures on the pull request, as evidence of what changed: on the `ci-pictures-windows` branch and in a
+      # comment of their own (the macOS ones are in another). Only for a pull request from this repository: forks
+      # and Dependabot get a read-only token.
+      - name: Show the pictures on the pull request
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.actor != 'dependabot[bot]'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PICTURES: windows/snapshots
+          PICTURES_KIND: windows
+        run: scripts/ci-pictures.sh

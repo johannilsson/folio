@@ -57,8 +57,10 @@ windows/verify.sh      # engine DLL, CLI, diagram page, build, unit tests; on Wi
   text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
   selection, a mermaid diagram drawn as a picture, coloured code, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-after.png`).
-- **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025`, only when `windows/**` or the
-  workflow changes (and `frontend/**`, the diagram page), and uploads the result and pictures as the `windows-selftest` artifact.
+- **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025` for a pull request (and on `main`)
+  that changes `windows/**`, `frontend/**` (the diagram page) or the workflow. It uploads the result and pictures
+  as the `windows-selftest` artifact, and on a pull request from this repository puts the pictures in a comment
+  ("Self-test pictures (windows)", from the `ci-pictures-windows` branch), updated on every push.
 
 On Linux or macOS the WPF project can be compiled (`EnableWindowsTargeting`) but not run, and needs
 Microsoft's .NET 8 SDK: distribution builds of the SDK leave out the WindowsDesktop targets. The unit tests
