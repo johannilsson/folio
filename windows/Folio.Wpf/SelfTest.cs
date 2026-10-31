@@ -8,6 +8,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Folio.Core;
+using Folio.Core.Preview;
 
 namespace Folio.Wpf;
 
@@ -107,6 +108,18 @@ static class SelfTest
                 That(picture is not null, "no picture of the diagram in the text");
                 MapIsTrue(window);
                 CardsBesideText(window);
+            });
+
+            await checks.Check("code with a language is coloured by the hidden page, as the macOS app colours it", async () =>
+            {
+                await WaitFor(() => window.Highlighted > 0, "the code was not coloured", seconds: 30);
+                foreach (var (word, syntax) in new[] { ("let", Syntax.Keyword), ("1", Syntax.Number) })
+                {
+                    var entry = window.Rendered!.Entries.FirstOrDefault(e => e.IsRun && e.Piece.Text == word && e.Piece.Scope is not null);
+                    That(entry.Element is Run, $"\"{word}\" is not a coloured piece of its own");
+                    That(entry.Element.Foreground == Look.Code(syntax), $"\"{word}\" is not in the colour of a {syntax}");
+                }
+                MapIsTrue(window);
             });
 
             Snapshot(window, snapshot, "before");

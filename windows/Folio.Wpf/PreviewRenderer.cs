@@ -26,6 +26,20 @@ static class Look
     public const double BodySize = 15;
     static readonly double[] HeadingSizes = [28, 23, 19, 17, 15, 14];
 
+    // The colours of code, as the macOS app's light look has them.
+    static readonly Dictionary<Syntax, Brush> CodeBrushes = new()
+    {
+        [Syntax.Keyword] = Frozen(Color.FromRgb(0xCF, 0x22, 0x2E)),
+        [Syntax.String] = Frozen(Color.FromRgb(0x0A, 0x30, 0x69)),
+        [Syntax.Number] = Frozen(Color.FromRgb(0x05, 0x50, 0xAE)),
+        [Syntax.Comment] = Frozen(Color.FromRgb(0x6E, 0x77, 0x81)),
+        [Syntax.Title] = Frozen(Color.FromRgb(0x82, 0x50, 0xDF)),
+        [Syntax.Name] = Frozen(Color.FromRgb(0x11, 0x63, 0x29)),
+    };
+
+    /// <summary>The colour of a kind of code, or null for one that keeps the text colour.</summary>
+    public static Brush? Code(Syntax syntax) => CodeBrushes.GetValueOrDefault(syntax);
+
     public static double HeadingSize(int level) => HeadingSizes[Math.Clamp(level, 1, 6) - 1];
 
     static Brush Frozen(Color color)
@@ -55,11 +69,17 @@ sealed class RenderedPreview
     readonly string? focused;
     /// <summary>The diagrams drawn so far, by their source.</summary>
     readonly IReadOnlyDictionary<string, Diagram?> diagrams;
+    /// <summary>The colours of code, by its language and code.</summary>
+    readonly IReadOnlyDictionary<(string Language, string Code), List<(int From, int To, string Scope)>> highlights;
     /// <summary>Set while the lines of a code block are drawn.</summary>
     bool codeBlock;
+    /// <summary>The colours of the code block being drawn.</summary>
+    IReadOnlyList<Colour> colours = [];
 
-    public RenderedPreview(PreviewDocument preview, IReadOnlyList<Shown> shown, string? focused, IReadOnlyDictionary<string, Diagram?> diagrams)
+    public RenderedPreview(PreviewDocument preview, IReadOnlyList<Shown> shown, string? focused, IReadOnlyDictionary<string, Diagram?> diagrams,
+                           IReadOnlyDictionary<(string Language, string Code), List<(int From, int To, string Scope)>> highlights)
     {
+        this.highlights = highlights;
         this.shown = shown;
         this.focused = focused;
         this.diagrams = diagrams;
@@ -177,8 +197,11 @@ sealed class RenderedPreview
             paragraph.TextIndent = -20;
         if (block.Centered) paragraph.TextAlignment = TextAlignment.Center;
         codeBlock = block.Kind == BlockKind.Code;
+        colours = block is { Language: string language, Code: string code } && highlights.TryGetValue((language, code), out var scopes)
+            ? CodeColours.Place(block, scopes) : [];
         Inlines(paragraph.Inlines, block.Spans, block.Kind == BlockKind.Diagram ? block.Diagram : null);
         codeBlock = false;
+        colours = [];
         return paragraph;
     }
 
@@ -229,7 +252,7 @@ sealed class RenderedPreview
     void Inlines(InlineCollection into, IEnumerable<PreviewSpan> spans, string? diagram)
     {
         foreach (var span in spans)
-            foreach (var piece in PreviewMarks.Cut(span, shown))
+            foreach (var piece in PreviewMarks.Cut(span, shown, colours))
             {
                 if (piece.Ghost is string id)
                 {
@@ -264,6 +287,7 @@ sealed class RenderedPreview
         }
         if (span.Style.HasFlag(TextStyle.Strike)) run.TextDecorations = TextDecorations.Strikethrough;
         if (span.Style.HasFlag(TextStyle.Marker)) run.Foreground = Look.Secondary;
+        if (piece.Scope is string scope && Look.Code(CodeColours.Of(scope)) is Brush colour) run.Foreground = colour;
         if (span.Link is not null)
         {
             run.Foreground = SystemColors.HotTrackBrush;

@@ -8,9 +8,9 @@ public sealed record Shown(Placed Placed, int? From, int? To, int? At, string? G
     public bool Marked => From is not null;
 }
 
-/// <summary>A piece of a span with one look: the marks over it, or the preview of a suggestion (<c>Ghost</c>),
-/// which is in the view but not in the text, so it takes up no offsets.</summary>
-public sealed record Piece(int Start, string Text, IReadOnlyList<string> Marks, string? Ghost = null)
+/// <summary>A piece of a span with one look: the marks over it and the scope of code it is, or the preview of a
+/// suggestion (<c>Ghost</c>), which is in the view but not in the text, so it takes up no offsets.</summary>
+public sealed record Piece(int Start, string Text, IReadOnlyList<string> Marks, string? Ghost = null, string? Scope = null)
 {
     public int End => Ghost is null ? Start + Text.Length : Start;
 }
@@ -32,18 +32,21 @@ public static class PreviewMarks
     /// <summary>Where a suggestion's preview goes: after what it replaces, or at the insertion point.</summary>
     public static int? GhostAt(Shown shown) => shown.Ghost is null ? null : shown.To ?? shown.At;
 
-    /// <summary>Cuts <paramref name="span"/> where marks start and end, and puts the previews of suggestions in at their
-    /// places. A picture or a line break is not cut. A preview at a span's end belongs to that span, so it follows
-    /// the text it is about; one at the very start of the text, to the first span.</summary>
-    public static List<Piece> Cut(PreviewSpan span, IReadOnlyList<Shown> shown)
+    /// <summary>Cuts <paramref name="span"/> where marks and the <paramref name="colours"/> of code start and end, and puts
+    /// the previews of suggestions in at their places. A picture or a line break is not cut. A preview at a span's end
+    /// belongs to that span, so it follows the text it is about; one at the very start of the text, to the first span.
+    /// Where colours nest, the innermost one is the piece's.</summary>
+    public static List<Piece> Cut(PreviewSpan span, IReadOnlyList<Shown> shown, IReadOnlyList<Colour>? colours = null)
     {
+        var coloured = (colours ?? []).Where(c => c.From < span.End && c.To > span.Start).ToList();
         var marks = shown.Where(s => s.From < span.End && s.To > span.Start).ToList();
         var ghosts = shown.Select(s => (Shown: s, At: GhostAt(s)))
             .Where(g => g.At is int at && (at > span.Start && at <= span.End || at == 0 && span.Start == 0))
             .ToList();
         var cuts = new SortedSet<int> { span.Start, span.End };
         if (span.Kind == SpanKind.Text)
-            foreach (var at in marks.SelectMany(m => new[] { m.From!.Value, m.To!.Value }).Concat(ghosts.Select(g => g.At!.Value)))
+            foreach (var at in marks.SelectMany(m => new[] { m.From!.Value, m.To!.Value }).Concat(ghosts.Select(g => g.At!.Value))
+                         .Concat(coloured.SelectMany(c => new[] { c.From, c.To })))
                 if (at > span.Start && at < span.End) cuts.Add(at);
 
         var pieces = new List<Piece>();
@@ -59,7 +62,10 @@ public static class PreviewMarks
             var (a, b) = (points[i], points[i + 1]);
             var over = marks.Where(m => m.From < b && m.To > a)
                 .OrderByDescending(m => m.From).Select(m => m.Annotation.Id).ToList();
-            pieces.Add(new Piece(a, span.Text[(a - span.Start)..(b - span.Start)], over));
+            var scope = span.Kind == SpanKind.Text
+                ? coloured.Where(c => c.From <= a && c.To >= b).OrderByDescending(c => c.From).ThenBy(c => c.To).Select(c => c.Scope).FirstOrDefault()
+                : null;
+            pieces.Add(new Piece(a, span.Text[(a - span.Start)..(b - span.Start)], over, Scope: scope));
             if (b > 0) Ghosts(b);
         }
         return pieces;

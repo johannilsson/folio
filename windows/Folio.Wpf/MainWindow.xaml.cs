@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     readonly Dictionary<string, CardView> cards = [];
     /// <summary>The diagrams drawn so far by their source (null: it did not draw, its source stays), for every file.</summary>
     readonly Dictionary<string, Diagram?> diagrams = [];
+    /// <summary>The colours of each block of code by its language and code, as the page gave them, for every file.</summary>
+    readonly Dictionary<(string Language, string Code), List<(int From, int To, string Scope)>> highlights = [];
     DiagramPage? diagramPage;
 
     FolioSet? set;
@@ -57,6 +59,7 @@ public partial class MainWindow : Window
     internal string VisibleText => new TextRange(Text.Document.ContentStart, Text.Document.ContentEnd).Text;
     internal string Status => StatusText.Text;
     internal IReadOnlyDictionary<string, Diagram?> Diagrams => diagrams;
+    internal int Highlighted => highlights.Count(h => h.Value.Count > 0);
 
     public MainWindow()
     {
@@ -229,26 +232,37 @@ public partial class MainWindow : Window
 
     void Draw()
     {
-        rendered = new RenderedPreview(preview!, shown, focused, diagrams);
+        rendered = new RenderedPreview(preview!, shown, focused, diagrams, highlights);
         Text.Document = rendered.Document;
         HideAdder();
         Text.UpdateLayout();
         LayoutCards();
-        DrawDiagrams();
+        AskPage();
     }
 
-    /// <summary>Has the hidden page draw the diagrams of the shown file that are not drawn yet, one at a time; each is
-    /// shown as its source until its picture is there.</summary>
-    async void DrawDiagrams()
+    /// <summary>Asks the hidden page for what the shown file needs and it has not been asked for yet, one thing at a time:
+    /// the colours of each block of code with a language, then each diagram. Until the answer is there, the code is
+    /// plain and the diagram is its source; the file is drawn again when it comes.</summary>
+    async void AskPage()
     {
-        var waiting = preview!.Blocks.Select(b => b.Diagram).OfType<string>().Where(code => !diagrams.ContainsKey(code)).Distinct().ToList();
-        if (waiting.Count == 0 || (diagramPage ??= DiagramPage.Find() is string folder ? new DiagramPage(this, folder) : null) is not DiagramPage page) return;
-        foreach (var code in waiting) diagrams[code] = null;   // asked for once, also while it is drawn
-        foreach (var code in waiting)
+        var code = preview!.Blocks.Where(b => b.Kind == BlockKind.Code && b.Language is not null && !string.IsNullOrEmpty(b.Code))
+            .Select(b => (b.Language!, b.Code!)).Where(k => !highlights.ContainsKey(k)).Distinct().ToList();
+        var waiting = preview.Blocks.Select(b => b.Diagram).OfType<string>().Where(d => !diagrams.ContainsKey(d)).Distinct().ToList();
+        if (code.Count + waiting.Count == 0 || (diagramPage ??= DiagramPage.Find() is string folder ? new DiagramPage(this, folder) : null) is not DiagramPage page) return;
+        // Asked for once, also while the answer is on its way.
+        foreach (var key in code) highlights[key] = [];
+        foreach (var d in waiting) diagrams[d] = null;
+        foreach (var (language, text) in code)
         {
-            var drawn = await page.Draw(code);
-            diagrams[code] = drawn;
-            if (drawn is not null && preview?.Blocks.Any(b => b.Diagram == code) == true) Redraw();
+            var scopes = await page.Highlight(text, language);
+            highlights[(language, text)] = scopes;
+            if (scopes.Count > 0 && preview?.Blocks.Any(b => b.Language == language && b.Code == text) == true) Redraw();
+        }
+        foreach (var d in waiting)
+        {
+            var drawn = await page.Draw(d);
+            diagrams[d] = drawn;
+            if (drawn is not null && preview?.Blocks.Any(b => b.Diagram == d) == true) Redraw();
         }
     }
 

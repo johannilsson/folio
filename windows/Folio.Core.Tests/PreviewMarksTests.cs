@@ -153,3 +153,45 @@ public class SetTests
         Assert.Null(new FolioSet("s", "m", []).Keep("b"));
     }
 }
+
+public class CodeColoursTests
+{
+    [Fact]
+    public void The_pages_colours_land_on_the_code_as_it_is_shown_after_a_list_marker()
+    {
+        var markdown = "Before.\r\n\r\n- ```js\r\n  let a = 1;\r\n  b();\r\n  ```\r\n";
+        var preview = PreviewBuilder.Build(markdown);
+        var code = preview.Blocks.Single(b => b.Kind == BlockKind.Code);
+        Assert.Equal("let a = 1;\nb();", code.Code);
+        // What __folioHighlight answers: offsets into the code.
+        var colours = CodeColours.Place(code, [(0, 3, "keyword"), (8, 9, "number"), (11, 12, "title"), (14, 99, "beyond")]);
+        Assert.Equal(["let", "1", "b"], colours.Select(c => preview.Text[c.From..c.To]));
+    }
+
+    [Fact]
+    public void Cut_gives_each_piece_its_innermost_scope_and_keeps_marks()
+    {
+        var markdown = "```js\nlet word = \"a b\";\n```\n";
+        var preview = PreviewBuilder.Build(markdown);
+        var code = preview.Blocks.Single();
+        var at = code.Spans[0].Start;
+        // A string with a nested piece, and a mark over "word".
+        var colours = CodeColours.Place(code, [(0, 3, "keyword"), (11, 16, "string"), (12, 13, "subst")]);
+        var shown = PreviewMarks.Show(preview, Review.Place(markdown, [
+            new Annotation("m", "highlight", "agent", "t", "let ", "word", null, null, "2026-01-01T00:00:00Z", false, null, null, null)]));
+        var pieces = PreviewMarks.Cut(code.Spans[0], shown, colours);
+        Assert.Equal(["let", " ", "word", " = ", "\"", "a", " b\"", ";"], pieces.Select(p => p.Text));
+        Assert.Equal(["keyword", null, null, null, "string", "subst", "string", null], pieces.Select(p => p.Scope));
+        Assert.Equal(["m"], pieces[2].Marks);
+        Assert.Equal(at, pieces[0].Start);
+    }
+
+    [Theory]
+    [InlineData("keyword", Syntax.Keyword)]
+    [InlineData("built_in", Syntax.Title)]
+    [InlineData("attr", Syntax.Number)]
+    [InlineData("quote", Syntax.Comment)]
+    [InlineData("tag", Syntax.Name)]
+    [InlineData("punctuation", Syntax.None)]
+    public void A_scope_has_the_colour_the_macOS_app_gives_it(string scope, Syntax syntax) => Assert.Equal(syntax, CodeColours.Of(scope));
+}

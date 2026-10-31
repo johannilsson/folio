@@ -1,18 +1,18 @@
 # Folio for Windows (experimental)
 
 A native Windows client on the Rust engine: .NET 8 and WPF, no web view except the hidden one that draws
-mermaid diagrams. It is kept apart from the product: checked by its own workflow, and not part of
+mermaid diagrams and colours code. It is kept apart from the product: checked by its own workflow, and not part of
 `./scripts/verify.sh` or the required `test` check.
 
 What it does: opens a markdown file (`Folio.Wpf.exe <file>`) or a set (`Folio.Wpf.exe --set <name>`, or the
 Set box in the toolbar) with its files in a sidebar. The markdown is rendered (headings, emphasis, lists and task
-lists, tables, code, quotes, frontmatter, pictures, mermaid diagrams), with the annotations marked in it and a card for each in the
+lists, tables, code in colour, quotes, frontmatter, pictures, mermaid diagrams), with the annotations marked in it and a card for each in the
 pane beside the text, which scrolls with it. Cards sit at their text, in document order. A card accepts, rejects
 or dismisses; the focused one (click its text or the card) takes a reply. Selecting text shows a Comment button
 for a new comment. It follows the file, its `.folio` sidecar and the set on disk, so what an agent writes with
 the CLI shows up.
 
-Not yet: code colours, the source editor, the card that opens
+Not yet: the source editor, the card that opens
 beside the text with the pane closed, undo, the live link for the MCP server, an installer.
 
 ## Layers
@@ -30,14 +30,16 @@ The same three as the macOS app (CLAUDE.md, "How the app is built"):
     to the engine, which works on the markdown itself.
   - `Preview/PreviewMarks` says what is marked where and cuts spans into pieces at the marks and the previews of
     suggestions; `CardLayout` stacks the cards and places the Comment button; `FolioSet.Keep` is which file stays
-    shown when the set changes.
+    shown when the set changes; `Preview/CodeColours` puts the page's colours on the code as shown and gives each
+    scope its colour.
   - `ReviewFile` is a file and its sidecar on disk, changed only through the engine (accept, reject, reply, new
     comment), read without locking out an agent's write and written through a temp file of its own.
 - **`Folio.Wpf`**: the window. `PreviewRenderer` draws the blocks as a `FlowDocument`, a run per piece, and keeps
   each piece's element, so a shown offset is a `TextPointer` and back. `MainWindow` draws from the disk state and
   applies what `Folio.Core` decides. `DiagramPage` is the hidden WebView2, in a window off every screen, that loads
-  the diagram page (`frontend/`, built with `pnpm build` and copied next to the app) and photographs each diagram;
-  until a diagram is drawn, or when it cannot be (no WebView2 runtime, no built page), its source is shown.
+  the diagram page (`frontend/`, built with `pnpm build` and copied next to the app), photographs each diagram and
+  asks for the highlight.js scopes of each block of code; until a diagram is drawn, or when it cannot be (no WebView2
+  runtime, no built page), its source is shown, and code is plain until its colours come.
   `--self-test` drives it (below).
 
 ## Checks
@@ -53,7 +55,7 @@ windows/verify.sh      # engine DLL, CLI, diagram page, build, unit tests; on Wi
 - **`Folio.Wpf.exe --self-test <result file>`** opens a set made by the CLI of CRLF files annotated by the CLI,
   clicks the real buttons, changes the files and the set from outside and asserts what is visible: the rendered
   text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
-  selection, a mermaid diagram drawn as a picture, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
+  selection, a mermaid diagram drawn as a picture, coloured code, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-after.png`).
 - **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025`, only when `windows/**` or the
   workflow changes (and `frontend/**`, the diagram page), and uploads the result and pictures as the `windows-selftest` artifact.
