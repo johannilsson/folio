@@ -26,6 +26,7 @@ static class SelfTest
         "- first item", "- second item", "",
         "| Name | Note |", "|---|---|", "| alpha | a cell note |", "",
         "```js", "let code = 1;", "```", "",
+        "```mermaid", "graph LR", "  A[Draft] --> B[Review]", "```", "",
         .. Enumerable.Range(1, 40).SelectMany(i => new[] { $"Filler paragraph {i}.", "" }),
         "The last paragraph.", ""]);
 
@@ -96,6 +97,17 @@ static class SelfTest
             });
 
             await checks.Check("cards sit beside their text, in order, without overlapping", () => CardsBesideText(window));
+
+            await checks.Check("a mermaid block is drawn as a picture by the hidden page, not shown as its source", async () =>
+            {
+                await WaitFor(() => window.Diagrams.Values.Any(d => d is not null), "the diagram was not drawn", seconds: 30);
+                That(!window.VisibleText.Contains("A[Draft]", StringComparison.Ordinal), "the diagram's source is still shown");
+                var picture = window.Rendered!.Entries.Select(e => e.Element).OfType<InlineUIContainer>()
+                    .Select(c => c.Child).OfType<Image>().Select(i => i.Source).OfType<BitmapSource>().FirstOrDefault(b => b.PixelWidth > 40);
+                That(picture is not null, "no picture of the diagram in the text");
+                MapIsTrue(window);
+                CardsBesideText(window);
+            });
 
             Snapshot(window, snapshot, "before");
 
@@ -270,9 +282,9 @@ static class SelfTest
     /// <summary>Lets layout and the poll timer run.</summary>
     static Task Settle() => Task.Delay(400);
 
-    static async Task WaitFor(Func<bool> condition, string failure)
+    static async Task WaitFor(Func<bool> condition, string failure, int seconds = 5)
     {
-        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(50);
+        for (var i = 0; i < seconds * 20 && !condition(); i++) await Task.Delay(50);
         That(condition(), failure);
     }
 

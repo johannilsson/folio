@@ -10,6 +10,13 @@
 
   <ItemGroup>
     <ProjectReference Include="../Folio.Core/Folio.Core.csproj" />
+    <!-- The hidden web view that draws mermaid diagrams (DiagramPage). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+  </ItemGroup>
+
+  <!-- The diagram page (frontend/, built with `pnpm build`), next to the app as frontend/; without it diagrams show their source. -->
+  <ItemGroup>
+    <None Include="../../frontend/dist/**" Condition="Exists('../../frontend/dist/diagram.html')" LinkBase="frontend" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

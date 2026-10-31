@@ -53,13 +53,16 @@ sealed class RenderedPreview
     readonly List<Entry> entries = [];
     readonly IReadOnlyList<Shown> shown;
     readonly string? focused;
+    /// <summary>The diagrams drawn so far, by their source.</summary>
+    readonly IReadOnlyDictionary<string, Diagram?> diagrams;
     /// <summary>Set while the lines of a code block are drawn.</summary>
     bool codeBlock;
 
-    public RenderedPreview(PreviewDocument preview, IReadOnlyList<Shown> shown, string? focused)
+    public RenderedPreview(PreviewDocument preview, IReadOnlyList<Shown> shown, string? focused, IReadOnlyDictionary<string, Diagram?> diagrams)
     {
         this.shown = shown;
         this.focused = focused;
+        this.diagrams = diagrams;
         Document = new FlowDocument
         {
             PagePadding = new Thickness(32, 24, 32, 48),
@@ -157,8 +160,12 @@ sealed class RenderedPreview
                 paragraph.LineHeight = double.NaN;
                 paragraph.Margin = new Thickness(0, 8, 0, 20);
                 break;
+            case BlockKind.Diagram when Drawn(block) is not null:
+                paragraph.Margin = new Thickness(0, 8, 0, 20);
+                paragraph.LineHeight = double.NaN;
+                break;
             case BlockKind.Diagram:
-                // Drawn from the hidden page in a later step; until then, the source of the diagram.
+                // Not drawn (yet, or ever): its source.
                 paragraph.FontFamily = Look.Mono;
                 paragraph.FontSize = Look.BodySize * 0.88;
                 paragraph.Background = Look.CodeBack;
@@ -234,6 +241,7 @@ sealed class RenderedPreview
                 Inline element = span.Kind switch
                 {
                     SpanKind.Break => new LineBreak(),
+                    SpanKind.Picture when diagram is not null && diagrams.GetValueOrDefault(diagram) is Diagram drawn => DiagramOf(drawn),
                     SpanKind.Picture when diagram is not null => Styled(new Run(diagram), span, piece),
                     SpanKind.Picture => Picture(span.Picture),
                     _ => Styled(new Run(piece.Text), span, piece),
@@ -280,6 +288,16 @@ sealed class RenderedPreview
             run.Background = strong ? Look.PurpleStrong : Look.Purple;
         }
     }
+
+    Diagram? Drawn(PreviewBlock block) => block.Diagram is string code ? diagrams.GetValueOrDefault(code) : null;
+
+    /// <summary>A drawn diagram at its size, smaller when the column is narrower.</summary>
+    static Inline DiagramOf(Diagram diagram) =>
+        new InlineUIContainer(new Image
+        {
+            Source = diagram.Picture, Width = diagram.Width, MaxWidth = 760,
+            Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly,
+        }) { BaselineAlignment = BaselineAlignment.Bottom };
 
     static Inline Picture(string? path)
     {

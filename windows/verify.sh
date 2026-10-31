@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The Windows client's checks, the way CI runs them (.github/workflows/windows.yml): builds the engine as a DLL
-# (a shared library elsewhere) and the CLI, then the .NET projects and their tests. On Windows it then drives
+# (a shared library elsewhere), the CLI and the diagram page, then the .NET projects and their tests. On Windows it then drives
 # the real app with its --self-test. Everywhere else the WPF project is only compiled, since it cannot run.
 # Runs every step even if one fails, then reports a summary.
 # Usage: windows/verify.sh
@@ -22,6 +22,8 @@ export FOLIO_CLI="$PWD/target/debug/$exe"
 # Sets made by the tests and the self-test go to a throwaway folder, not the real ~/.config/folio.
 export FOLIO_CONFIG_DIR="$(mktemp -d)"
 
+# The diagram page, which the app's build copies next to it (its dependencies installed with pnpm install).
+step "frontend" bash -c 'cd frontend && pnpm build'
 step "build" dotnet build windows/Folio.Windows.sln --nologo
 step "unit tests" dotnet test windows/Folio.Core.Tests --nologo --no-build
 

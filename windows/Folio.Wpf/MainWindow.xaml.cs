@@ -21,6 +21,9 @@ public partial class MainWindow : Window
     /// <summary>Where each file was scrolled to, as a fraction, by its id in the set (its path otherwise).</summary>
     readonly Dictionary<string, double> fractions = [];
     readonly Dictionary<string, CardView> cards = [];
+    /// <summary>The diagrams drawn so far by their source (null: it did not draw, its source stays), for every file.</summary>
+    readonly Dictionary<string, Diagram?> diagrams = [];
+    DiagramPage? diagramPage;
 
     FolioSet? set;
     string setStamp = "";
@@ -53,6 +56,7 @@ public partial class MainWindow : Window
     internal double ScrollOffset => Scroll.VerticalOffset;
     internal string VisibleText => new TextRange(Text.Document.ContentStart, Text.Document.ContentEnd).Text;
     internal string Status => StatusText.Text;
+    internal IReadOnlyDictionary<string, Diagram?> Diagrams => diagrams;
 
     public MainWindow()
     {
@@ -225,11 +229,27 @@ public partial class MainWindow : Window
 
     void Draw()
     {
-        rendered = new RenderedPreview(preview!, shown, focused);
+        rendered = new RenderedPreview(preview!, shown, focused, diagrams);
         Text.Document = rendered.Document;
         HideAdder();
         Text.UpdateLayout();
         LayoutCards();
+        DrawDiagrams();
+    }
+
+    /// <summary>Has the hidden page draw the diagrams of the shown file that are not drawn yet, one at a time; each is
+    /// shown as its source until its picture is there.</summary>
+    async void DrawDiagrams()
+    {
+        var waiting = preview!.Blocks.Select(b => b.Diagram).OfType<string>().Where(code => !diagrams.ContainsKey(code)).Distinct().ToList();
+        if (waiting.Count == 0 || (diagramPage ??= DiagramPage.Find() is string folder ? new DiagramPage(this, folder) : null) is not DiagramPage page) return;
+        foreach (var code in waiting) diagrams[code] = null;   // asked for once, also while it is drawn
+        foreach (var code in waiting)
+        {
+            var drawn = await page.Draw(code);
+            diagrams[code] = drawn;
+            if (drawn is not null && preview?.Blocks.Any(b => b.Diagram == code) == true) Redraw();
+        }
     }
 
     /// <summary>Draws again with the same files, as after focusing a card, keeping the scroll position.</summary>
