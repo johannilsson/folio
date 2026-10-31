@@ -57,6 +57,16 @@ public enum Rust {
         folio_mcp_serve()
     }
 
+    /// Whether the person lets MCP clients in (Folio ▸ Allow MCP Clients); off until they turn it on.
+    public static var mcpAllowed: Bool {
+        folio_mcp_allowed()
+    }
+
+    /// Lets MCP clients in, or shuts them out again.
+    public static func setMCPAllowed(_ on: Bool) throws {
+        _ = try object(folio_mcp_set_allowed(on))
+    }
+
     /// Starts answering the MCP server's questions about this app (src/live.rs). `handler` gets each
     /// request as JSON and returns the response as a `malloc`ed JSON string; it runs on another thread.
     public static func appListen(_ handler: @convention(c) (UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>?) throws {
