@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds everything and runs all checks: the frontend build, Rust tests, and on macOS
+# Builds everything and runs all checks: the generated design tokens, the frontend build, Rust tests, and on macOS
 # the app's unit tests (FolioKit) and its self-test.
 # Runs every step even if one fails, then reports a summary.
 # Usage: scripts/verify.sh [--skip-macos]
@@ -12,6 +12,7 @@ step() {
   "$@" || failed+=("$name")
 }
 
+step "design tokens" node scripts/tokens.mjs --check
 step "frontend build" bash -c 'cd frontend && pnpm build'
 step "rust build" cargo build
 step "rust tests" cargo test
