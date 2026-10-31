@@ -40,9 +40,9 @@ sealed class ConnectWindow : Window
             IsReadOnly = true, FontFamily = Look.Mono, FontSize = 12, TextWrapping = TextWrapping.Wrap, Height = 150,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
-        var copy = new Button { Content = "Copy", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(0, 0, 8, 0) };
+        var copy = new Button { Content = "Copy", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top };
         copy.Click += (_, _) => Clipboard.SetText(Text.Text);
-        AddButton = new Button { Content = "Add for Me", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(0, 0, 8, 0) };
+        AddButton = new Button { Content = "Add for Me", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Top };
         AddButton.Click += (_, _) => Add();
         Status = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Look.Secondary, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
 
