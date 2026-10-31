@@ -37,10 +37,12 @@ impl App for RunningApp {
 
 /// Runs the server on stdin and stdout until the client closes them. The exit code.
 pub fn serve_stdio() -> i32 {
-    // `open` should launch the app this server belongs to, not whichever copy is registered.
+    // `open` should launch the app this server belongs to, not whichever copy is registered. On Windows the
+    // server is the client's own program, so that is what `open` launches.
     if std::env::var_os("FOLIO_APP").is_none() {
-        if let Some(bundle) = own_app_bundle() {
-            std::env::set_var("FOLIO_APP", bundle);
+        let own = if cfg!(windows) { std::env::current_exe().ok() } else { own_app_bundle() };
+        if let Some(app) = own {
+            std::env::set_var("FOLIO_APP", app);
         }
     }
     let stdin = std::io::stdin();
@@ -751,9 +753,14 @@ pub struct Snippet {
     pub client: Option<Client>,
 }
 
-/// A path as one word of a shell command.
+/// A path as one word of a shell command: single quotes for a POSIX shell; on Windows double quotes, which
+/// cmd and PowerShell both read, and which a Windows path cannot contain.
 fn shell_word(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
+    if cfg!(windows) {
+        format!("\"{text}\"")
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
 }
 
 /// A string as TOML and JSON both write it: quoted, with quotes, backslashes and control characters escaped.
@@ -1151,10 +1158,19 @@ mod tests {
 
     #[test]
     fn open_reports_what_it_cannot_do_before_launching_anything() {
-        // Off a Mac there is no app to launch, which it says first; on one, what is missing.
-        let expected = if cfg!(target_os = "macos") { "provide a file" } else { "macOS app" };
+        // Where there is no app to launch (not a Mac or Windows) it says so first; where there is one, what is missing.
+        let expected = if cfg!(target_os = "macos") || cfg!(windows) { "provide a file" } else { "macOS app" };
         assert!(err(&NoApp, "open", json!({})).contains(expected));
         assert!(err(&NoApp, "open", json!({ "file": "relative.md" })).contains("absolute"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn snippets_quote_a_windows_path_for_its_shells() {
+        let exe = Path::new(r"C:\Program Files\Folio\Folio.Wpf.exe");
+        let snippets = client_snippets(exe);
+        assert_eq!(snippets[0].text, "claude mcp add folio -- \"C:\\Program Files\\Folio\\Folio.Wpf.exe\" --mcp\n");
+        assert!(snippets[2].text.starts_with("codex mcp add folio -- \"C:\\Program Files\\Folio\\Folio.Wpf.exe\" --mcp"));
     }
 
     #[test]
@@ -1166,12 +1182,15 @@ mod tests {
         let clients: Vec<_> = snippets.iter().map(|s| s.client).collect();
         assert_eq!(clients, [None, Some(Client::ClaudeDesktop), Some(Client::Codex), None, None]);
 
-        assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+        // The commands quote the path for a POSIX shell (Windows: `snippets_quote_a_windows_path_for_its_shells`).
+        if !cfg!(windows) {
+            assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+            assert!(snippets[2].text.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"));
+        }
         let json: Value = serde_json::from_str(&snippets[1].text).unwrap();
         assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
 
         let codex = &snippets[2].text;
-        assert!(codex.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"), "{codex}");
         // The TOML half parses as a basic string holding the same path.
         let command = codex.lines().find_map(|l| l.strip_prefix("command = ")).unwrap();
         assert_eq!(serde_json::from_str::<String>(command).unwrap(), exe.to_string_lossy());

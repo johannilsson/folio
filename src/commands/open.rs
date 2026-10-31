@@ -7,8 +7,13 @@ use std::process::Command;
 const BUNDLE_ID: &str = "dev.folio.Folio";
 
 /// Open a file, or a named set (see `folio set`), in the Folio macOS app. `FOLIO_APP` names
-/// an app bundle to use instead of the registered one, e.g. a build that is not installed.
+/// an app bundle to use instead of the registered one, e.g. a build that is not installed. On Windows
+/// it names the Windows client (`Folio.Wpf.exe`), which has no registration to find it by; its MCP
+/// server sets it to itself.
 pub fn run(file: Option<&Path>, set_name: Option<&str>) -> anyhow::Result<()> {
+    if cfg!(windows) {
+        return run_windows(file, set_name);
+    }
     if !cfg!(target_os = "macos") {
         anyhow::bail!("`folio open` launches the macOS app, which is the only editor");
     }
@@ -37,6 +42,28 @@ pub fn run(file: Option<&Path>, set_name: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `Folio.Wpf.exe <file>` or `Folio.Wpf.exe --set <name>`, a window of its own.
+fn run_windows(file: Option<&Path>, set_name: Option<&str>) -> anyhow::Result<()> {
+    let launch = |args: Vec<OsString>| -> anyhow::Result<()> {
+        let app = std::env::var_os("FOLIO_APP")
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("set FOLIO_APP to the Windows client (Folio.Wpf.exe) to open files in it"))?;
+        Command::new(app).args(args).spawn()?;
+        Ok(())
+    };
+    match (file, set_name) {
+        (_, Some(name)) => {
+            set::load(name)?;
+            launch(vec!["--set".into(), name.into()])
+        }
+        (Some(file), None) => {
+            let file = dunce::canonicalize(file).map_err(|e| anyhow::anyhow!("cannot open {}: {}", file.display(), e))?;
+            launch(vec![file.into_os_string()])
+        }
+        (None, None) => anyhow::bail!("provide a file or --set <name>"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,7 +71,7 @@ mod tests {
     #[test]
     fn a_missing_file_is_reported_before_anything_launches() {
         let err = run(Some(Path::new("/definitely/not/here.md")), None).unwrap_err().to_string();
-        if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") || cfg!(windows) {
             assert!(err.contains("cannot open"), "{err}");
         }
     }
@@ -56,8 +83,20 @@ mod tests {
         std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
         let err = run(None, Some("nope")).unwrap_err().to_string();
         std::env::remove_var("FOLIO_CONFIG_DIR");
-        if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") || cfg!(windows) {
             assert!(err.contains("cannot read set"), "{err}");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_the_client_to_launch_has_to_be_named() {
+        let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let file = std::env::temp_dir().join(format!("folio-open-{}.md", std::process::id()));
+        std::fs::write(&file, "# x\n").unwrap();
+        std::env::remove_var("FOLIO_APP");
+        let err = run(Some(&file), None).unwrap_err().to_string();
+        assert!(err.contains("FOLIO_APP"), "{err}");
+        std::fs::remove_file(&file).ok();
     }
 }

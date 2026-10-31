@@ -1,0 +1,86 @@
+name: Windows (experimental)
+
+# The Windows client in windows/ is an experiment, kept apart from the ordinary checks: this workflow runs
+# only when that folder, the diagram page it draws with (frontend/) or this file changes, and is not part of the `test` check in ci.yml, so it never
+# gates a merge. If it is ever made a required check, remove the `paths` filters first: a required check that
+# a filter skips stays pending forever.
+on:
+  pull_request:
+    paths: ['windows/**', 'frontend/**', '.github/workflows/windows.yml']
+  # Only main, as ci.yml: a push to a pull request's branch would start a second run that cancels the one that
+  # puts the pictures on the pull request.
+  push:
+    branches: [main]
+    paths: ['windows/**', 'frontend/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+# A newer run on the same branch replaces the older.
+concurrency:
+  group: windows-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    # Write access is for the pictures branch and comment, see scripts/ci-pictures.sh.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      # The diagram page the app draws mermaid with (frontend/), as ci.yml builds it.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Engine DLL and CLI, the client's build and unit tests, then the app driven by its self-test.
+      - name: Verify
+        shell: bash
+        run: windows/verify.sh
+
+      - name: Upload self-test result and pictures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-selftest
+          path: |
+            windows/selftest-result.txt
+            windows/snapshots
+          if-no-files-found: ignore
+
+      # The pictures on the pull request, as evidence of what changed: on the `ci-pictures-windows` branch and in a
+      # comment of their own (the macOS ones are in another). Only for a pull request from this repository: forks
+      # and Dependabot get a read-only token.
+      - name: Show the pictures on the pull request
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.actor != 'dependabot[bot]'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PICTURES: windows/snapshots
+          PICTURES_KIND: windows
+        run: scripts/ci-pictures.sh
