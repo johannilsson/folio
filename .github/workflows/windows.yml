@@ -59,9 +59,3 @@ jobs:
             windows/selftest-result.txt
             windows/snapshots
           if-no-files-found: ignore
-
-      # Temporary: the pictures as text in the log, for a reviewer who cannot download artifacts.
-      - name: Print the pictures
-        if: always()
-        shell: bash
-        run: for f in windows/snapshots/*.png; do echo "PICTURE-BEGIN $(basename "$f")"; base64 -w 0 "$f"; echo; echo "PICTURE-END"; done
