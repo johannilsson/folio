@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// Claude's way into the app: the MCP server that the app's binary becomes with `--mcp`, started and
 /// spoken to over its pipes as Claude desktop does, against the app that is running this test. The tools
@@ -38,6 +39,44 @@ extension SelfTest {
         }
         let alert = ConnectToolsAlert(snippets: snippets)
         let names = snippets.map(\.name)
+
+        // MCP clients get in only once the person allows it: off at first, in the menu and in the window.
+        let allowItem = appMenu?.item(withTitle: "Allow MCP Clients")
+        func allowTicked() -> Bool {
+            guard let allowItem else { return false }
+            _ = self.app.validateMenuItem(allowItem)
+            return allowItem.state == .on
+        }
+        await check("Allow MCP Clients is in the app menu, and off until the person turns it on") {
+            allowItem?.action == #selector(AppDelegate.toggleMCP(_:)) && allowItem?.target === self.app
+                && !allowTicked() && !Rust.mcpAllowed && !AppServer.serving && !alert.allowShown
+        }
+        let hello: [String: Any] = [
+            "protocolVersion": "2025-06-18", "capabilities": [String: Any](), "clientInfo": ["name": "selftest", "version": "1"],
+        ]
+        guard let early = MCPClient(command: exe, arguments: ["--mcp"]) else {
+            report("the server starts while access is off", false)
+            return
+        }
+        _ = await early.call("initialize", hello)
+        early.notify("notifications/initialized")
+        let tooEarly = await early.tool("annotate", [
+            "file": file.path,
+            "annotations": [["kind": "comment", "context_before": "", "target": "The last paragraph.", "comment": "Too early"]],
+        ])
+        await check("while it is off, a client set up before still starts the server, but every tool says access is off and nothing is written") {
+            let sidecar = (try? String(contentsOf: self.controller.files.sidecar, encoding: .utf8)) ?? ""
+            return tooEarly?.isError == true && tooEarly?.text.contains("Allow MCP Clients") == true && !sidecar.contains("Too early")
+        }
+        alert.select(names.firstIndex(of: "Codex") ?? 0)
+        await check("Add for Me waits for the Allow box") { !alert.addEnabled }
+        alert.setAllowed(true)
+        await check("ticking Allow lets clients in at once: the menu item is ticked, the app answers, the running server works") {
+            let render = await early.tool("render", ["file": self.file.path])
+            return Rust.mcpAllowed && allowTicked() && AppServer.serving && alert.addEnabled
+                && render?.isError == false && render?.text.contains("The last paragraph.") == true
+        }
+        early.close()
         await check("the window lists the tools, none first by favour, each with this app's path") {
             names == ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]
                 && snippets.allSatisfy { $0.text.contains(exe) } && alert.shownText.contains("claude mcp add folio")
@@ -77,17 +116,14 @@ extension SelfTest {
         }
 
         // Start the server the way the config says, and the app's end of the link.
-        await check("the app answers the server on a socket in the config folder") { AppServer.start() }
+        await check("the app answers the server on a socket in the config folder, since clients are allowed") { AppServer.serving }
         guard let client = MCPClient(command: command, arguments: arguments) else {
             report("the server starts", false)
             return
         }
-        let hello = await client.call("initialize", [
-            "protocolVersion": "2025-06-18", "capabilities": [String: Any](),
-            "clientInfo": ["name": "selftest", "version": "1"],
-        ])
+        let answer = await client.call("initialize", hello)
         await check("the server says hello over its pipes") {
-            let server = (hello?["result"] as? [String: Any])?["serverInfo"] as? [String: Any]
+            let server = (answer?["result"] as? [String: Any])?["serverInfo"] as? [String: Any]
             return server?["name"] as? String == "folio"
         }
         client.notify("notifications/initialized")
@@ -194,6 +230,21 @@ extension SelfTest {
         await check("closing its input ends the server cleanly, and it said nothing but the protocol") {
             await self.until { !client.isRunning } && client.exitStatus == 0 && client.strayLines == 0
         }
+
+        // Turning it off again from the menu shuts clients out.
+        AppServer.start()
+        app.toggleMCP(nil)
+        guard let late = MCPClient(command: exe, arguments: ["--mcp"]) else {
+            report("the server starts after access is turned off", false)
+            return
+        }
+        _ = await late.call("initialize", hello)
+        let shut = await late.tool("render", ["file": path])
+        await check("unticking Allow MCP Clients shuts clients out again, and the app stops answering") {
+            !Rust.mcpAllowed && !allowTicked() && !AppServer.serving
+                && shut?.isError == true && shut?.text.contains("Allow MCP Clients") == true
+        }
+        late.close()
     }
 }
 

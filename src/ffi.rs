@@ -264,6 +264,18 @@ pub extern "C" fn folio_mcp_serve() -> i32 {
     crate::mcp::serve_stdio()
 }
 
+/// Whether the person lets MCP clients in (`mcp::allowed`): off until they turn it on in the app.
+#[no_mangle]
+pub extern "C" fn folio_mcp_allowed() -> bool {
+    crate::mcp::allowed()
+}
+
+/// Lets MCP clients in (`on`), or shuts them out again. Returns `{}` or `{"error": ...}`. Free with `folio_free`.
+#[no_mangle]
+pub extern "C" fn folio_mcp_set_allowed(on: bool) -> *mut c_char {
+    finish(crate::mcp::set_allowed(on).map(|()| "{}".to_string()).map_err(|e| e.to_string()))
+}
+
 /// Answers one request line from the MCP server, as the app sees it: a JSON string in, a JSON
 /// string out, both allocated by the caller of the callback side (Swift) and freed here with
 /// `free`. See `live.rs` for the protocol.
