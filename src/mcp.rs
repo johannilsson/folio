@@ -79,7 +79,8 @@ pub fn set_allowed(on: bool) -> anyhow::Result<()> {
 
 /// What every tool answers while access is off, for the assistant to pass on.
 const NOT_ALLOWED: &str = "Folio does not let MCP clients read or annotate documents until the person allows it: \
-ask them to turn on Allow MCP Clients in the Folio app (on the Mac, in the Folio menu). Nothing was read or written.";
+ask them to turn on Allow MCP Clients in the Folio app (on the Mac in the Folio menu, on Windows behind the MCP button \
+in the toolbar). Nothing was read or written.";
 
 /// Serves one client. `allowed` says, at each tool call, whether the person lets MCP clients in.
 pub fn serve(input: impl BufRead, mut output: impl Write, app: &dyn App, allowed: &dyn Fn() -> bool) -> std::io::Result<()> {
