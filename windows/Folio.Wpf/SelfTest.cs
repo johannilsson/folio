@@ -79,6 +79,10 @@ static class SelfTest
                 foreach (var words in new[] { "Self-test", "brown fox jumps", "first item", "a cell note", "let code = 1;", "The last paragraph." })
                     That(text.Contains(words, StringComparison.Ordinal), $"\"{words}\" is not shown");
                 MapIsTrue(window);
+                // The text keeps its margin from the edge of its column (the sidebar may be hidden).
+                var left = window.Rendered!.Pointer(window.Preview!.Text.IndexOf("Natural", StringComparison.Ordinal), forward: true)!
+                    .GetCharacterRect(LogicalDirection.Forward).Left;
+                That(left >= 24, $"the text starts {left:0} from the edge of its column");
             });
 
             await checks.Check("a card for each pending annotation, in document order", () =>

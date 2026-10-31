@@ -31,7 +31,7 @@
                         <ColumnDefinition Width="*" MaxWidth="840" />
                         <ColumnDefinition Width="304" />
                     </Grid.ColumnDefinitions>
-                    <RichTextBox x:Name="Text" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" BorderThickness="0"
+                    <RichTextBox x:Name="Text" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" BorderThickness="0" Padding="32,24,32,48"
                                  Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
                                  IsInactiveSelectionHighlightEnabled="True" SelectionBrush="#A78BFA" VerticalAlignment="Top" />
                     <Canvas x:Name="Overlay" Grid.Column="0" />

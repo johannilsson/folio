@@ -85,7 +85,8 @@ sealed class RenderedPreview
         this.diagrams = diagrams;
         Document = new FlowDocument
         {
-            PagePadding = new Thickness(32, 24, 32, 48),
+            // The RichTextBox puts its own padding here; the margins are its Padding (MainWindow.xaml).
+            PagePadding = new Thickness(0),
             FontSize = Look.BodySize,
             FontFamily = new FontFamily("Segoe UI"),
             LineHeight = Look.BodySize * 1.5,
