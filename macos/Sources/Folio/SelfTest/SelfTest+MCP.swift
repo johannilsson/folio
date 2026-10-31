@@ -77,6 +77,7 @@ extension SelfTest {
                 && render?.isError == false && render?.text.contains("The last paragraph.") == true
         }
         early.close()
+        alert.select(0)
         await check("the window lists the tools, none first by favour, each with this app's path") {
             names == ["Claude Code", "Claude Desktop", "Codex", "Other tools (JSON)", "Any MCP client"]
                 && snippets.allSatisfy { $0.text.contains(exe) } && alert.shownText.contains("claude mcp add folio")
