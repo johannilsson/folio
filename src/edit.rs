@@ -4,7 +4,7 @@
 //! (never to a copy of its own), so what an agent wrote in the meantime survives. Accepting
 //! is separate: it also patches the markdown (`commands::accept`).
 
-use crate::sidecar::{generate_id, now_iso8601, Annotation, AnnotationKind, AnnotationSource, ResolvedAs, Sidecar, ThreadReply};
+use crate::sidecar::{fresh_id, now_iso8601, Annotation, AnnotationKind, AnnotationSource, ResolvedAs, Sidecar, ThreadReply};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -51,15 +51,6 @@ fn find<'a>(sidecar: &'a mut Sidecar, id: &str) -> Result<&'a mut Annotation, St
         .ok_or_else(|| format!("no annotation with id {id}"))
 }
 
-fn fresh_id(taken: impl Fn(&str) -> bool, prefix: &str) -> String {
-    loop {
-        let candidate = generate_id().replacen("ann_", prefix, 1);
-        if !taken(&candidate) {
-            return candidate;
-        }
-    }
-}
-
 pub fn apply(mut sidecar: Sidecar, edit: Edit) -> Result<Edited, String> {
     let mut created = None;
     match edit {
@@ -81,21 +72,16 @@ pub fn apply(mut sidecar: Sidecar, edit: Edit) -> Result<Edited, String> {
         }
         Edit::AddComment { context_before, target, comment, author, source } => {
             let id = fresh_id(|c| sidecar.annotations.iter().any(|a| a.id == c), "ann_");
-            sidecar.annotations.push(Annotation {
-                id: id.clone(),
-                kind: AnnotationKind::Comment,
+            sidecar.annotations.push(Annotation::pending(
+                id.clone(),
+                AnnotationKind::Comment,
                 source,
                 author,
                 context_before,
                 target,
-                replacement: None,
-                comment: Some(comment),
-                created: now_iso8601(),
-                resolved: false,
-                resolved_as: None,
-                resolved_at: None,
-                replies: vec![],
-            });
+                None,
+                Some(comment),
+            ));
             created = Some(id);
         }
         Edit::Remove { id } => {

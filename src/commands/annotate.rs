@@ -1,4 +1,4 @@
-use crate::sidecar::{Annotation, AnnotationKind, AnnotationSource, Sidecar, generate_id, now_iso8601};
+use crate::sidecar::{Annotation, AnnotationKind, AnnotationSource, Sidecar, fresh_id};
 use std::path::Path;
 
 pub fn run(
@@ -23,30 +23,17 @@ pub fn run(
         Sidecar::empty()
     };
 
-    let existing_ids: std::collections::HashSet<&str> =
-        sidecar.annotations.iter().map(|a| a.id.as_str()).collect();
-    let id = loop {
-        let candidate = generate_id();
-        if !existing_ids.contains(candidate.as_str()) {
-            break candidate;
-        }
-    };
-
-    let annotation = Annotation {
-        id: id.clone(),
+    let id = fresh_id(|c| sidecar.annotations.iter().any(|a| a.id == c), "ann_");
+    let annotation = Annotation::pending(
+        id.clone(),
         kind,
         source,
-        author: author.to_string(),
-        context_before: context_before.to_string(),
-        target: target.map(str::to_string),
-        replacement: replacement.map(str::to_string),
-        comment: comment.map(str::to_string),
-        created: now_iso8601(),
-        resolved: false,
-        resolved_as: None,
-        resolved_at: None,
-        replies: vec![],
-    };
+        author.to_string(),
+        context_before.to_string(),
+        target.map(str::to_string),
+        replacement.map(str::to_string),
+        comment.map(str::to_string),
+    );
 
     let content = std::fs::read_to_string(file)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;

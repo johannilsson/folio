@@ -1,4 +1,5 @@
 import AppKit
+import FolioKit
 
 /// Looks shared by the annotation views. Chrome follows the system; Folio's own colour is
 /// for content, so the avatars (who wrote it) are purple and blue, and everything else is system grey.
@@ -11,18 +12,10 @@ enum AnnotationStyle {
     static let cardPadding: CGFloat = 12
     static let avatarSize: CGFloat = 28
 
-    static let cardFill = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0.145, green: 0.145, blue: 0.145, alpha: 1)
-            : NSColor(srgbRed: 0.965, green: 0.965, blue: 0.96, alpha: 1)
-    }
+    static let cardFill = Tokens.card
 
     /// Floating pieces over the text (the open card, the comment button, the toast).
-    static let floatFill = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0.18, green: 0.18, blue: 0.18, alpha: 1)
-            : NSColor.white
-    }
+    static let floatFill = Tokens.float
 
     /// The look of the small things that float over the text, the Comment button and the toast: a
     /// capsule with a hairline edge, lifted off the page by a soft shadow.
@@ -50,13 +43,7 @@ enum AnnotationStyle {
 
     static func displayName(_ author: String) -> String { author == "me" ? "You" : author }
 
-    private static let avatarColors: [NSColor] = ["#6366f1", "#0891b2", "#db2777", "#7c3aed"].map(color(hex:))
-
-    private static func color(hex: String) -> NSColor {
-        let value = Int(hex.dropFirst(), radix: 16) ?? 0
-        return NSColor(srgbRed: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255,
-                       blue: CGFloat(value & 0xff) / 255, alpha: 1)
-    }
+    private static let avatarColors: [NSColor] = [Tokens.avatarYou, Tokens.avatarCyan, Tokens.avatarPink, Tokens.avatarViolet]
 
     static func avatarColor(for name: String) -> NSColor {
         if name == "You" { return avatarColors[0] }

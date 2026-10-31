@@ -59,11 +59,17 @@ Folio is also an MCP server, built into the app, for Claude Desktop, Codex and o
 (`src/mcp.rs`, the same engine as the CLI). Nothing else needs installing, and the `folio` CLI is not
 involved.
 
+**MCP clients get in only once you allow it.** **Folio ▸ Allow MCP Clients** (or the box at the top of Connect to
+MCP Clients…) is off until you turn it on, and you can turn it off again at any time; the choice is kept in
+`<config>/mcp.json`. While it is off a tool that was set up still starts the server, but every tool answers that
+access is off and nothing is read or written, and the app does not answer the server's questions about its windows.
+The server reads the choice at every call, so turning it on or off needs no restart of the tool.
+
 **Folio ▸ Connect to MCP Clients…** connects tools to it, none ahead of the others: pick the tool (Claude
 Code, Claude Desktop, Codex, Cursor and other MCP clients) and it shows what to run or paste, with this
 app's path in it; Copy puts it on the pasteboard. For Claude Desktop
 (`~/Library/Application Support/Claude/claude_desktop_config.json`) and Codex (`~/.codex/config.toml`, or
-`$CODEX_HOME/config.toml`) **Add for Me** writes the same entry into the file named beside it, keeping
+`$CODEX_HOME/config.toml`) **Add for Me**, once MCP clients are allowed, writes the same entry into the file named beside it, keeping
 everything else in it, and says what it did; restart the tool afterwards. Do it again after moving the
 app: it updates the path.
 

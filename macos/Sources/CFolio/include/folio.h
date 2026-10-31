@@ -50,6 +50,13 @@ char *folio_set_delete(const char *name);
    desktop). Returns the exit code. */
 int folio_mcp_serve(void);
 
+/* Whether the person lets MCP clients in: off until they turn on Allow MCP Clients, which writes
+   <config>/mcp.json. While it is off every tool of the server answers that access is off. */
+bool folio_mcp_allowed(void);
+
+/* Lets MCP clients in (on), or shuts them out again. {} or {"error": "..."} */
+char *folio_mcp_set_allowed(bool on);
+
 /* Answers one request of the MCP server about the running app: JSON in, JSON out. The result is malloc'ed;
    the library frees it. Called on a thread of the library's. */
 typedef char *(*folio_app_handler)(const char *request_json);
