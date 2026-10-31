@@ -1196,6 +1196,33 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    use super::fresh_id;
+    use std::cell::Cell;
+
+    #[test]
+    fn fresh_id_has_the_prefix_and_eight_id_characters() {
+        for prefix in ["ann_", "reply_"] {
+            let id = fresh_id(|_| false, prefix);
+            let rest = id.strip_prefix(prefix).unwrap_or_else(|| panic!("{id} lacks {prefix}"));
+            assert_eq!(rest.len(), 8, "{id}");
+            assert!(rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()), "{id}");
+        }
+    }
+
+    #[test]
+    fn fresh_id_skips_ids_that_are_taken() {
+        let seen = Cell::new(0);
+        let id = fresh_id(
+            |_| {
+                seen.set(seen.get() + 1);
+                seen.get() <= 3
+            },
+            "ann_",
+        );
+        assert_eq!(seen.get(), 4, "asked again until one was free");
+        assert!(id.starts_with("ann_"));
+    }
+
     #[test]
     fn save_replaces_the_file_and_leaves_no_temp_file() {
         let dir = std::env::temp_dir().join(format!("folio-save-{}", std::process::id()));
