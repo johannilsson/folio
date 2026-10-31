@@ -15,6 +15,19 @@ the CLI shows up.
 Not yet: the source editor, the card that opens
 beside the text with the pane closed, undo, the live link for the MCP server, an installer.
 
+## MCP
+
+`Folio.Wpf.exe --mcp` is Folio's MCP server (`src/mcp.rs`, the same one as the macOS app's), for Claude Desktop,
+Codex and other MCP clients: no window, MCP over stdin and stdout. **Clients get in only once you allow it**: the
+**MCP…** button in the toolbar has an Allow box, off until you tick it and the same switch as the macOS app's
+Folio ▸ Allow MCP Clients (`<config>/mcp.json`). While it is off a tool that was set up still starts the server, but
+every tool answers that access is off and nothing is read or written; the server reads the switch at every call, so
+ticking or unticking it needs no restart of the tool. The same window shows what to run or paste for each tool (with
+this program's path), and Add for Me writes it into Claude Desktop's or Codex's config once clients are allowed.
+
+The file tools work; the ones that ask the running app (`current_document`, `focused_annotation`, `reveal`) answer
+that Folio is not running, since the live link between the server and the app is not on Windows yet.
+
 ## Layers
 
 The same three as the macOS app (CLAUDE.md, "How the app is built"):
@@ -56,9 +69,10 @@ windows/verify.sh      # engine DLL, CLI, diagram page, build, unit tests; on Wi
   clicks the real buttons, changes the files and the set from outside and asserts what is visible: the rendered
   text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
   selection, a thread of an agent's and the reader's replies, a mermaid diagram drawn as a picture, coloured code,
-  hiding the sidebar, switching files, the scroll position. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
+  hiding the sidebar, switching files, the scroll position, and MCP: the server (`--mcp`, over its pipes) refusing
+  until the MCP… window's Allow box is ticked, Add for Me, and unticking it again. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-thread.png` with a focused card and its replies, `<base>-sidebar-hidden.png`,
-  `<base>-after.png`).
+  `<base>-after.png`, `<base>-mcp.png` the MCP… window).
 - **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025` for a pull request (and on `main`)
   that changes `windows/**`, `frontend/**` (the diagram page) or the workflow. It uploads the result and pictures
   as the `windows-selftest` artifact, and on a pull request from this repository puts the pictures in a comment

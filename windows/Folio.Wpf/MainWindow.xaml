@@ -12,6 +12,9 @@
             <TextBlock Text="Set" VerticalAlignment="Center" Margin="6,0,6,0" />
             <ComboBox x:Name="SetPicker" Width="180" DropDownOpened="OnSetsOpened" SelectionChanged="OnSetPicked" />
             <Separator />
+            <Button x:Name="McpButton" Content="MCP…" Padding="10,2" Click="OnMcp"
+                    ToolTip="Allow MCP clients such as Claude to read and annotate documents, and connect them" />
+            <Separator />
             <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#6B6B70" Text="No file open" />
         </ToolBar>
         <StatusBar DockPanel.Dock="Bottom">

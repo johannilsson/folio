@@ -38,5 +38,21 @@ internal static class Native
     public static extern IntPtr folio_set_load([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int folio_mcp_serve();
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static extern bool folio_mcp_allowed();
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_mcp_set_allowed([MarshalAs(UnmanagedType.U1)] bool on);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_mcp_snippets([MarshalAs(UnmanagedType.LPUTF8Str)] string exe);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_mcp_connect([MarshalAs(UnmanagedType.LPUTF8Str)] string client, [MarshalAs(UnmanagedType.LPUTF8Str)] string exe);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern void folio_free(IntPtr ptr);
 }

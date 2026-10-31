@@ -6,6 +6,10 @@ namespace Folio.Core;
 
 public sealed class EngineException(string message) : Exception(message);
 
+/// <summary>What to run or paste to register this program's MCP server in a tool; <c>Client</c> and <c>Config</c> are
+/// set when Folio can write it into the tool's config itself (Add for Me).</summary>
+public sealed record McpSnippet(string Name, string Hint, string Text, string? Client, string? Config);
+
 /// <summary>The engine as .NET calls: anchoring, accept and the editor's actions. Strings in, strings out,
 /// like <c>Rust.swift</c>; nothing here touches a file.</summary>
 public static class Engine
@@ -69,6 +73,30 @@ public static class Engine
             f!["id"]!.GetValue<string>(), f["name"]!.GetValue<string>(), f["group"]!.GetValue<string>(),
             f["path"]!.GetValue<string>(), f["folio_path"]!.GetValue<string>())).ToList();
         return new FolioSet(result["name"]!.GetValue<string>(), result["manifest"]!.GetValue<string>(), files);
+    }
+
+    /// <summary>Runs the MCP server on stdin and stdout until the client closes them (<c>Folio.Wpf.exe --mcp</c>). The exit code.</summary>
+    public static int McpServe() => Native.folio_mcp_serve();
+
+    /// <summary>Whether the person lets MCP clients in: off until they turn on Allow MCP Clients. While it is off every
+    /// tool of the server answers that access is off.</summary>
+    public static bool McpAllowed => Native.folio_mcp_allowed();
+
+    /// <summary>Lets MCP clients in, or shuts them out again.</summary>
+    public static void SetMcpAllowed(bool on) => Take(Native.folio_mcp_set_allowed(on));
+
+    /// <summary>What to run or paste to register <c>exe --mcp</c> in each tool.</summary>
+    public static List<McpSnippet> McpSnippets(string exe) =>
+        JsonNode.Parse(Take(Native.folio_mcp_snippets(exe)))!["snippets"]!.AsArray().Select(s => new McpSnippet(
+            s!["name"]!.GetValue<string>(), s["hint"]!.GetValue<string>(), s["text"]!.GetValue<string>(),
+            s["client"]?.GetValue<string>(), s["config"]?.GetValue<string>())).ToList();
+
+    /// <summary>Add for Me: registers <c>exe --mcp</c> as the "folio" server in a tool's config (<c>client</c> from its
+    /// snippet). The file it wrote, and "added", "updated" or "unchanged".</summary>
+    public static (string Config, string Change) McpConnect(string client, string exe)
+    {
+        var result = JsonNode.Parse(Take(Native.folio_mcp_connect(client, exe)))!;
+        return (result["config"]!.GetValue<string>(), result["change"]!.GetValue<string>());
     }
 
     /// <summary>Copies the result out, frees it, and turns <c>{"error": ...}</c> into an exception.</summary>

@@ -264,6 +264,46 @@ static class SelfTest
             });
 
             Snapshot(window, snapshot, "after");
+
+            await checks.Check("MCP clients get in only once the person allows it, in the MCP… window, and can be shut out again", async () =>
+            {
+                // Add for Me writes these, not the runner's own configs.
+                var claudeConfig = Path.Combine(dir, "claude_desktop_config.json");
+                Environment.SetEnvironmentVariable("FOLIO_CLAUDE_CONFIG", claudeConfig);
+                Environment.SetEnvironmentVariable("CODEX_HOME", dir);
+                That(!Engine.McpAllowed, "MCP clients are allowed before anyone allowed them");
+                var connect = window.OpenConnect();
+                That(connect.Allow.IsChecked == false, "the Allow box is ticked");
+                connect.Tools.SelectedIndex = 1;   // Claude Desktop
+                That(connect.AddButton.IsVisible && !connect.AddButton.IsEnabled, "Add for Me does not wait for the Allow box");
+
+                // A tool that was set up before starts the server, which answers but lets nothing in.
+                using var server = await McpServer.Start(Environment.ProcessPath!);
+                That(server.Hello?["result"]?["serverInfo"]?["name"]?.GetValue<string>() == "folio", "the server did not say hello");
+                var off = await server.Tool("render", new() { ["file"] = doc });
+                That(off.IsError && off.Text.Contains("Allow MCP Clients", StringComparison.Ordinal), $"while off, render answered: {off.Text}");
+
+                connect.Allow.IsChecked = true;
+                Click(connect.Allow);
+                That(Engine.McpAllowed && connect.AddButton.IsEnabled, "ticking Allow did not let clients in");
+                var on = await server.Tool("render", new() { ["file"] = doc });
+                That(!on.IsError && on.Text.Contains("The last paragraph.", StringComparison.Ordinal), $"the running server did not let it in: {on.Text}");
+
+                Click(connect.AddButton);
+                That(connect.Status.Text.StartsWith("Added to", StringComparison.Ordinal), $"Add for Me said: {connect.Status.Text}");
+                var entry = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(claudeConfig))!["mcpServers"]!["folio"]!;
+                That(entry["command"]!.GetValue<string>() == Environment.ProcessPath && entry["args"]![0]!.GetValue<string>() == "--mcp",
+                     $"Claude's entry: {entry.ToJsonString()}");
+                connect.UpdateLayout();
+                Snapshot(connect, snapshot, "mcp");
+
+                connect.Allow.IsChecked = false;
+                Click(connect.Allow);
+                var shut = await server.Tool("render", new() { ["file"] = doc });
+                That(!Engine.McpAllowed && shut.IsError && shut.Text.Contains("Allow MCP Clients", StringComparison.Ordinal), "unticking Allow did not shut clients out");
+                That(await server.Close() == 0 && server.StrayLines == 0, "the server did not end cleanly, or said something besides the protocol");
+                connect.Close();
+            });
         }
         catch (Exception e) { failures++; log.AppendLine("✗ " + e); }
         Finish(failures == 0 ? 0 : 1);
@@ -351,7 +391,7 @@ static class SelfTest
         return output.Trim();
     }
 
-    static void Snapshot(MainWindow window, string? basePath, string name)
+    static void Snapshot(Window window, string? basePath, string name)
     {
         if (basePath is null) return;
         window.UpdateLayout();
@@ -362,5 +402,75 @@ static class SelfTest
         Directory.CreateDirectory(Path.GetDirectoryName($"{basePath}-{name}.png")!);
         using var stream = File.Create($"{basePath}-{name}.png");
         encoder.Save(stream);
+    }
+
+    /// <summary>The app's own MCP server (<c>Folio.Wpf.exe --mcp</c>) spoken to over its pipes, as a tool such as Claude
+    /// Desktop does.</summary>
+    sealed class McpServer : IDisposable
+    {
+        readonly Process process;
+        int lastId;
+
+        public System.Text.Json.Nodes.JsonNode? Hello { get; private set; }
+        /// <summary>Lines on stdout that were not responses: that channel has to carry nothing else.</summary>
+        public int StrayLines { get; private set; }
+
+        McpServer(Process process) => this.process = process;
+
+        public static async Task<McpServer> Start(string exe)
+        {
+            var start = new ProcessStartInfo(exe, "--mcp")
+            {
+                RedirectStandardInput = true, RedirectStandardOutput = true, CreateNoWindow = true,
+                StandardOutputEncoding = new UTF8Encoding(false),
+            };
+            var server = new McpServer(Process.Start(start)!);
+            server.process.StandardInput.AutoFlush = true;
+            server.Hello = await server.Call("initialize", new()
+            {
+                ["protocolVersion"] = "2025-06-18", ["capabilities"] = new System.Text.Json.Nodes.JsonObject(),
+                ["clientInfo"] = new System.Text.Json.Nodes.JsonObject { ["name"] = "selftest", ["version"] = "1" },
+            });
+            await server.process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+            return server;
+        }
+
+        public async Task<System.Text.Json.Nodes.JsonNode?> Call(string method, System.Text.Json.Nodes.JsonObject parameters)
+        {
+            var id = ++lastId;
+            var request = new System.Text.Json.Nodes.JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method, ["params"] = parameters };
+            await process.StandardInput.WriteLineAsync(request.ToJsonString());
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while (await process.StandardOutput.ReadLineAsync(timeout.Token) is string line)
+            {
+                System.Text.Json.Nodes.JsonNode? reply = null;
+                try { reply = System.Text.Json.Nodes.JsonNode.Parse(line); } catch (System.Text.Json.JsonException) { }
+                if (reply?["id"]?.GetValue<int>() == id) return reply;
+                StrayLines++;
+            }
+            return null;
+        }
+
+        public async Task<(bool IsError, string Text)> Tool(string name, System.Text.Json.Nodes.JsonObject arguments)
+        {
+            var reply = await Call("tools/call", new() { ["name"] = name, ["arguments"] = arguments });
+            var result = reply?["result"];
+            return (result?["isError"]?.GetValue<bool>() == true, result?["content"]?[0]?["text"]?.GetValue<string>() ?? reply?.ToJsonString() ?? "no answer");
+        }
+
+        /// <summary>Closes its input, which ends the server; its exit code.</summary>
+        public async Task<int> Close()
+        {
+            process.StandardInput.Close();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await process.WaitForExitAsync(timeout.Token);
+            return process.ExitCode;
+        }
+
+        public void Dispose()
+        {
+            if (!process.HasExited) process.Kill();
+            process.Dispose();
+        }
     }
 }

@@ -123,7 +123,7 @@ Where a piece of Swift goes, and so how it is tested. Most of the app already wo
 
 ## Windows client (experimental, `windows/`)
 
-A native .NET/WPF client on the engine as a DLL (rendered preview, sets, cards), kept apart from the product: it has its own workflow (`.github/workflows/windows.yml`, only when `windows/**` or `frontend/**` changes) and is not part of `./scripts/verify.sh` or the required `test` check; its self-test pictures are put on every pull request it runs for, no label needed. It follows the same layers as the macOS app: the rules go in `Folio.Core` (unit tests, run on Linux too), `Folio.Wpf` only draws and wires (its `--self-test` runs on the Windows runner). Check it with `windows/verify.sh`; `windows/README.md` has the layers and what the checks cover. Do not make the macOS app, the Rust crate or the shared workflows depend on it.
+A native .NET/WPF client on the engine as a DLL (rendered preview, sets, cards), kept apart from the product: it has its own workflow (`.github/workflows/windows.yml`, only when `windows/**` or `frontend/**` changes) and is not part of `./scripts/verify.sh` or the required `test` check; its self-test pictures are put on every pull request it runs for, no label needed. Its MCP server is `Folio.Wpf.exe --mcp`, behind the same Allow MCP Clients switch as the macOS app (the MCP… button). It follows the same layers as the macOS app: the rules go in `Folio.Core` (unit tests, run on Linux too), `Folio.Wpf` only draws and wires (its `--self-test` runs on the Windows runner). Check it with `windows/verify.sh`; `windows/README.md` has the layers and what the checks cover. Do not make the macOS app, the Rust crate or the shared workflows depend on it.
 
 ## Annotation Model
 

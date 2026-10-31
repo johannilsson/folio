@@ -751,9 +751,14 @@ pub struct Snippet {
     pub client: Option<Client>,
 }
 
-/// A path as one word of a shell command.
+/// A path as one word of a shell command: single quotes for a POSIX shell; on Windows double quotes, which
+/// cmd and PowerShell both read, and which a Windows path cannot contain.
 fn shell_word(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
+    if cfg!(windows) {
+        format!("\"{text}\"")
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
 }
 
 /// A string as TOML and JSON both write it: quoted, with quotes, backslashes and control characters escaped.
@@ -1157,6 +1162,15 @@ mod tests {
         assert!(err(&NoApp, "open", json!({ "file": "relative.md" })).contains("absolute"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn snippets_quote_a_windows_path_for_its_shells() {
+        let exe = Path::new(r"C:\Program Files\Folio\Folio.Wpf.exe");
+        let snippets = client_snippets(exe);
+        assert_eq!(snippets[0].text, "claude mcp add folio -- \"C:\\Program Files\\Folio\\Folio.Wpf.exe\" --mcp\n");
+        assert!(snippets[2].text.starts_with("codex mcp add folio -- \"C:\\Program Files\\Folio\\Folio.Wpf.exe\" --mcp"));
+    }
+
     #[test]
     fn other_tools_get_snippets_that_quote_the_path() {
         let exe = Path::new("/Users/me/My \"Apps\"/it's/Folio.app/Contents/MacOS/Folio");
@@ -1166,12 +1180,15 @@ mod tests {
         let clients: Vec<_> = snippets.iter().map(|s| s.client).collect();
         assert_eq!(clients, [None, Some(Client::ClaudeDesktop), Some(Client::Codex), None, None]);
 
-        assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+        // The commands quote the path for a POSIX shell (Windows: `snippets_quote_a_windows_path_for_its_shells`).
+        if !cfg!(windows) {
+            assert!(snippets[0].text.starts_with("claude mcp add folio -- '/Users"));
+            assert!(snippets[2].text.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"));
+        }
         let json: Value = serde_json::from_str(&snippets[1].text).unwrap();
         assert_eq!(json["mcpServers"]["folio"], json!({ "command": exe, "args": ["--mcp"] }));
 
         let codex = &snippets[2].text;
-        assert!(codex.starts_with("codex mcp add folio -- '/Users/me/My \"Apps\"/it'\\''s/Folio.app/Contents/MacOS/Folio' --mcp"), "{codex}");
         // The TOML half parses as a basic string holding the same path.
         let command = codex.lines().find_map(|l| l.strip_prefix("command = ")).unwrap();
         assert_eq!(serde_json::from_str::<String>(command).unwrap(), exe.to_string_lossy());

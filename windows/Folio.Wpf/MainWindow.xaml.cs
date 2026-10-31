@@ -90,6 +90,16 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) Open(dialog.FileName);
     }
 
+    void OnMcp(object sender, RoutedEventArgs e) => OpenConnect();
+
+    /// <summary>The MCP… window, for this program's own path.</summary>
+    internal ConnectWindow OpenConnect()
+    {
+        var connect = new ConnectWindow(Environment.ProcessPath!) { Owner = this };
+        connect.Show();
+        return connect;
+    }
+
     void OnSetsOpened(object? sender, EventArgs e)
     {
         try { SetPicker.ItemsSource = Engine.SetNames(); }
