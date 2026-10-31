@@ -1158,8 +1158,8 @@ mod tests {
 
     #[test]
     fn open_reports_what_it_cannot_do_before_launching_anything() {
-        // Off a Mac there is no app to launch, which it says first; on one, what is missing.
-        let expected = if cfg!(target_os = "macos") { "provide a file" } else { "macOS app" };
+        // Where there is no app to launch (not a Mac or Windows) it says so first; where there is one, what is missing.
+        let expected = if cfg!(target_os = "macos") || cfg!(windows) { "provide a file" } else { "macOS app" };
         assert!(err(&NoApp, "open", json!({})).contains(expected));
         assert!(err(&NoApp, "open", json!({ "file": "relative.md" })).contains("absolute"));
     }
