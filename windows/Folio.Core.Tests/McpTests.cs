@@ -29,3 +29,47 @@ public class McpTests
         Assert.Equal(exe, desktop["command"]!.GetValue<string>());
     }
 }
+
+public class AppLinkTests
+{
+    [Fact]
+    public async Task A_request_on_the_socket_reaches_the_answer_and_its_line_comes_back()
+    {
+        var config = Environment.GetEnvironmentVariable("FOLIO_CONFIG_DIR");
+        Assert.True(config is { Length: > 0 }, "FOLIO_CONFIG_DIR must name a throwaway folder; run windows/verify.sh");
+        var asked = new List<string>();
+        Engine.AppListen(line =>
+        {
+            asked.Add(line.Trim());
+            return "{\"ok\":{\"windows\":[{\"file\":\"ü.md\"}]}}";
+        });
+        try
+        {
+            // What the MCP server does (src/live.rs): one line out, one line back, on app.sock in the config folder.
+            using var socket = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Unspecified);
+            await socket.ConnectAsync(new System.Net.Sockets.UnixDomainSocketEndPoint(Path.Combine(config, "app.sock")));
+            using var stream = new System.Net.Sockets.NetworkStream(socket);
+            using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
+            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+            await writer.WriteLineAsync("{\"op\":\"state\"}");
+            var answer = await reader.ReadLineAsync();
+            Assert.Equal("{\"ok\":{\"windows\":[{\"file\":\"ü.md\"}]}}", answer);
+            Assert.Equal(["{\"op\":\"state\"}"], asked);
+            // A second Folio does not take the socket from this one.
+            Assert.Throws<EngineException>(() => Engine.AppListen(_ => "{}"));
+        }
+        finally { Engine.AppStop(); }
+        Assert.False(File.Exists(Path.Combine(config, "app.sock")));
+    }
+
+    [Fact]
+    public void A_set_finds_its_file_by_path()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "set");
+        var file = new SetFile("a", "a.md", "set", Path.Combine(dir, "a.md"), Path.Combine(dir, ".folio", "a.md.folio"));
+        var set = new FolioSet("s", "m", [file]);
+        Assert.Same(file, set.Find(Path.Combine(dir, "sub", "..", "a.md")));
+        Assert.Null(set.Find(Path.Combine(dir, "b.md")));
+        Assert.Equal(OperatingSystem.IsWindows(), set.Find(Path.Combine(dir, "A.MD")) is not null);
+    }
+}

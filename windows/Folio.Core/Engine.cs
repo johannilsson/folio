@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -97,6 +98,34 @@ public static class Engine
     {
         var result = JsonNode.Parse(Take(Native.folio_mcp_connect(client, exe)))!;
         return (result["config"]!.GetValue<string>(), result["change"]!.GetValue<string>());
+    }
+
+    /// <summary>Kept alive while the library may call it.</summary>
+    static Native.AppHandler? listening;
+
+    /// <summary>Starts answering the MCP server's questions about the running app on the socket in the config folder
+    /// (src/live.rs): <paramref name="answer"/> gets each request line and returns the answer line, on a thread of the
+    /// library's. Fails when another Folio already answers.</summary>
+    public static unsafe void AppListen(Func<string, string> answer)
+    {
+        Native.AppHandler handler = request =>
+        {
+            var bytes = Encoding.UTF8.GetBytes(answer(Marshal.PtrToStringUTF8(request) ?? ""));
+            // NativeMemory.Alloc is the C runtime's malloc, which the library's free matches.
+            var copy = (byte*)NativeMemory.Alloc((nuint)bytes.Length + 1);
+            bytes.CopyTo(new Span<byte>(copy, bytes.Length));
+            copy[bytes.Length] = 0;
+            return (IntPtr)copy;
+        };
+        Take(Native.folio_app_listen(handler));
+        listening = handler;
+    }
+
+    /// <summary>Takes the socket away: access was turned off, or the app is quitting.</summary>
+    public static void AppStop()
+    {
+        Native.folio_app_stop();
+        listening = null;
     }
 
     /// <summary>Copies the result out, frees it, and turns <c>{"error": ...}</c> into an exception.</summary>

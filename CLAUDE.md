@@ -70,9 +70,9 @@ The rest is the desktop around it:
 - `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), explicit roots, how a set file is shown
 - `commands/` — the CLI subcommands, thin over the engine
 - `commands/set.rs` — `folio set add / rm / list`
-- `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app
+- `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app (on Windows the client that `FOLIO_APP` names)
 - `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop. Opt-in: until the person turns on Allow MCP Clients (`allowed`, `<config>/mcp.json`, read at every tool call) every tool answers that access is off. Its tools: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `client_snippets` (Folio ▸ Connect to MCP Clients…, what each tool needs) and `connect_claude` / `connect_codex` (that window's Add for Me, edit Claude Desktop's or Codex's config)
-- `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`)
+- `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`), or into the Windows client (`AppLink.cs`; a Unix domain socket there too, through `uds_windows`)
 
 ### Design tokens (`design/tokens.json`)
 

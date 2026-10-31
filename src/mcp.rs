@@ -37,10 +37,12 @@ impl App for RunningApp {
 
 /// Runs the server on stdin and stdout until the client closes them. The exit code.
 pub fn serve_stdio() -> i32 {
-    // `open` should launch the app this server belongs to, not whichever copy is registered.
+    // `open` should launch the app this server belongs to, not whichever copy is registered. On Windows the
+    // server is the client's own program, so that is what `open` launches.
     if std::env::var_os("FOLIO_APP").is_none() {
-        if let Some(bundle) = own_app_bundle() {
-            std::env::set_var("FOLIO_APP", bundle);
+        let own = if cfg!(windows) { std::env::current_exe().ok() } else { own_app_bundle() };
+        if let Some(app) = own {
+            std::env::set_var("FOLIO_APP", app);
         }
     }
     let stdin = std::io::stdin();

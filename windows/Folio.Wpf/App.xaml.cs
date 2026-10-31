@@ -19,6 +19,8 @@ public partial class App : Application
         }
         var window = new MainWindow();
         window.Show();
+        // The MCP server asks this app what the reader has open, once MCP clients are allowed. The self-test turns it on itself.
+        if (e.Args is not ["--self-test", _] && Engine.McpAllowed) AppLink.Start();
         switch (e.Args)
         {
             case ["--self-test", var result]:
@@ -31,5 +33,11 @@ public partial class App : Application
                 window.Open(file);
                 break;
         }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        AppLink.Stop();
+        base.OnExit(e);
     }
 }

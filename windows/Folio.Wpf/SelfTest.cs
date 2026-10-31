@@ -265,7 +265,7 @@ static class SelfTest
 
             Snapshot(window, snapshot, "after");
 
-            await checks.Check("MCP clients get in only once the person allows it, in the MCP… window, and can be shut out again", async () =>
+            await checks.Check("MCP clients get in only once the person allows it, in the MCP… window, reach this window's state, focus and reveal, and can be shut out again", async () =>
             {
                 // Add for Me writes these, not the runner's own configs.
                 var claudeConfig = Path.Combine(dir, "claude_desktop_config.json");
@@ -289,6 +289,27 @@ static class SelfTest
                 var on = await server.Tool("render", new() { ["file"] = doc });
                 That(!on.IsError && on.Text.Contains("The last paragraph.", StringComparison.Ordinal), $"the running server did not let it in: {on.Text}");
 
+                // The tools that ask the running app reach this window through the socket in the config folder.
+                That(AppLink.Serving, "the app does not answer the server once clients are allowed");
+                var current = await server.Tool("current_document", new());
+                var shownWindow = Json(current.Text)?["windows"]?[0];
+                That(!current.IsError && shownWindow?["front"]?.GetValue<bool>() == true && shownWindow["set"]?.GetValue<string>() == setName
+                     && FolioSet.SamePath(shownWindow["file"]!.GetValue<string>(), doc), $"current_document: {current.Text}");
+                window.FocusAnnotation(highlight, reveal: false);
+                var focusedNow = await server.Tool("focused_annotation", new());
+                That(Json(focusedNow.Text)?["annotation"]?["id"]?.GetValue<string>() == highlight, $"focused_annotation: {focusedNow.Text}");
+                var toNotes = await server.Tool("reveal", new() { ["file"] = notes });
+                That(!toNotes.IsError && window.ShownFile?.Name == "notes.md", $"reveal did not switch the set to notes.md: {toNotes.Text}");
+                var back = await server.Tool("reveal", new() { ["file"] = doc, ["id"] = highlight });
+                That(!back.IsError && window.ShownFile?.Name == "doc.md" && window.Focused == highlight, $"reveal did not come back to the annotation: {back.Text}");
+                var other = Path.Combine(dir, "other.md");
+                File.WriteAllText(other, "# Other\r\n\r\nNot in the set.\r\n");
+                var opened = await server.Tool("reveal", new() { ["file"] = other });
+                var otherWindow = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault(w => w != window);
+                That(!opened.IsError && otherWindow?.File is { } shownOther && FolioSet.SamePath(shownOther.Path, other) && window.ShownFile?.Name == "doc.md",
+                     $"reveal of a file outside the set did not open it in a window of its own: {opened.Text}");
+                otherWindow?.Close();
+
                 Click(connect.AddButton);
                 That(connect.Status.Text.StartsWith("Added to", StringComparison.Ordinal), $"Add for Me said: {connect.Status.Text}");
                 var entry = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(claudeConfig))!["mcpServers"]!["folio"]!;
@@ -300,6 +321,7 @@ static class SelfTest
                 connect.Allow.IsChecked = false;
                 Click(connect.Allow);
                 var shut = await server.Tool("render", new() { ["file"] = doc });
+                That(!AppLink.Serving, "the app still answers the server after clients were shut out");
                 That(!Engine.McpAllowed && shut.IsError && shut.Text.Contains("Allow MCP Clients", StringComparison.Ordinal), "unticking Allow did not shut clients out");
                 That(await server.Close() == 0 && server.StrayLines == 0, "the server did not end cleanly, or said something besides the protocol");
                 connect.Close();
@@ -321,6 +343,12 @@ static class SelfTest
     }
 
     static void That(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
+
+    static System.Text.Json.Nodes.JsonNode? Json(string text)
+    {
+        try { return System.Text.Json.Nodes.JsonNode.Parse(text); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
 
     /// <summary>Every run of the document shows the text of its piece, and that is the preview's text at its offsets.</summary>
     static void MapIsTrue(MainWindow window)

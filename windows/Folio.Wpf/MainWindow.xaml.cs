@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -93,6 +94,35 @@ public partial class MainWindow : Window
     void OnMcp(object sender, RoutedEventArgs e) => OpenConnect();
 
     /// <summary>The MCP… window, for this program's own path.</summary>
+    /// <summary>What this window shows, as the MCP server's <c>state</c> has it (src/mcp.rs).</summary>
+    internal JsonObject State(bool front)
+    {
+        var state = new JsonObject
+        {
+            ["front"] = front, ["file"] = file?.Path, ["sidecar"] = file?.SidecarPath, ["mode"] = "preview", ["pending"] = shown.Count,
+        };
+        if (set is not null) state["set"] = set.Name;
+        if (focused is not null) state["focused"] = focused;
+        return state;
+    }
+
+    /// <summary>Whether this window shows the file, or its set has it.</summary>
+    internal bool Has(string path) => file is not null && FolioSet.SamePath(file.Path, path) || set?.Find(path) is not null;
+
+    /// <summary>The MCP server's <c>reveal</c>: shows the file (switching to it in the set, or opening it in an empty
+    /// window), brings the window forward and focuses the annotation.</summary>
+    internal void Reveal(string path, string? id)
+    {
+        if (file is null || !FolioSet.SamePath(file.Path, path))
+        {
+            if (set?.Find(path) is SetFile inSet) ShowSetFile(inSet);
+            else Open(path);
+        }
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        if (id is not null) FocusAnnotation(id, reveal: true);
+    }
+
     internal ConnectWindow OpenConnect()
     {
         var connect = new ConnectWindow(Environment.ProcessPath!) { Owner = this };

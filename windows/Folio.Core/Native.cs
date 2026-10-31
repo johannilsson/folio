@@ -53,6 +53,17 @@ internal static class Native
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr folio_mcp_connect([MarshalAs(UnmanagedType.LPUTF8Str)] string client, [MarshalAs(UnmanagedType.LPUTF8Str)] string exe);
 
+    /// <summary>Answers one request of the MCP server: a UTF-8 JSON line in, a UTF-8 JSON line out, allocated with the
+    /// C runtime's <c>malloc</c> (the library frees it with <c>free</c>). Called on a thread of the library's.</summary>
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate IntPtr AppHandler(IntPtr request);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr folio_app_listen(AppHandler handler);
+
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void folio_app_stop();
+
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
     public static extern void folio_free(IntPtr ptr);
 }

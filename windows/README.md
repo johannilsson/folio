@@ -13,7 +13,7 @@ for a new comment. It follows the file, its `.folio` sidecar and the set on disk
 the CLI shows up.
 
 Not yet: the source editor, the card that opens
-beside the text with the pane closed, undo, the live link for the MCP server, an installer.
+beside the text with the pane closed, undo, an installer.
 
 ## MCP
 
@@ -25,8 +25,11 @@ every tool answers that access is off and nothing is read or written; the server
 ticking or unticking it needs no restart of the tool. The same window shows what to run or paste for each tool (with
 this program's path), and Add for Me writes it into Claude Desktop's or Codex's config once clients are allowed.
 
-The file tools work; the ones that ask the running app (`current_document`, `focused_annotation`, `reveal`) answer
-that Folio is not running, since the live link between the server and the app is not on Windows yet.
+The file tools work on the files; `current_document`, `focused_annotation` and `reveal` ask the running app, which
+answers on the same socket in the config folder as the macOS app (`app.sock`, a Unix domain socket on Windows too,
+`src/live.rs`) while clients are allowed (`AppLink`). `reveal` switches the set to the file, or opens a file that no
+window has in a window of its own; `open` starts `Folio.Wpf.exe` with the file or set (`FOLIO_APP`, which the server
+sets to itself).
 
 ## Layers
 
@@ -70,7 +73,8 @@ windows/verify.sh      # engine DLL, CLI, diagram page, build, unit tests; on Wi
   text, that every mark covers exactly its target, the cards beside their text, a reply, a new comment from a
   selection, a thread of an agent's and the reader's replies, a mermaid diagram drawn as a picture, coloured code,
   hiding the sidebar, switching files, the scroll position, and MCP: the server (`--mcp`, over its pipes) refusing
-  until the MCP… window's Allow box is ticked, Add for Me, and unticking it again. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
+  until the MCP… window's Allow box is ticked, then `current_document`, `focused_annotation` and `reveal` against the
+  window, Add for Me, and unticking it again. Needs a desktop session. `FOLIO_SNAPSHOT=<base>` saves pictures
   (`<base>-before.png`, `<base>-thread.png` with a focused card and its replies, `<base>-sidebar-hidden.png`,
   `<base>-after.png`, `<base>-mcp.png` the MCP… window).
 - **CI** (`.github/workflows/windows.yml`) runs `verify.sh` on `windows-2025` for a pull request (and on `main`)

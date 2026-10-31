@@ -70,10 +70,11 @@ sealed class ConnectWindow : Window
         ShowTool(0);
     }
 
-    /// <summary>Ticks or unticks Allow: kept in the config folder, where the server reads it at every tool call.</summary>
+    /// <summary>Ticks or unticks Allow: kept in the config folder, where the server reads it at every tool call, and the
+    /// app answers the server only while it is on (<see cref="AppLink"/>).</summary>
     void SetAllowed(bool on)
     {
-        try { Engine.SetMcpAllowed(on); }
+        try { AppLink.Allow(on); }
         catch (EngineException e) { Status.Text = e.Message; }
         Allow.IsChecked = Engine.McpAllowed;
         AddButton.IsEnabled = Engine.McpAllowed;
