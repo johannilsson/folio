@@ -43,7 +43,8 @@ pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
         Err(_) => file.components().filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir)).collect(),
     };
     let dir = relative.parent().unwrap_or(Path::new(""));
-    let name = relative.file_name().unwrap().to_string_lossy();
+    // A path with no file name (`/`, or one ending in `..`) must not panic the MCP server.
+    let name = relative.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
     root.join(".folio").join(dir).join(format!("{}.folio", name))
 }
 
@@ -127,5 +128,12 @@ mod tests {
         // A file outside the root keeps its whole path, inside `.folio/`.
         let outside = if cfg!(windows) { r"C:\elsewhere\spec.md" } else { "/elsewhere/spec.md" };
         assert_eq!(folio_path_in(root, Path::new(outside)), root.join(".folio").join("elsewhere").join("spec.md.folio"));
+    }
+
+    #[test]
+    fn a_path_without_a_file_name_does_not_panic() {
+        let root = Path::new("/r/repo");
+        assert_eq!(folio_path_in(root, Path::new("/r/repo")), PathBuf::from("/r/repo/.folio/.folio"));
+        assert_eq!(folio_path_in(Path::new("/"), Path::new("/")), PathBuf::from("/.folio/.folio"));
     }
 }
