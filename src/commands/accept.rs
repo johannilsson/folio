@@ -63,3 +63,73 @@ pub fn run(
     println!("accepted {} annotation(s)", indices.len());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sidecar::ResolvedAs;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "folio-accept-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    /// A file with a delete from an agent and a highlight from the local user.
+    fn setup(tag: &str) -> (PathBuf, PathBuf) {
+        let tmp = temp_dir(tag);
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let file = tmp.join("a.md");
+        std::fs::write(&file, "Hello world.\n").unwrap();
+        super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
+        super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
+        let folio = crate::location::folio_path(&file);
+        (file, folio)
+    }
+
+    #[test]
+    fn accepting_by_id_edits_the_file_and_resolves_only_that_annotation() {
+        let (file, folio) = setup("by-id");
+        let id = Sidecar::load(&folio).unwrap().annotations[0].id.clone();
+
+        run(&file, Some(&id), false, None, false).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Hello .\n");
+        let s = Sidecar::load(&folio).unwrap();
+        assert!(s.annotations[0].resolved);
+        assert_eq!(s.annotations[0].resolved_as, Some(ResolvedAs::Accepted));
+        assert!(!s.annotations[1].resolved);
+    }
+
+    #[test]
+    fn all_with_a_source_filter_accepts_only_that_source() {
+        let (file, folio) = setup("source");
+
+        run(&file, None, true, Some("local"), false).unwrap();
+
+        // The local highlight is resolved; the agent's delete is untouched and the text unchanged.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Hello world.\n");
+        let s = Sidecar::load(&folio).unwrap();
+        let resolved: Vec<bool> = s.annotations.iter().map(|a| a.resolved).collect();
+        assert_eq!(resolved, vec![false, true]);
+    }
+
+    #[test]
+    fn dry_run_leaves_the_file_and_sidecar_untouched() {
+        let (file, folio) = setup("dry");
+
+        run(&file, None, true, None, true).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Hello world.\n");
+        assert!(Sidecar::load(&folio).unwrap().annotations.iter().all(|a| !a.resolved));
+    }
+}
