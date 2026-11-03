@@ -31,8 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         default: break
         }
 
-        // Claude's MCP server asks this app what the reader has open. The self-test starts it on a socket of its own.
-        if !AppConfig.selfTest { MainActor.assumeIsolated { _ = AppServer.start() } }
+        // Claude's MCP server asks this app what the reader has open, once the person has allowed MCP clients
+        // (Folio ▸ Allow MCP Clients). The self-test starts it on a socket of its own.
+        if !AppConfig.selfTest && Rust.mcpAllowed { MainActor.assumeIsolated { _ = AppServer.start() } }
 
         if AppConfig.selfTest {
             runSelfTest()
@@ -199,6 +200,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: MCP
 
+    /// Folio ▸ Allow MCP Clients: MCP clients read and annotate documents only while this is on, and it is off
+    /// until the person turns it on, here or in Connect to MCP Clients….
+    @MainActor @objc func toggleMCP(_ sender: Any?) {
+        do {
+            try AppServer.allow(!Rust.mcpAllowed)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Folio could not change who it lets in"
+            alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     /// Folio ▸ Connect to MCP Clients…: what to run or paste to register the app's MCP server in each tool,
     /// and for some tools a button that writes it into their config.
     @MainActor @objc func connectTools(_ sender: Any?) {
@@ -251,7 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         responder?.tryToPerform(Selector(("redo:")), with: sender)
     }
 
-    /// Undo and Redo are greyed out when there is nothing to undo.
+    /// Undo and Redo are greyed out when there is nothing to undo; Allow MCP Clients is ticked while it is on.
     @MainActor func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let responder = frontWindow?.firstResponder
         switch item.action {
@@ -259,6 +274,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return frontEditor?.annotations.canUndo(from: responder) ?? responder?.undoManager?.canUndo ?? false
         case #selector(redoEdit(_:)):
             return frontEditor?.annotations.canRedo(from: responder) ?? responder?.undoManager?.canRedo ?? false
+        case #selector(toggleMCP(_:)):
+            item.state = Rust.mcpAllowed ? .on : .off
+            return true
         default: return true
         }
     }
@@ -328,6 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = add("Folio") { m in
             m.addItem(withTitle: "About Folio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
             m.addItem(.separator())
+            m.addItem(withTitle: "Allow MCP Clients", action: #selector(toggleMCP(_:)), keyEquivalent: "").target = self
             m.addItem(withTitle: "Connect to MCP Clients…", action: #selector(connectTools(_:)), keyEquivalent: "").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

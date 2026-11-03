@@ -4,6 +4,7 @@
 import { all, createLowlight } from 'lowlight'
 import mermaid from 'mermaid'
 import { mermaidConfig } from './mermaid-config'
+import { dark as darkTokens, light as lightTokens } from './tokens'
 
 const lowlight = createLowlight(all)
 
@@ -47,7 +48,7 @@ window.__folioHighlight = (code, language) => {
 window.__folioMermaid = async (code, dark) => {
   mermaid.initialize(mermaidConfig(dark ? 'dark' : 'default'))
   const { svg } = await mermaid.render(`diagram-${++counter}`, code)
-  document.body.style.cssText = `margin:0;background:${dark ? '#1a1a1a' : '#ffffff'}`
+  document.body.style.cssText = `margin:0;background:${(dark ? darkTokens : lightTokens).background}`
   document.body.innerHTML = `<div id="drawn" style="display:inline-block;padding:8px">${svg}</div>`
   const box = document.getElementById('drawn')!.getBoundingClientRect()
   return [Math.ceil(box.width), Math.ceil(box.height)]

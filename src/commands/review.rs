@@ -22,7 +22,7 @@ pub fn run(
     source_filter: Option<&str>,
     json: bool,
 ) -> anyhow::Result<()> {
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     let sidecar = Sidecar::load(&folio_path)?;
 
     let pending = pending(&sidecar, kind_filter, source_filter);
@@ -87,10 +87,10 @@ mod tests {
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         let file = dir.join("a.md");
         std::fs::write(&file, "Hello world.\n").unwrap();
-        let _ = std::fs::remove_file(super::super::folio_path(&file));
+        let _ = std::fs::remove_file(crate::location::folio_path(&file));
         super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
         super::super::annotate::run(&file, "highlight", "", Some("Hello"), None, None, "me", "local").unwrap();
-        let mut s = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        let mut s = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         s.annotations.push(s.annotations[0].clone());
         s.annotations[2].resolved = true;
         s

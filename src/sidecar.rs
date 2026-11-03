@@ -99,6 +99,34 @@ pub struct Annotation {
 }
 
 impl Annotation {
+    /// A new, unresolved annotation with no replies, created now.
+    pub fn pending(
+        id: String,
+        kind: AnnotationKind,
+        source: AnnotationSource,
+        author: String,
+        context_before: String,
+        target: Option<String>,
+        replacement: Option<String>,
+        comment: Option<String>,
+    ) -> Self {
+        Annotation {
+            id,
+            kind,
+            source,
+            author,
+            context_before,
+            target,
+            replacement,
+            comment,
+            created: now_iso8601(),
+            resolved: false,
+            resolved_as: None,
+            resolved_at: None,
+            replies: vec![],
+        }
+    }
+
     /// Returns `(raw_start, raw_end)` byte offsets of `target` within `doc`.
     ///
     /// Three-pass strategy:
@@ -321,7 +349,16 @@ pub fn rendered_selection(doc: &str, from: usize, to: usize) -> Option<(String, 
 ///
 /// Block boundaries (newlines) are dropped; text is concatenated with no separator.
 fn strip_markdown(doc: &str) -> (String, Vec<usize>, Vec<usize>) {
-    strip_markdown_impl(doc, true)
+    if !doc.contains("\r\n") {
+        return strip_markdown_impl(doc, true);
+    }
+    // Windows line endings: the line rules look for "\n" only, so strip each "\r\n" to "\n" and
+    // map the offsets back into `doc`. The k-th "\r" removed leaves its "\n" at `p - k`, and every
+    // offset from there on moves one byte further for it.
+    let removed: Vec<usize> = doc.match_indices("\r\n").enumerate().map(|(k, (p, _))| p - k).collect();
+    let (stripped, pos_map, raw_spans) = strip_markdown_impl(&doc.replace("\r\n", "\n"), true);
+    let pos_map = pos_map.into_iter().map(|p| p + removed.partition_point(|&r| r <= p)).collect();
+    (stripped, pos_map, raw_spans)
 }
 
 fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, Vec<usize>) {
@@ -1098,6 +1135,16 @@ impl Sidecar {
     }
 }
 
+/// A generated id (`prefix` in place of `ann_`) that `taken` does not claim.
+pub fn fresh_id(taken: impl Fn(&str) -> bool, prefix: &str) -> String {
+    loop {
+        let candidate = generate_id().replacen("ann_", prefix, 1);
+        if !taken(&candidate) {
+            return candidate;
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub fn generate_id() -> String {
     let nanos = SystemTime::now()
@@ -1149,6 +1196,33 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    use super::fresh_id;
+    use std::cell::Cell;
+
+    #[test]
+    fn fresh_id_has_the_prefix_and_eight_id_characters() {
+        for prefix in ["ann_", "reply_"] {
+            let id = fresh_id(|_| false, prefix);
+            let rest = id.strip_prefix(prefix).unwrap_or_else(|| panic!("{id} lacks {prefix}"));
+            assert_eq!(rest.len(), 8, "{id}");
+            assert!(rest.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()), "{id}");
+        }
+    }
+
+    #[test]
+    fn fresh_id_skips_ids_that_are_taken() {
+        let seen = Cell::new(0);
+        let id = fresh_id(
+            |_| {
+                seen.set(seen.get() + 1);
+                seen.get() <= 3
+            },
+            "ann_",
+        );
+        assert_eq!(seen.get(), 4, "asked again until one was free");
+        assert!(id.starts_with("ann_"));
+    }
+
     #[test]
     fn save_replaces_the_file_and_leaves_no_temp_file() {
         let dir = std::env::temp_dir().join(format!("folio-save-{}", std::process::id()));
@@ -1818,5 +1892,38 @@ mod tests {
         let (from, to) = anchor_raw_chars(doc, &context, Some(&target)).unwrap();
         let found: String = doc.chars().skip(from).take(to - from).collect();
         assert_eq!(found, "target");
+    }
+
+    const LF_DOC: &str = "# Title\n\nFirst **bold** words.\nSecond line.\n\n---\n\n- one\n- two\n\n| a | b |\n|---|---|\n| x | y |\n\n```\ncode\n```\n\nLast.\n";
+
+    #[test]
+    fn windows_line_endings_render_the_same_text() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        assert_eq!(render_plain_text(&crlf), render_plain_text(LF_DOC));
+        assert_eq!(render_plain_text(&crlf), "TitleFirst bold words.Second line.onetwoabxyLast.");
+    }
+
+    #[test]
+    fn windows_line_endings_anchor_across_lines_and_blocks() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        let found = |ctx: &str, target: Option<&str>| {
+            let (from, to) = anchor_raw_utf16(&crlf, ctx, target).unwrap();
+            String::from_utf16(&crlf.encode_utf16().collect::<Vec<_>>()[from..to]).unwrap()
+        };
+        assert_eq!(found("bold words.", Some("Second")), "Second");
+        assert_eq!(found("line.one", Some("two")), "two");
+        assert_eq!(found("ab", Some("x")), "x");
+        assert_eq!(found("xy", Some("Last")), "Last");
+        // An insertion point after a line lands before its "\r\n".
+        let (at, _) = anchor_raw_utf16(&crlf, "Second line.", None).unwrap();
+        assert!(crlf.encode_utf16().skip(at).take(2).eq("\r\n".encode_utf16()));
+    }
+
+    #[test]
+    fn windows_line_endings_select_without_carriage_returns() {
+        let crlf = LF_DOC.replace('\n', "\r\n");
+        for selected in ["Second", "x", "Last"] {
+            assert_eq!(select(&crlf, selected), select(LF_DOC, selected), "{selected}");
+        }
     }
 }

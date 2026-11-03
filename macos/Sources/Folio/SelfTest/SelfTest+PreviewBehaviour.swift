@@ -4,7 +4,7 @@ import FolioKit
 /// What the preview does besides showing the text: Find, the card that opens next to the
 /// text, the scroll position across the source and across a set's files.
 extension SelfTest {
-    func previewParityChecks() async {
+    func previewBehaviourChecks() async {
         let textView = previewView.textView
         let host = controller.scrollHost
         replaceSidecar([])

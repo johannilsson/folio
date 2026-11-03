@@ -1,4 +1,4 @@
-use crate::sidecar::{Annotation, AnnotationKind, AnnotationSource, Sidecar, generate_id, now_iso8601};
+use crate::sidecar::{Annotation, AnnotationKind, AnnotationSource, Sidecar, fresh_id};
 use std::path::Path;
 
 pub fn run(
@@ -16,40 +16,24 @@ pub fn run(
 
     validate_fields(&kind, target, replacement, comment)?;
 
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     let mut sidecar = if folio_path.exists() {
         Sidecar::load(&folio_path)?
     } else {
-        if let Some(parent) = folio_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         Sidecar::empty()
     };
 
-    let existing_ids: std::collections::HashSet<&str> =
-        sidecar.annotations.iter().map(|a| a.id.as_str()).collect();
-    let id = loop {
-        let candidate = generate_id();
-        if !existing_ids.contains(candidate.as_str()) {
-            break candidate;
-        }
-    };
-
-    let annotation = Annotation {
-        id: id.clone(),
+    let id = fresh_id(|c| sidecar.annotations.iter().any(|a| a.id == c), "ann_");
+    let annotation = Annotation::pending(
+        id.clone(),
         kind,
         source,
-        author: author.to_string(),
-        context_before: context_before.to_string(),
-        target: target.map(str::to_string),
-        replacement: replacement.map(str::to_string),
-        comment: comment.map(str::to_string),
-        created: now_iso8601(),
-        resolved: false,
-        resolved_as: None,
-        resolved_at: None,
-        replies: vec![],
-    };
+        author.to_string(),
+        context_before.to_string(),
+        target.map(str::to_string),
+        replacement.map(str::to_string),
+        comment.map(str::to_string),
+    );
 
     let content = std::fs::read_to_string(file)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
@@ -60,6 +44,9 @@ pub fn run(
         );
     }
 
+    if let Some(parent) = folio_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     sidecar.annotations.push(annotation);
     sidecar.save(&folio_path)?;
     println!("{}", id);
@@ -142,7 +129,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
+        dunce::canonicalize(dir).unwrap()
     }
 
     #[test]
@@ -181,7 +168,9 @@ mod tests {
         let err = run(&file, "delete", "Hello ", Some("nowhere"), None, None, "me", "local")
             .unwrap_err();
         assert!(err.to_string().contains("cannot be anchored"));
-        assert!(!super::super::folio_path(&file).exists());
+        let folio_path = crate::location::folio_path(&file);
+        assert!(!folio_path.exists());
+        assert!(!folio_path.parent().unwrap().exists(), "no empty .folio dir left behind");
     }
 
     #[test]
@@ -192,7 +181,7 @@ mod tests {
         std::fs::write(&file, "Hello world.\n").unwrap();
 
         run(&file, "delete", "Hello ", Some("world"), None, None, "me", "agent").unwrap();
-        let sidecar = Sidecar::load(&super::super::folio_path(&file)).unwrap();
+        let sidecar = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         assert_eq!(sidecar.annotations.len(), 1);
         assert_eq!(sidecar.annotations[0].target.as_deref(), Some("world"));
     }

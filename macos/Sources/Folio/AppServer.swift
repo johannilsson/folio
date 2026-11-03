@@ -30,6 +30,13 @@ enum AppServer {
         Rust.appStop()
     }
 
+    /// Folio ▸ Allow MCP Clients: lets MCP clients in, or shuts them out again. The choice is kept in the config
+    /// folder, where the server reads it at every tool call; the app answers it only while it is on.
+    static func allow(_ on: Bool) throws {
+        try Rust.setMCPAllowed(on)
+        if on { start() } else { stop() }
+    }
+
     private static func executable() throws -> String {
         guard let path = Bundle.main.executablePath else { throw RustError(description: "cannot find the app's executable") }
         return path

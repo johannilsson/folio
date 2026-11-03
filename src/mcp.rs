@@ -2,13 +2,15 @@
 //! with Folio. Claude starts the app's own binary with `--mcp` and speaks JSON-RPC to it over
 //! stdin and stdout, one message per line. The file tools work on the markdown and its sidecar
 //! on disk, with the same engine as the CLI and the app; the `current_document`, `focused_annotation`
-//! and `reveal` tools ask the running app through `live`.
+//! and `reveal` tools ask the running app through `live`. Nothing is read or written until the person has
+//! turned on Allow MCP Clients in the app (`allowed`): a client that was set up before still starts the
+//! server, but every tool answers that access is off.
 
 use crate::commands::annotate::{parse_kind, validate_fields};
 use crate::edit::{self, Edit};
 use crate::live::{self, LiveError};
 use crate::set;
-use crate::sidecar::{generate_id, now_iso8601, render_plain_text, Annotation, AnnotationSource, Sidecar};
+use crate::sidecar::{fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -42,7 +44,7 @@ pub fn serve_stdio() -> i32 {
         }
     }
     let stdin = std::io::stdin();
-    match serve(stdin.lock(), std::io::stdout().lock(), &RunningApp) {
+    match serve(stdin.lock(), std::io::stdout().lock(), &RunningApp, &allowed) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("folio mcp: {e}");
@@ -57,14 +59,38 @@ fn own_app_bundle() -> Option<PathBuf> {
     exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")).map(Path::to_path_buf)
 }
 
-pub fn serve(input: impl BufRead, mut output: impl Write, app: &dyn App) -> std::io::Result<()> {
+/// Whether the person has let MCP clients in: off until they turn on Allow MCP Clients in the app, which
+/// writes `<config>/mcp.json`. Read for every tool call, so turning it on or off needs no restart of the client.
+pub fn allowed() -> bool {
+    let Ok(dir) = set::config_dir() else { return false };
+    std::fs::read_to_string(dir.join("mcp.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .is_some_and(|settings| settings["allowed"] == true)
+}
+
+/// Lets MCP clients in, or shuts them out again: the app's Allow MCP Clients.
+pub fn set_allowed(on: bool) -> anyhow::Result<()> {
+    let dir = set::config_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("mcp.json"), serde_json::to_string_pretty(&json!({ "allowed": on }))? + "\n")?;
+    Ok(())
+}
+
+/// What every tool answers while access is off, for the assistant to pass on.
+const NOT_ALLOWED: &str = "Folio does not let MCP clients read or annotate documents until the person allows it: \
+ask them to turn on Allow MCP Clients in the Folio app (on the Mac in the Folio menu, on Windows behind the MCP button \
+in the toolbar). Nothing was read or written.";
+
+/// Serves one client. `allowed` says, at each tool call, whether the person lets MCP clients in.
+pub fn serve(input: impl BufRead, mut output: impl Write, app: &dyn App, allowed: &dyn Fn() -> bool) -> std::io::Result<()> {
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
         let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle(&message, app),
+            Ok(message) => handle(&message, app, allowed),
             Err(_) => Some(failure(Value::Null, -32700, "parse error")),
         };
         if let Some(reply) = reply {
@@ -84,7 +110,7 @@ fn failure(id: Value, code: i32, message: &str) -> Value {
 }
 
 /// The response to one message, or None for a notification (and anything that is not a request).
-fn handle(message: &Value, app: &dyn App) -> Option<Value> {
+fn handle(message: &Value, app: &dyn App, allowed: &dyn Fn() -> bool) -> Option<Value> {
     let method = message.get("method")?.as_str()?;
     let id = message.get("id")?.clone();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -108,6 +134,9 @@ fn handle(message: &Value, app: &dyn App) -> Option<Value> {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
             if !tools().as_array().is_some_and(|t| t.iter().any(|t| t["name"] == name)) {
                 return Some(failure(id, -32602, &format!("unknown tool: {name}")));
+            }
+            if !allowed() {
+                return Some(success(id, json!({ "content": [{ "type": "text", "text": NOT_ALLOWED }], "isError": true })));
             }
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             let (text, is_error) = match call(name, &args, app) {
@@ -350,7 +379,7 @@ fn render(args: &Value) -> Result<Value, String> {
 fn list_annotations(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let all = args.get("include_resolved").and_then(Value::as_bool).unwrap_or(false);
     let annotations: Vec<Value> = load_sidecar(&folio)?
         .annotations
@@ -376,7 +405,7 @@ fn annotate(args: &Value) -> Result<Value, String> {
         .ok_or("`annotations` is required (a list with at least one annotation)")?;
     let author = author_arg(args);
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let mut sidecar = load_sidecar(&folio)?;
 
     let optional = |item: &Value, key: &str| item.get(key).and_then(Value::as_str).map(str::to_string);
@@ -389,25 +418,9 @@ fn annotate(args: &Value) -> Result<Value, String> {
             let (target, replacement, comment) = (optional(item, "target"), optional(item, "replacement"), optional(item, "comment"));
             validate_fields(&kind, target.as_deref(), replacement.as_deref(), comment.as_deref())
                 .map_err(|e| e.to_string().replace("--", ""))?;
-            let mut id = generate_id();
-            while sidecar.annotations.iter().chain(&added).any(|a: &Annotation| a.id == id) {
-                id = generate_id();
-            }
-            let annotation = Annotation {
-                id,
-                kind,
-                source: AnnotationSource::Agent,
-                author: author.clone(),
-                context_before,
-                target,
-                replacement,
-                comment,
-                created: now_iso8601(),
-                resolved: false,
-                resolved_as: None,
-                resolved_at: None,
-                replies: vec![],
-            };
+            let id = fresh_id(|c| sidecar.annotations.iter().chain(&added).any(|a: &Annotation| a.id == c), "ann_");
+            let annotation =
+                Annotation::pending(id, kind, AnnotationSource::Agent, author.clone(), context_before, target, replacement, comment);
             if annotation.anchor(&content).is_none() {
                 return Err("does not anchor: `context_before` + `target` is not in the document's text. \
                             Copy both from `render`, without markdown syntax"
@@ -435,7 +448,7 @@ fn annotate(args: &Value) -> Result<Value, String> {
 
 fn reply(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     if !folio.exists() {
         return Err(format!("{} has no annotations yet", file.display()));
     }
@@ -454,7 +467,7 @@ fn reply(args: &Value) -> Result<Value, String> {
 fn verify(args: &Value) -> Result<Value, String> {
     let file = file_arg(args)?;
     let content = read(&file)?;
-    let folio = crate::commands::folio_path(&file);
+    let folio = crate::location::folio_path(&file);
     let sidecar = load_sidecar(&folio)?;
     let pending: Vec<&Annotation> = sidecar.annotations.iter().filter(|a| !a.resolved).collect();
     let unanchored: Vec<&str> = pending.iter().filter(|a| a.anchor(&content).is_none()).map(|a| a.id.as_str()).collect();
@@ -821,7 +834,7 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
+        dunce::canonicalize(dir).unwrap()
     }
 
     /// An absolute path on this system: `/etc/hosts`, or `C:/etc/hosts` on Windows.
@@ -844,7 +857,7 @@ mod tests {
     fn exchange(app: &dyn App, messages: &[Value]) -> Vec<Value> {
         let input: String = messages.iter().map(|m| format!("{m}\n")).collect();
         let mut output = Vec::new();
-        serve(Cursor::new(input), &mut output, app).unwrap();
+        serve(Cursor::new(input), &mut output, app, &|| true).unwrap();
         String::from_utf8(output).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
     }
 
@@ -901,9 +914,43 @@ mod tests {
     }
 
     #[test]
+    fn while_access_is_off_every_tool_says_so_and_nothing_is_written() {
+        let file = document("off", DOC);
+        let call = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "annotate", "arguments": {
+            "file": file, "annotations": [{ "kind": "comment", "context_before": "", "target": "Title", "comment": "x" }] } } });
+        let hello = json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {} });
+        let mut output = Vec::new();
+        serve(Cursor::new(format!("{hello}\n{call}\n")), &mut output, &NoApp, &|| false).unwrap();
+        let lines: Vec<Value> = String::from_utf8(output).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        // The client still connects; the tool answers that access is off.
+        assert_eq!(lines[0]["result"]["serverInfo"]["name"], "folio");
+        assert_eq!(lines[1]["result"]["isError"], true);
+        assert!(lines[1]["result"]["content"][0]["text"].as_str().unwrap().contains("Allow MCP Clients"));
+        assert!(!crate::location::folio_path(Path::new(&file)).exists());
+    }
+
+    #[test]
+    fn access_is_off_until_it_is_turned_on_and_can_be_turned_off_again() {
+        let _guard = set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let config = temp_dir("allowed-config");
+        std::env::set_var("FOLIO_CONFIG_DIR", &config);
+        assert!(!allowed());
+        set_allowed(true).unwrap();
+        assert!(allowed());
+        set_allowed(false).unwrap();
+        assert!(!allowed());
+        // A file that says nothing about it, or is not JSON, is off.
+        std::fs::write(config.join("mcp.json"), "{}").unwrap();
+        assert!(!allowed());
+        std::fs::write(config.join("mcp.json"), "yes").unwrap();
+        assert!(!allowed());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
     fn garbage_and_unknown_tools_are_errors_not_crashes() {
         let mut output = Vec::new();
-        serve(Cursor::new("not json\n\n{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"nope\"}}\n"), &mut output, &NoApp).unwrap();
+        serve(Cursor::new("not json\n\n{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"nope\"}}\n"), &mut output, &NoApp, &|| true).unwrap();
         let lines: Vec<Value> = String::from_utf8(output).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
         assert_eq!(lines[0]["error"]["code"], -32700);
         assert_eq!(lines[1]["id"], 7);
@@ -938,7 +985,7 @@ mod tests {
             ] }),
         );
         assert_eq!(out["added"].as_array().unwrap().len(), 2);
-        let folio = crate::commands::folio_path(&file);
+        let folio = crate::location::folio_path(&file);
         assert_eq!(out["sidecar"], json!(folio));
         let sidecar = Sidecar::load(&folio).unwrap();
         assert_eq!(sidecar.annotations.len(), 2);
@@ -974,7 +1021,7 @@ mod tests {
         assert!(message.contains("annotations[1]: does not anchor"), "{message}");
         assert!(message.contains("annotations[2]") && message.contains("replacement"), "{message}");
         assert!(message.contains("annotations[3]") && message.contains("unknown kind"), "{message}");
-        assert!(!crate::commands::folio_path(&file).exists());
+        assert!(!crate::location::folio_path(&file).exists());
         assert!(err(&NoApp, "annotate", json!({ "file": file, "annotations": [] })).contains("`annotations` is required"));
     }
 
@@ -989,7 +1036,7 @@ mod tests {
         assert_eq!(empty["annotations"], json!([]));
 
         // The text changes underneath one of them, and the person rejects the other.
-        let folio = crate::commands::folio_path(&file);
+        let folio = crate::location::folio_path(&file);
         let mut sidecar = Sidecar::load(&folio).unwrap();
         let rejected = edit::apply(sidecar.clone(), Edit::Resolve { id: sidecar.annotations[1].id.clone() }).unwrap();
         sidecar = rejected.sidecar;
@@ -1020,7 +1067,7 @@ mod tests {
 
         let replied = ok(&NoApp, "reply", json!({ "file": file, "id": id, "body": "Because.", "author": "claude-2" }));
         assert!(replied["reply_id"].as_str().unwrap().starts_with("reply_"));
-        let sidecar = Sidecar::load(&crate::commands::folio_path(&file)).unwrap();
+        let sidecar = Sidecar::load(&crate::location::folio_path(&file)).unwrap();
         let thread = &sidecar.annotations[0].replies;
         assert_eq!((thread[0].body.as_str(), thread[0].author.as_str(), thread[0].source.clone()), ("Because.", "claude-2", AnnotationSource::Agent));
         assert!(err(&NoApp, "reply", json!({ "file": file, "id": "nope", "body": "x" })).contains("no annotation with id"));
@@ -1054,7 +1101,7 @@ mod tests {
         json!({
             "front": front,
             "file": file,
-            "sidecar": crate::commands::folio_path(file),
+            "sidecar": crate::location::folio_path(file),
             "mode": "preview",
             "pending": 1,
             "focused": focused,

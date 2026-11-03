@@ -1,7 +1,9 @@
+pub mod accept;
 pub mod commands;
 pub mod edit;
 pub mod ffi;
 pub mod live;
+pub mod location;
 pub mod mcp;
 pub mod set;
 pub mod sidecar;

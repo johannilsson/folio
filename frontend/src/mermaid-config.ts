@@ -1,17 +1,14 @@
 // How mermaid is drawn, in Folio's colours: the editor page's diagrams and the native preview's (diagram.ts) share it.
+import { dark, light } from './tokens'
+
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
-// Concrete values mirroring the app's CSS tokens; mermaid can't resolve var().
-const PALETTES = {
-  dark: {
-    bg: '#1a1a1a', node: '#2b2640', border: '#8b7bd8', text: '#e0e0e0',
-    line: '#8b7bd8', accent: '#a78bfa', cluster: '#211e30',
-  },
-  light: {
-    bg: '#ffffff', node: '#f1ecfc', border: '#a78bfa', text: '#1a1a1a',
-    line: '#8b6fd8', accent: '#7c3aed', cluster: '#f7f4fd',
-  },
-}
+// From design/tokens.json, which the app's colours come from too.
+const palette = (t: typeof light | typeof dark) => ({
+  bg: t.background, node: t.diagramNode, border: t.diagramBorder, text: t.diagramText,
+  line: t.diagramLine, accent: t.diagramAccent, cluster: t.diagramCluster,
+})
+const PALETTES = { dark: palette(dark), light: palette(light) }
 
 export function mermaidConfig(theme: 'dark' | 'default') {
   const p = theme === 'dark' ? PALETTES.dark : PALETTES.light

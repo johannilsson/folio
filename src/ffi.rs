@@ -2,8 +2,9 @@
 //! file IO and calls these for the anchoring and accept logic, so there is one
 //! implementation shared with the CLI.
 
-use crate::commands::accept::{apply_ops, compute_ops, mark_accepted};
-use crate::set::{self, detect_root, folio_path_in};
+use crate::accept::{apply_ops, compute_ops, mark_accepted};
+use crate::location::{detect_root, folio_path_in};
+use crate::set;
 use crate::sidecar::{anchor_raw_utf16, anchor_text, rendered_selection, Sidecar};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -263,6 +264,18 @@ pub extern "C" fn folio_mcp_serve() -> i32 {
     crate::mcp::serve_stdio()
 }
 
+/// Whether the person lets MCP clients in (`mcp::allowed`): off until they turn it on in the app.
+#[no_mangle]
+pub extern "C" fn folio_mcp_allowed() -> bool {
+    crate::mcp::allowed()
+}
+
+/// Lets MCP clients in (`on`), or shuts them out again. Returns `{}` or `{"error": ...}`. Free with `folio_free`.
+#[no_mangle]
+pub extern "C" fn folio_mcp_set_allowed(on: bool) -> *mut c_char {
+    finish(crate::mcp::set_allowed(on).map(|()| "{}".to_string()).map_err(|e| e.to_string()))
+}
+
 /// Answers one request line from the MCP server, as the app sees it: a JSON string in, a JSON
 /// string out, both allocated by the caller of the callback side (Swift) and freed here with
 /// `free`. See `live.rs` for the protocol.
@@ -447,7 +460,7 @@ mod tests {
         let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("folio-ffi-sets-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        let tmp = tmp.canonicalize().unwrap();
+        let tmp = dunce::canonicalize(&tmp).unwrap();
         std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
 
         // Two files in separate "repos".

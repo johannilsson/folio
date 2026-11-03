@@ -87,6 +87,17 @@ import Testing
         #expect(front.entries[1].valueRange == nil)
     }
 
+    @Test func aFileWithCRLFLineEndingsHasItsFrontmatterToo() throws {
+        let crlf = file.replacingOccurrences(of: "\n", with: "\r\n")
+        let front = try #require(PreviewFrontmatter.split(crlf))
+        let all = crlf as NSString
+        #expect(front.entries.map(\.key) == ["title", "tags"])
+        #expect(front.entries.map(\.value) == ["Hello", "a, b"])
+        #expect(front.entries[0].valueRange == all.range(of: "Hello"))
+        #expect(front.entries[1].keyRange == all.range(of: "tags"))
+        #expect(front.range == NSRange(location: 0, length: all.range(of: "# Heading").location))
+    }
+
     @Test func aFileWithoutFrontmatterHasNone() {
         #expect(PreviewFrontmatter.split("# Heading\n---\n") == nil)
     }

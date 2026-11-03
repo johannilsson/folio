@@ -29,7 +29,7 @@ fn unanchorable(s: &Sidecar, content: &str) -> Vec<(String, String)> {
 }
 
 pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
-    let folio_path = super::folio_path(file);
+    let folio_path = crate::location::folio_path(file);
     warn_adjacent_sidecar(file, &folio_path);
     let s = match Sidecar::load(&folio_path) {
         Ok(s) => s,
@@ -85,9 +85,9 @@ mod tests {
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         let file = dir.join("a.md");
         std::fs::write(&file, "Hello world.\n").unwrap();
-        let _ = std::fs::remove_file(super::super::folio_path(&file));
+        let _ = std::fs::remove_file(crate::location::folio_path(&file));
         super::super::annotate::run(&file, "delete", "Hello ", Some("world"), None, None, "bot", "agent").unwrap();
-        Sidecar::load(&super::super::folio_path(&file)).unwrap()
+        Sidecar::load(&crate::location::folio_path(&file)).unwrap()
     }
 
     #[test]

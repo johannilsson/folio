@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Component, Path, PathBuf};
+use crate::location::{detect_root, folio_path_in};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetFile {
@@ -137,17 +138,6 @@ pub fn list_names() -> anyhow::Result<Vec<String>> {
     Ok(names)
 }
 
-/// Nearest ancestor of `file` that contains `.git` (a directory, or a file for
-/// worktrees); falls back to the file's own directory.
-pub fn detect_root(file: &Path) -> PathBuf {
-    let parent = file.parent().unwrap_or(Path::new("/")).to_path_buf();
-    parent
-        .ancestors()
-        .find(|dir| dir.join(".git").exists())
-        .map(Path::to_path_buf)
-        .unwrap_or(parent)
-}
-
 pub fn resolve_root(entry: &SetFile) -> PathBuf {
     entry.root.clone().unwrap_or_else(|| detect_root(&entry.path))
 }
@@ -181,7 +171,7 @@ pub struct AddOutcome {
 pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::Result<AddOutcome> {
     let root = match root {
         Some(r) => Some(
-            r.canonicalize()
+            dunce::canonicalize(r)
                 .map_err(|e| anyhow::anyhow!("cannot read root {}: {}", r.display(), e))?,
         ),
         None => None,
@@ -189,8 +179,7 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
     let mut current = load(name).unwrap_or_else(|_| Set::empty());
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for file in files {
-        let canonical = file
-            .canonicalize()
+        let canonical = dunce::canonicalize(file)
             .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
         if !canonical.is_file() {
             anyhow::bail!("{} is not a file", file.display());
@@ -211,7 +200,7 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
     let mut removed = Vec::new();
     for file in files {
         // The file may no longer exist, so fall back to the path as given.
-        let path = file.canonicalize().unwrap_or_else(|_| file.clone());
+        let path = dunce::canonicalize(file).unwrap_or_else(|_| file.clone());
         if !current.remove(&path) {
             anyhow::bail!("{} is not in set {}", path.display(), name);
         }
@@ -219,20 +208,6 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
     }
     save(name, &current)?;
     Ok(removed)
-}
-
-/// `<root>/.folio/<file relative to root>.folio` — what `folio annotate` writes
-/// when run from `root`. Files outside `root` fall back to their absolute path
-/// under `.folio/`, like `commands::folio_path`.
-pub fn folio_path_in(root: &Path, file: &Path) -> PathBuf {
-    // Without its root (`/`, or `C:\` on Windows), or joining it would replace `root`.
-    let relative: PathBuf = match file.strip_prefix(root) {
-        Ok(relative) => relative.to_path_buf(),
-        Err(_) => file.components().filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir)).collect(),
-    };
-    let dir = relative.parent().unwrap_or(Path::new(""));
-    let name = relative.file_name().unwrap().to_string_lossy();
-    root.join(".folio").join(dir).join(format!("{}.folio", name))
 }
 
 // FOLIO_CONFIG_DIR is process-wide, so tests that set it (here and in ffi.rs) run one at a time.
@@ -255,50 +230,7 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        dir.canonicalize().unwrap()
-    }
-
-    #[test]
-    fn detect_root_finds_git_dir() {
-        let tmp = temp_dir("gitdir");
-        std::fs::create_dir_all(tmp.join(".git")).unwrap();
-        std::fs::create_dir_all(tmp.join("docs/deep")).unwrap();
-        let file = tmp.join("docs/deep/a.md");
-        assert_eq!(detect_root(&file), tmp);
-    }
-
-    #[test]
-    fn detect_root_accepts_git_file_for_worktrees() {
-        let tmp = temp_dir("gitfile");
-        std::fs::write(tmp.join(".git"), "gitdir: /elsewhere").unwrap();
-        std::fs::create_dir_all(tmp.join("docs")).unwrap();
-        assert_eq!(detect_root(&tmp.join("docs/a.md")), tmp);
-    }
-
-    #[test]
-    fn detect_root_falls_back_to_parent() {
-        let tmp = temp_dir("nogit");
-        std::fs::create_dir_all(tmp.join("notes")).unwrap();
-        // temp dir lives outside any repo, so no .git is found above it
-        let file = tmp.join("notes/a.md");
-        let root = detect_root(&file);
-        assert!(root == tmp.join("notes") || root.join(".git").exists());
-    }
-
-    #[test]
-    fn sidecar_path_is_relative_to_root() {
-        let root = Path::new("/r/repo");
-        assert_eq!(
-            folio_path_in(root, Path::new("/r/repo/docs/spec.md")),
-            PathBuf::from("/r/repo/.folio/docs/spec.md.folio")
-        );
-        assert_eq!(
-            folio_path_in(root, Path::new("/r/repo/spec.md")),
-            PathBuf::from("/r/repo/.folio/spec.md.folio")
-        );
-        // A file outside the root keeps its whole path, inside `.folio/`.
-        let outside = if cfg!(windows) { r"C:\elsewhere\spec.md" } else { "/elsewhere/spec.md" };
-        assert_eq!(folio_path_in(root, Path::new(outside)), root.join(".folio").join("elsewhere").join("spec.md.folio"));
+        dunce::canonicalize(dir).unwrap()
     }
 
     #[test]
@@ -369,6 +301,25 @@ mod tests {
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
+    // Canonical paths on Windows start with `\\?\`, which a file dialog's path or `C:\...` typed by
+    // hand never does; the set and the sidecar keep the plain form so they compare equal.
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_are_kept_without_the_verbatim_prefix() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("verbatim");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        add_files("s", &[a.clone()], Some(&tmp)).unwrap();
+        let entry = &load("s").unwrap().files[0];
+        for path in [&entry.path, entry.root.as_ref().unwrap(), &describe(entry).folio_path] {
+            assert!(!path.to_string_lossy().starts_with(r"\\?\"), "{}", path.display());
+        }
+        assert_eq!(entry.path, a);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
     #[test]
     fn remove_files_fails_for_a_file_not_in_the_set_and_saves_nothing() {
         let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
@@ -396,6 +347,30 @@ mod tests {
         save("v2", &Set { version: 2, files: Vec::new() }).unwrap();
         let err = load("v2").unwrap_err().to_string();
         assert!(err.contains("unsupported set version 2"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn list_names_is_sorted_and_skips_files_that_are_not_sets() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("names");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        save("zeta", &Set::empty()).unwrap();
+        save("alpha", &Set::empty()).unwrap();
+        std::fs::write(tmp.join("sets").join("notes.txt"), "x").unwrap();
+        assert_eq!(list_names().unwrap(), vec!["alpha".to_string(), "zeta".to_string()]);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn load_reports_a_malformed_set_file() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("malformed");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        std::fs::create_dir_all(tmp.join("sets")).unwrap();
+        std::fs::write(tmp.join("sets").join("bad.json"), "{ not json").unwrap();
+        let err = load("bad").unwrap_err().to_string();
+        assert!(err.contains("invalid set file"), "{err}");
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 

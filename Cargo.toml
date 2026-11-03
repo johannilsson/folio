@@ -17,4 +17,5 @@ serde        = { version = "1",   features = ["derive"] }
 serde_json   = { version = "1", features = ["preserve_order"] }
 clap         = { version = "4",   features = ["derive"] }
 anyhow       = "1"
+dunce        = "1"
 toml_edit    = "0.22"
