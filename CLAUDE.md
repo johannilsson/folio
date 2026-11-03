@@ -70,9 +70,9 @@ The rest is the desktop around it:
 - `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), explicit roots, how a set file is shown
 - `commands/` — the CLI subcommands, thin over the engine
 - `commands/set.rs` — `folio set add / rm / list`
-- `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app
+- `commands/open.rs` — `folio open <file>` / `--set <name>`: launches the macOS app (on Windows the client that `FOLIO_APP` names)
 - `mcp.rs` — the MCP server (JSON-RPC over stdio) the app's binary becomes with `Folio --mcp`, for Claude desktop. Opt-in: until the person turns on Allow MCP Clients (`allowed`, `<config>/mcp.json`, read at every tool call) every tool answers that access is off. Its tools: file tools on the markdown and sidecar (the same code as the CLI), `current_document` / `focused_annotation` / `reveal` that ask the running app, `client_snippets` (Folio ▸ Connect to MCP Clients…, what each tool needs) and `connect_claude` / `connect_codex` (that window's Add for Me, edit Claude Desktop's or Codex's config)
-- `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`)
+- `live.rs` — the Unix socket (`<config>/app.sock`) between the MCP server and the running app; libfolio serves it and calls back into Swift (`AppServer.swift`), or into the Windows client (`AppLink.cs`; a Unix domain socket there too, through `uds_windows`)
 
 ### Design tokens (`design/tokens.json`)
 
@@ -120,6 +120,10 @@ Where a piece of Swift goes, and so how it is tested. Most of the app already wo
 6. **Dependencies are passed in; globals stay at the edges.** The existing statics (`AppConfig`, `RecentFiles`, `AppServer`) are the process boundary. New code takes what it needs as parameters and adds no singletons or `NotificationCenter` broadcasts.
 7. **UI code is on the main actor.** Move work off it only when it is measured to be slow (diagrams, very large files).
 8. **Test a rule in the layer where it lives.** A logic rule gets a unit test, a rule about where things land on screen an off-screen layout or picture test, a rule about wiring (focus, windows, files changing underneath, the CLI and MCP against the live app) a self-test check. The self-test is for the last kind; the others are faster and fail closer to the cause.
+
+## Windows client (experimental, `windows/`)
+
+A native .NET/WPF client on the engine as a DLL (rendered preview, sets, cards), kept apart from the product: it has its own workflow (`.github/workflows/windows.yml`, only when `windows/**` or `frontend/**` changes) and is not part of `./scripts/verify.sh` or the required `test` check; its self-test pictures are put on every pull request it runs for, no label needed. Its MCP server is `Folio.Wpf.exe --mcp`, behind the same Allow MCP Clients switch as the macOS app (the MCP… button). It follows the same layers as the macOS app: the rules go in `Folio.Core` (unit tests, run on Linux too), `Folio.Wpf` only draws and wires (its `--self-test` runs on the Windows runner). Check it with `windows/verify.sh`; `windows/README.md` has the layers and what the checks cover. Do not make the macOS app, the Rust crate or the shared workflows depend on it.
 
 ## Annotation Model
 

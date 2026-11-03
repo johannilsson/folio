@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Folio.Wpf</RootNamespace>
+    <!-- The assembly keeps the default name Folio.Wpf: one named Folio would be Folio.dll, the same file as the engine's folio.dll on Windows. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Folio.Core/Folio.Core.csproj" />
+    <!-- The hidden web view that draws mermaid diagrams (DiagramPage). -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
+  </ItemGroup>
+
+  <!-- The diagram page (frontend/, built with `pnpm build`), next to the app as frontend/; without it diagrams show their source. -->
+  <ItemGroup>
+    <None Include="../../frontend/dist/**" Condition="Exists('../../frontend/dist/diagram.html')" LinkBase="frontend" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

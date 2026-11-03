@@ -1,0 +1,46 @@
+<Window x:Class="Folio.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Folio" Width="1240" Height="820" Background="White">
+    <DockPanel>
+        <ToolBar DockPanel.Dock="Top" ToolBarTray.IsLocked="True">
+            <ToggleButton x:Name="SidebarToggle" Content="Sidebar" Padding="10,2" IsChecked="True" IsEnabled="False"
+                          ToolTip="Show or hide the set's files" Click="OnSidebarToggled" />
+            <Separator />
+            <Button x:Name="OpenButton" Content="Open File…" Padding="10,2" Click="OnOpen" />
+            <Separator />
+            <TextBlock Text="Set" VerticalAlignment="Center" Margin="6,0,6,0" />
+            <ComboBox x:Name="SetPicker" Width="180" DropDownOpened="OnSetsOpened" SelectionChanged="OnSetPicked" />
+            <Separator />
+            <Button x:Name="McpButton" Content="MCP…" Padding="10,2" Click="OnMcp"
+                    ToolTip="Allow MCP clients such as Claude to read and annotate documents, and connect them" />
+            <Separator />
+            <TextBlock x:Name="PathText" VerticalAlignment="Center" Margin="6,0,0,0" Foreground="#6B6B70" Text="No file open" />
+        </ToolBar>
+        <StatusBar DockPanel.Dock="Bottom">
+            <TextBlock x:Name="StatusText" />
+        </StatusBar>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="0" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ListBox x:Name="Sidebar" Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="#E0E0E4" Background="#F6F6F8"
+                     Padding="6" SelectionChanged="OnSidebarPicked" />
+            <!-- The text and the comments pane scroll together, each laid out at its full height. -->
+            <ScrollViewer x:Name="Scroll" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid x:Name="Page" Background="White">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MaxWidth="840" />
+                        <ColumnDefinition Width="304" />
+                    </Grid.ColumnDefinitions>
+                    <RichTextBox x:Name="Text" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" BorderThickness="0" Padding="32,24,32,48"
+                                 Background="Transparent" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                 IsInactiveSelectionHighlightEnabled="True" SelectionBrush="#A78BFA" VerticalAlignment="Top" />
+                    <Canvas x:Name="Overlay" Grid.Column="0" />
+                    <Canvas x:Name="Pane" Grid.Column="1" Background="#FAFAFB" VerticalAlignment="Top" />
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

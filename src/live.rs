@@ -1,5 +1,5 @@
-//! The link between the MCP server and the running macOS app. The app listens on a Unix
-//! socket in the config folder (`app.sock`); the MCP server, a separate process that Claude
+//! The link between the MCP server and the running app (macOS, or the Windows client). The app listens
+//! on a Unix domain socket in the config folder (`app.sock`; on Windows too, through `uds_windows`); the MCP server, a separate process that Claude
 //! starts, connects when a tool asks about what the reader has open. One request and one
 //! response per connection, each a line of JSON: `{"op": "state", ...}` answered by
 //! `{"ok": ...}` or `{"error": "..."}`. The answers come from Swift (`AppServer`); this
@@ -34,13 +34,17 @@ pub fn request(op: &str, args: Value) -> Result<Value, LiveError> {
     imp::request(op, args)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod imp {
     use super::*;
     use serde_json::json;
     use std::io::{BufRead, BufReader, Write};
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
     use std::os::unix::net::{UnixListener, UnixStream};
+    #[cfg(windows)]
+    use uds_windows::{UnixListener, UnixStream};
     use std::path::Path;
     use std::time::Duration;
 
@@ -51,6 +55,10 @@ mod imp {
 
     pub fn request(op: &str, args: Value) -> Result<Value, LiveError> {
         let path = socket_path().map_err(|e| LiveError::Failed(e.to_string()))?;
+        // No socket: no app (Windows does not say "not found" when connecting to a missing one).
+        if !path.exists() {
+            return Err(LiveError::NotRunning);
+        }
         let mut stream = UnixStream::connect(&path).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => LiveError::NotRunning,
             _ => LiveError::Failed(format!("cannot reach Folio at {}: {e}", path.display())),
@@ -95,7 +103,8 @@ mod imp {
             std::fs::remove_file(path)?;
         }
         let listener = UnixListener::bind(path)?;
-        // Only this user may drive the app.
+        // Only this user may drive the app. On Windows the config folder (in the user's AppData) already says so.
+        #[cfg(unix)]
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
 
         let handler = std::sync::Arc::new(handler);
@@ -126,7 +135,7 @@ mod imp {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 mod imp {
     use super::*;
 
@@ -143,14 +152,15 @@ mod imp {
 
 pub use imp::{listen, stop};
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, any(unix, windows)))]
 mod tests {
     use super::*;
     use serde_json::json;
 
     // Socket paths are short; the system temp folder on a Mac is already most of the way to the limit.
     fn short_config(tag: &str) -> PathBuf {
-        let dir = PathBuf::from(format!("/tmp/folio-live-{tag}-{}", std::process::id()));
+        let base = if cfg!(windows) { std::env::temp_dir() } else { PathBuf::from("/tmp") };
+        let dir = base.join(format!("folio-live-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -177,9 +187,12 @@ mod tests {
         assert_eq!(request("boom", json!({})), Err(LiveError::Failed("it broke".to_string())));
 
         // The socket is private to this user.
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(socket_path().unwrap()).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(socket_path().unwrap()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
 
         // A second app does not take the socket from a live one.
         let again = listen(&socket_path().unwrap(), |_| String::new()).unwrap_err();
@@ -189,6 +202,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_socket_left_by_a_dead_app_is_replaced() {
         let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
