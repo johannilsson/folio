@@ -185,6 +185,17 @@ mod tests {
     }
 
     #[test]
+    fn replies_keep_their_order_and_get_distinct_ids() {
+        let reply = r#"{"op":"reply","id":"c1","body":"one","author":"me","source":"local"}"#;
+        let first = apply(sidecar(), edit(reply)).unwrap();
+        let second = apply(first.sidecar, edit(&reply.replace("one", "two"))).unwrap();
+        let replies = &second.sidecar.annotations[0].replies;
+        assert_eq!(replies.iter().map(|r| r.body.as_str()).collect::<Vec<_>>(), ["one", "two"]);
+        assert_ne!(replies[0].id, replies[1].id);
+        assert_eq!(second.id.as_deref(), Some(replies[1].id.as_str()));
+    }
+
+    #[test]
     fn editing_replaces_the_comment() {
         let out = apply(sidecar(), edit(r#"{"op":"edit_comment","id":"c1","comment":"better"}"#)).unwrap().sidecar;
         assert_eq!(out.annotations[0].comment.as_deref(), Some("better"));
