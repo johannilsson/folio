@@ -217,6 +217,14 @@ final class EditorScrollView: NSScrollView {
         reflectScrolledClipView(contentView)
     }
 
+    /// Scrolls down by `delta` (up when negative), as far as the document goes.
+    func scroll(by delta: CGFloat) {
+        guard abs(delta) >= 0.5 else { return }
+        let target = contentView.constrainBoundsRect(NSRect(origin: NSPoint(x: 0, y: contentView.bounds.origin.y + delta), size: contentView.bounds.size))
+        contentView.scroll(to: target.origin)
+        reflectScrolledClipView(contentView)
+    }
+
     var scrollOffset: CGFloat { contentView.bounds.origin.y + contentInsets.top }
 
     private var scrollableHeight: CGFloat { max(0, canvas.frame.height - (contentSize.height - contentInsets.top - contentInsets.bottom)) }

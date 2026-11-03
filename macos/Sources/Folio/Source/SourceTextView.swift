@@ -66,6 +66,19 @@ final class SourceTextView: NSTextView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// AppKit scrolls a text view's selection into view whenever the view is resized. This one is resized
+    /// by the window (the pane sliding, room for inline cards), which must not scroll the window to the
+    /// caret: the window is put back where it was.
+    override func setFrameSize(_ newSize: NSSize) {
+        let scrollView = enclosingScrollView
+        let origin = scrollView?.contentView.bounds.origin
+        super.setFrameSize(newSize)
+        guard let scrollView, let origin, scrollView.contentView.bounds.origin != origin else { return }
+        let clip = scrollView.contentView
+        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+        scrollView.reflectScrolledClipView(clip)
+    }
+
     // MARK: keyboard
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

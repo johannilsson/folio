@@ -10,7 +10,7 @@ final class PreviewView: NSView, AnnotationSurface {
     private static let insets = NSSize(width: 32, height: 24)
     /// The text column. A window wider than it leaves the rest at the sides, which only tables and
     /// pictures use.
-    private static let column: CGFloat = 760
+    static let column: CGFloat = 760
 
     let textView = PreviewTextView()
     private(set) var document: Document?
@@ -54,10 +54,13 @@ final class PreviewView: NSView, AnnotationSurface {
     /// What the page said of each block of code (`PreviewCode.key`), and which it has been asked about.
     private var tokens: [String: [(range: NSRange, scope: String)]] = [:]
     private var highlightRequested: Set<String> = []
+    /// Room after rows for the cards under them, when the cards are inline.
+    private let room = InlineRoom()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         textView.delegate = self
+        textView.layoutManager?.delegate = room
         textView.onPointer = { [weak self] in self?.onPointer?() }
         textView.onClick = { [weak self] index in self?.clicked(at: index) }
         textView.onHover = { [weak self] index in self?.hovered(at: index) }
@@ -96,6 +99,7 @@ final class PreviewView: NSView, AnnotationSurface {
         ghosts = []
         model = base
         rebuilding = true
+        room.reset()
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
         appliedSide = 0
@@ -133,7 +137,8 @@ final class PreviewView: NSView, AnnotationSurface {
             lastReportedWidth = width
             reportAnchors()
         }
-        return height
+        // The report may have changed the room for inline cards, and with it the height.
+        return max(frame.height, minHeight)
     }
 
     // MARK: the text column
@@ -365,6 +370,7 @@ final class PreviewView: NSView, AnnotationSurface {
             model = built
             let selection = textView.selectedRange()
             rebuilding = true
+            room.reset()
             textView.textStorage?.setAttributedString(model.text)
             textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: model.text.length)))
             rebuilding = false
@@ -428,8 +434,10 @@ final class PreviewView: NSView, AnnotationSurface {
         guard !rebuilding else { return }
         let anchors: [AnchorRect] = pending.compactMap { annotation in
             guard let range = ranges[annotation.id], let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
+            // A suggestion's preview follows its text, so the inline card goes under the preview's last line.
+            let last = max(range.location, max(range.upperBound, ghostRanges[annotation.id]?.upperBound ?? 0) - 1)
             return AnchorRect(id: annotation.id, from: sourceRanges[annotation.id]?.location ?? range.location,
-                              top: spot.top, bottom: spot.bottom, left: spot.left)
+                              top: spot.top, bottom: spot.bottom, left: spot.left, row: row(display: last))
         }
         onAnchors?(anchors)
     }
@@ -497,6 +505,39 @@ final class PreviewView: NSView, AnnotationSurface {
     }
 
     func flush() async {}
+
+    // MARK: inline cards
+
+    func row(at index: Int) -> CardLayout.Row? {
+        model.displayLocation(forSource: index, end: false).flatMap { row(display: $0) }
+    }
+
+    /// The row of the character at `index` on screen (`PreviewText.row`). Below a painted block, the
+    /// cards clear its paint (`PreviewTextView.drawBackground` pads it by 10).
+    private func row(display index: Int) -> CardLayout.Row? {
+        guard let storage = textView.textStorage, let found = PreviewText.row(at: index, in: storage) else { return nil }
+        return TextSurface.row(ending: found.end, in: textView, room: room, below: found.painted ? 10 : 0)
+    }
+
+    func setInlineRoom(_ new: [Int: CGFloat]) -> Bool {
+        guard room.set(new, in: textView) else { return false }
+        relayout()
+        textView.needsDisplay = true
+        reportAnchors()
+        return true
+    }
+
+    func lineMark(at y: CGFloat) -> (index: Int, top: CGFloat)? {
+        TextSurface.mark(at: y, in: textView)
+    }
+
+    func lineTop(of index: Int) -> CGFloat? {
+        TextSurface.position(of: index, in: textView).map { CGFloat($0.top) }
+    }
+
+    var inlineColumn: (left: CGFloat, width: CGFloat) {
+        (textView.frame.minX + Self.insets.width + side, max(100, containerWidth - 2 * side))
+    }
 
     func flashAfterReload(_ text: String) {
         flash = text

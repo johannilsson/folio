@@ -101,4 +101,39 @@ import Testing
     @Test func aFileWithoutFrontmatterHasNone() {
         #expect(PreviewFrontmatter.split("# Heading\n---\n") == nil)
     }
+
+    // MARK: rows
+
+    /// The row of the first displayed `words`, as the text up to its end.
+    func rowText(of words: String, in markdown: String) -> (upTo: String, painted: Bool)? {
+        let built = PreviewBuilder.build(markdown, plantUML: false)
+        let string = built.text.string as NSString
+        guard let row = PreviewText.row(at: string.range(of: words).location, in: built.text) else { return nil }
+        return (string.substring(to: row.end + 1), row.painted)
+    }
+
+    @Test func aParagraphIsARow() {
+        let row = rowText(of: "first", in: "The first paragraph.\n\nThe second one.\n")
+        #expect(row?.upTo == "The first paragraph.\n")
+        #expect(row?.painted == false)
+    }
+
+    @Test func aBlockOfCodeIsOneRow() {
+        let row = rowText(of: "one", in: "```\none\ntwo\n```\n\nAfter.\n")
+        #expect(row?.upTo.hasSuffix("two\n") == true)
+        #expect(row?.painted == true)
+    }
+
+    @Test func aTableIsOneRowEndingAfterIt() {
+        let markdown = "| a | b |\n|---|---|\n| c | d |\n\nAfter the table.\n"
+        let built = PreviewBuilder.build(markdown, plantUML: false)
+        let string = built.text.string as NSString
+        let row = PreviewText.row(at: string.range(of: "a").location, in: built.text)
+        let after = string.range(of: "After").location
+        // The row ends with the line break just before the paragraph after the table, outside the table.
+        #expect(row?.end == after - 1)
+        let style = built.text.attribute(.paragraphStyle, at: after - 1, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.textBlocks.isEmpty ?? true)
+        #expect(PreviewText.row(at: string.range(of: "d").location, in: built.text)?.end == after - 1)
+    }
 }

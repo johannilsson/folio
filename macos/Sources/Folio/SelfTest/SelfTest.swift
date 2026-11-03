@@ -74,6 +74,7 @@ final class SelfTest {
         await storeChecks()
         await nativeAnnotationChecks()
         await sourceAnnotationChecks()
+        await inlineChecks()
         await undoAcrossModesChecks()
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
