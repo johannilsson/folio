@@ -176,7 +176,9 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
         ),
         None => None,
     };
-    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    // Only a set that does not exist yet starts empty: a malformed or newer-version file must not
+    // be overwritten with an empty set.
+    let mut current = if set_path(name)?.exists() { load(name)? } else { Set::empty() };
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for file in files {
         let canonical = dunce::canonicalize(file)
@@ -371,6 +373,22 @@ mod tests {
         std::fs::write(tmp.join("sets").join("bad.json"), "{ not json").unwrap();
         let err = load("bad").unwrap_err().to_string();
         assert!(err.contains("invalid set file"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn add_files_does_not_overwrite_a_set_file_it_cannot_read() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("keepbad");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let sets = tmp.join("cfg").join("sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        let bad = sets.join("s.json");
+        std::fs::write(&bad, "{ not json").unwrap();
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        assert!(add_files("s", &[a], None).is_err());
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{ not json");
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
