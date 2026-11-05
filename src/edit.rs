@@ -203,6 +203,26 @@ mod tests {
     }
 
     #[test]
+    fn editing_a_comment_keeps_its_replies_and_leaves_others_alone() {
+        let replied = apply(
+            sidecar(),
+            edit(r#"{"op":"reply","id":"c1","body":"thanks","author":"me","source":"local"}"#),
+        )
+        .unwrap()
+        .sidecar;
+        let out = apply(replied, edit(r#"{"op":"edit_comment","id":"c1","comment":"better"}"#)).unwrap().sidecar;
+        assert_eq!(out.annotations[0].comment.as_deref(), Some("better"));
+        assert_eq!(out.annotations[0].replies.len(), 1);
+        assert_eq!(serde_json::to_value(&out.annotations[1]).unwrap(), serde_json::to_value(&sidecar().annotations[1]).unwrap());
+    }
+
+    #[test]
+    fn a_failed_edit_reports_the_missing_id() {
+        let err = apply(sidecar(), edit(r#"{"op":"remove","id":"nope"}"#)).unwrap_err();
+        assert!(err.contains("nope"), "{err}");
+    }
+
+    #[test]
     fn an_agents_other_annotations_are_untouched() {
         // The edit applies to what is on disk, so everything else comes through as it was.
         let out = apply(sidecar(), edit(r#"{"op":"resolve","id":"c1"}"#)).unwrap().sidecar;
