@@ -108,7 +108,15 @@ pub fn save(name: &str, set: &Set) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, serde_json::to_string_pretty(set)?)?;
+    // Through a temp file and a rename, so a failed write leaves the old set and the app never
+    // reads a half-written one (sidecars are saved the same way).
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, serde_json::to_string_pretty(set)?)?;
+    std::fs::rename(&tmp, &path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
     Ok(())
 }
 
@@ -275,6 +283,23 @@ mod tests {
 
         delete("demo").unwrap();
         assert!(load("demo").is_err());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn save_replaces_the_set_and_leaves_no_temp_file() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("saveatomic");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        let mut set = Set::empty();
+        set.add(PathBuf::from("/a/x.md"), None);
+        save("demo", &set).unwrap();
+        set.add(PathBuf::from("/b/y.md"), None);
+        save("demo", &set).unwrap();
+
+        assert_eq!(load("demo").unwrap().files.len(), 2);
+        let names: Vec<_> = std::fs::read_dir(tmp.join("sets")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("demo.json")]);
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
