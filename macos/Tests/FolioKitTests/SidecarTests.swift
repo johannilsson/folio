@@ -46,4 +46,10 @@ import Testing
         #expect(kind == .unknown("move"))
         #expect(String(decoding: try JSONEncoder().encode(kind), as: UTF8.self) == "\"move\"")
     }
+
+    @Test func countsOnlyUnresolvedAsPending() throws {
+        let resolved = json.replacingOccurrences(of: "\"resolved\": false", with: "\"resolved\": true")
+        #expect(try Sidecar.parse(json).pending.count == 1)
+        #expect(try Sidecar.parse(resolved).pending.isEmpty)
+    }
 }
