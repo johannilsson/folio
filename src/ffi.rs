@@ -133,6 +133,11 @@ fn set_remove_json(name: &str, files_json: &str) -> Result<String, String> {
     Ok(json!({ "removed": path_strings(&removed) }).to_string())
 }
 
+fn set_move_group_json(name: &str, group: &str, to: usize) -> Result<String, String> {
+    set::move_group(name, group, to).map_err(|e| e.to_string())?;
+    Ok("{}".to_string())
+}
+
 fn set_delete_json(name: &str) -> Result<String, String> {
     set::delete(name).map_err(|e| e.to_string())?;
     Ok("{}".to_string())
@@ -246,6 +251,16 @@ pub unsafe extern "C" fn folio_set_add(name: *const c_char, files_json: *const c
 #[no_mangle]
 pub unsafe extern "C" fn folio_set_remove(name: *const c_char, files_json: *const c_char) -> *mut c_char {
     finish((|| set_remove_json(arg(name)?, arg(files_json)?))())
+}
+
+/// Moves the files of `group` to place `to` among the set's groups (past the end: last).
+/// Returns `{}`. Free with `folio_free`.
+///
+/// # Safety
+/// `name` and `group` must be valid NUL-terminated UTF-8 strings.
+#[no_mangle]
+pub unsafe extern "C" fn folio_set_move_group(name: *const c_char, group: *const c_char, to: usize) -> *mut c_char {
+    finish((|| set_move_group_json(arg(name)?, arg(group)?, to))())
 }
 
 /// Deletes the set (its manifest only, never the files). Returns `{}`. Free with `folio_free`.

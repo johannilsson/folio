@@ -49,6 +49,7 @@ its files (grouped by repo, with a badge for unresolved annotations) beside the 
 - **Add Files to Set…**, **Remove from Set** and **Delete Set…** (File menu; the + under the
   sidebar adds, a file's context menu removes) change the list. Only the list changes; files and their
   annotations are never deleted. A set keeps at least one file.
+- Drag a repo heading in the sidebar to move that repo's files up or down; the order is saved in the set.
 - Changes made with `folio set` in a terminal appear in an open window within a second.
 - `folio open --set <name>` opens a set from the CLI (it sends `folio://set/<name>` to the app).
 

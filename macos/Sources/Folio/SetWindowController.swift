@@ -79,6 +79,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         sidebar.onSelect = { [weak self] id in self?.openFile(id) }
         sidebar.onAdd = { [weak self] in self?.addFilesToSet(nil) }
         sidebar.onRemove = { [weak self] id in self?.remove(id) }
+        sidebar.onMoveGroup = { [weak self] group, to in self?.moveGroup(group, to: to) }
         workspace.onChange = { [weak self] in self?.filesChanged() }
     }
 
@@ -139,6 +140,16 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     func add(_ files: [URL]) {
         do {
             try Rust.setAdd(setName, files: files)
+            workspace.reload()
+        } catch {
+            present(error)
+        }
+    }
+
+    /// Moves a repo's files to place `to` among the set's groups, in the manifest.
+    func moveGroup(_ group: String, to: Int) {
+        do {
+            try Rust.setMoveGroup(setName, group: group, to: to)
             workspace.reload()
         } catch {
             present(error)

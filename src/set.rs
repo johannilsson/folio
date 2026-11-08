@@ -210,6 +210,38 @@ pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf
     Ok(removed)
 }
 
+/// The order of the files after moving the group `group` to place `to` among the groups, as
+/// indices into `groups` (each file's group). Groups keep the order they first appear in, and
+/// each group's files stay together and in their order. None when no file is in `group`.
+fn moved_group_order(groups: &[String], group: &str, to: usize) -> Option<Vec<usize>> {
+    let mut order: Vec<&str> = Vec::new();
+    for g in groups {
+        if !order.contains(&g.as_str()) {
+            order.push(g);
+        }
+    }
+    let from = order.iter().position(|g| *g == group)?;
+    let moved = order.remove(from);
+    order.insert(to.min(order.len()), moved);
+    Some(
+        order
+            .iter()
+            .flat_map(|g| (0..groups.len()).filter(move |&i| groups[i] == *g))
+            .collect(),
+    )
+}
+
+/// Moves the files of `group` (a root folder name, as `describe` gives it) to place `to` among
+/// the set's groups; `to` past the end puts them last.
+pub fn move_group(name: &str, group: &str, to: usize) -> anyhow::Result<()> {
+    let mut current = load(name)?;
+    let groups: Vec<String> = current.files.iter().map(|f| describe(f).group).collect();
+    let order = moved_group_order(&groups, group, to)
+        .ok_or_else(|| anyhow::anyhow!("no files of {} in set {}", group, name))?;
+    current.files = order.into_iter().map(|i| current.files[i].clone()).collect();
+    save(name, &current)
+}
+
 // FOLIO_CONFIG_DIR is process-wide, so tests that set it (here and in ffi.rs) run one at a time.
 #[cfg(test)]
 pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -371,6 +403,35 @@ mod tests {
         std::fs::write(tmp.join("sets").join("bad.json"), "{ not json").unwrap();
         let err = load("bad").unwrap_err().to_string();
         assert!(err.contains("invalid set file"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn moving_a_group_keeps_its_files_together_and_in_order() {
+        let groups: Vec<String> = ["a", "b", "a", "c"].iter().map(|g| g.to_string()).collect();
+        assert_eq!(moved_group_order(&groups, "c", 0), Some(vec![3, 0, 2, 1]));
+        assert_eq!(moved_group_order(&groups, "a", 1), Some(vec![1, 0, 2, 3]));
+        assert_eq!(moved_group_order(&groups, "a", 99), Some(vec![1, 3, 0, 2]));
+        assert_eq!(moved_group_order(&groups, "b", 1), Some(vec![0, 2, 1, 3]));
+        assert_eq!(moved_group_order(&groups, "z", 0), None);
+    }
+
+    #[test]
+    fn move_group_saves_the_new_order() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("movegroup");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let (a, b) = (tmp.join("ra/a.md"), tmp.join("rb/b.md"));
+        for file in [&a, &b] {
+            std::fs::create_dir_all(file.parent().unwrap().join(".git")).unwrap();
+            std::fs::write(file, "# x\n").unwrap();
+        }
+        add_files("s", &[a.clone(), b.clone()], None).unwrap();
+
+        move_group("s", "rb", 0).unwrap();
+        let files: Vec<PathBuf> = load("s").unwrap().files.into_iter().map(|f| f.path).collect();
+        assert_eq!(files, vec![b, a]);
+        assert!(move_group("s", "missing", 0).is_err());
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 

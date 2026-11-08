@@ -42,6 +42,17 @@ extension SelfTest {
             win.window?.title == "demo" && win.sidebar.fileIDs.count == 2 && win.sidebar.selectedID == alphaID
         }
         await check("files are grouped under their repo folders") { win.sidebar.headerTitles.count == 2 }
+        // Dropping the second repo's heading above the first moves its files up, in the manifest too.
+        win.sidebar.moveGroup(win.sidebar.headerTitles[1], toRow: 0)
+        await check("dragging a repo heading reorders the groups and the set's manifest") {
+            await self.until {
+                win.sidebar.fileIDs == [betaID, alphaID] && (try? Rust.setLoad("demo"))?.files.first?.id == betaID
+            }
+        }
+        win.sidebar.moveGroup(win.sidebar.headerTitles[0], toRow: Int.max)
+        await check("dropping a heading at the end of the list moves its group last") {
+            await self.until { win.sidebar.fileIDs == [alphaID, betaID] }
+        }
         await check("the sidebar and the editor run to the top of the window, the text starting below the toolbar") {
             guard let window = win.window, let frame = window.contentView?.superview else { return false }
             let sidebarTop = win.sidebar.view.convert(win.sidebar.view.bounds, to: nil).maxY

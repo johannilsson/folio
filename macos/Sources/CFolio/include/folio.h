@@ -41,6 +41,10 @@ char *folio_set_add(const char *name, const char *files_json, const char *root);
 /* {"removed": [...]}; fails for a path that is not in the set. */
 char *folio_set_remove(const char *name, const char *files_json);
 
+/* Moves the files of group (a root folder name, as set_load gives it) to place `to` among the set's
+   groups; past the end puts them last. {} */
+char *folio_set_move_group(const char *name, const char *group, size_t to);
+
 /* Deletes the set's manifest, never the files. {} */
 char *folio_set_delete(const char *name);
 

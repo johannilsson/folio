@@ -1,7 +1,7 @@
 import AppKit
 
 /// The source list of a set window: the set's files grouped by repo, each with its count
-/// of unresolved annotations.
+/// of unresolved annotations. The repo headings can be dragged to reorder the groups.
 final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     private enum Row {
         case header(String)
@@ -17,6 +17,10 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     /// The + button, and "Remove from Set" for the selected file.
     var onAdd: (() -> Void)?
     var onRemove: ((String) -> Void)?
+    /// A repo heading was dropped: its files move to place `to` among the groups.
+    var onMoveGroup: ((_ group: String, _ to: Int) -> Void)?
+
+    private static let groupType = NSPasteboard.PasteboardType("com.folio.sidebar-group")
 
     private var selecting = false
 
@@ -57,6 +61,8 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file")))
         table.dataSource = self
         table.delegate = self
+        table.registerForDraggedTypes([Self.groupType])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
 
         let menu = NSMenu()
         menu.delegate = self
@@ -152,7 +158,44 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         onSelect?(id)
     }
 
+    private func isHeader(_ row: Int) -> Bool {
+        if case .header = rows[row] { return true }
+        return false
+    }
+
+    /// What dropping the heading of `group` above `row` (a heading, or the end of the list) does.
+    func moveGroup(_ group: String, toRow row: Int) {
+        guard let from = headerTitles.firstIndex(of: group) else { return }
+        let before = (0..<min(row, rows.count)).filter(isHeader).count
+        let to = before > from ? before - 1 : before
+        if to != from { onMoveGroup?(group, to) }
+    }
+
     // MARK: NSTableViewDataSource / Delegate
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard case .header(let title) = rows[row] else { return nil }
+        let item = NSPasteboardItem()
+        item.setString(title, forType: Self.groupType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
+                   proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        guard info.draggingSource as? NSTableView === table,
+              info.draggingPasteboard.string(forType: Self.groupType) != nil else { return [] }
+        // A group goes between groups: above the next heading, or at the end of the list.
+        let target = (min(row, rows.count)..<rows.count).first(where: isHeader) ?? rows.count
+        tableView.setDropRow(target, dropOperation: .above)
+        return .move
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
+                   dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let group = info.draggingPasteboard.string(forType: Self.groupType) else { return false }
+        moveGroup(group, toRow: row)
+        return true
+    }
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 

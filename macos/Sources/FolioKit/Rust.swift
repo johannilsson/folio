@@ -157,6 +157,11 @@ public enum Rust {
         _ = try object(folio_set_remove(name, paths(files)))
     }
 
+    /// Moves the files of `group` to place `to` among the set's groups.
+    public static func setMoveGroup(_ name: String, group: String, to: Int) throws {
+        _ = try object(folio_set_move_group(name, group, max(0, to)))
+    }
+
     /// Deletes the set's manifest. The files and their sidecars stay.
     public static func setDelete(_ name: String) throws {
         _ = try object(folio_set_delete(name))
