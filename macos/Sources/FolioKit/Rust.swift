@@ -30,6 +30,23 @@ public enum Rust {
         return (target, context)
     }
 
+    /// The task items of the markdown tagged #investigate, #waiting or #replied (src/wiki.rs).
+    public static func openItems(in doc: String) throws -> [OpenItem] {
+        let out = try object(folio_open_items(doc))
+        return (out["items"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let line = (item["line"] as? NSNumber)?.intValue, let tag = item["tag"] as? String, let text = item["text"] as? String else { return nil }
+            return OpenItem(line: line, tag: tag, text: text, url: item["url"] as? String, folio: item["folio"] as? String, note: item["note"] as? String)
+        }
+    }
+
+    /// The markdown with the task item on `line` (1-based) ticked. Throws when that line is not an open item.
+    public static func tickItem(in doc: String, line: Int) throws -> String {
+        guard let ticked = try object(folio_tick_item(doc, line))["doc"] as? String else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        return ticked
+    }
+
     /// The patched markdown (nil when accepting changes nothing in it) and the new
     /// sidecar text.
     public static func accept(doc: String, sidecarJSON: String, id: String) throws -> (doc: String?, sidecar: String) {
@@ -114,17 +131,38 @@ public enum Rust {
         public let id: String
         /// Path relative to the root, as the sidebar shows it.
         public let name: String
-        /// Name of the root folder; files are grouped by it.
+        /// The repo's name (the root's folder when it is not a checkout); files are grouped by it.
         public let group: String
         public let path: URL
         public let sidecar: URL
+        /// Where the sidecars live. Worktrees of one repo share `group` but not `root`.
+        public let root: URL
+        /// The branch the root has checked out, if it is a checkout with a readable `HEAD`.
+        public let branch: String?
+        /// The root is a linked worktree, not the repo's main checkout.
+        public let worktree: Bool
+    }
+
+    /// A folder in the set, with its markdown files as they were on disk when the set was loaded.
+    public struct SetFolder {
+        public let id: String
+        /// The folder's own name, as the sidebar heads it.
+        public let name: String
+        public let path: URL
+        /// Each named by its path in the folder ("research/b.md"), grouped under the folder's name.
+        public let files: [SetFile]
     }
 
     public struct SetInfo {
         public let name: String
         /// The set's JSON file, watched so that `folio set add` from a terminal shows up.
         public let manifest: URL
+        /// The files added one by one.
         public let files: [SetFile]
+        public let folders: [SetFolder]
+
+        /// Every file the window shows: the files added one by one, then each folder's.
+        public var allFiles: [SetFile] { files + folders.flatMap(\.files) }
     }
 
     public static func setNames() throws -> [String] {
@@ -136,16 +174,25 @@ public enum Rust {
         guard let manifest = obj["manifest"] as? String, let files = obj["files"] as? [[String: Any]] else {
             throw RustError(description: "unexpected set result")
         }
+        let folders = obj["folders"] as? [[String: Any]] ?? []
         return SetInfo(
             name: name,
             manifest: URL(fileURLWithPath: manifest),
-            files: files.compactMap { file in
-                guard let id = file["id"] as? String, let name = file["name"] as? String,
-                      let group = file["group"] as? String, let path = file["path"] as? String,
-                      let sidecar = file["folio_path"] as? String else { return nil }
-                return SetFile(id: id, name: name, group: group, path: URL(fileURLWithPath: path), sidecar: URL(fileURLWithPath: sidecar))
+            files: files.compactMap(setFile),
+            folders: folders.compactMap { folder in
+                guard let id = folder["id"] as? String, let name = folder["name"] as? String,
+                      let path = folder["path"] as? String, let files = folder["files"] as? [[String: Any]] else { return nil }
+                return SetFolder(id: id, name: name, path: URL(fileURLWithPath: path), files: files.compactMap(setFile))
             }
         )
+    }
+
+    private static func setFile(_ file: [String: Any]) -> SetFile? {
+        guard let id = file["id"] as? String, let name = file["name"] as? String,
+              let group = file["group"] as? String, let path = file["path"] as? String,
+              let sidecar = file["folio_path"] as? String, let root = file["root"] as? String else { return nil }
+        return SetFile(id: id, name: name, group: group, path: URL(fileURLWithPath: path), sidecar: URL(fileURLWithPath: sidecar),
+                       root: URL(fileURLWithPath: root), branch: file["branch"] as? String, worktree: file["worktree"] as? Bool ?? false)
     }
 
     /// Adds files to the set, creating it if needed. Files already in it are skipped.

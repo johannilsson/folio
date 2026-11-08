@@ -155,3 +155,15 @@ public enum CardLayout {
         return CGPoint(x: x, y: y)
     }
 }
+
+/// The line a card shows for what it does not spell out: how many replies, references and open items.
+public enum CardCounts {
+    /// "2 replies  ·  1 reference  ·  1 open", leaving out what has none; nil when nothing has any.
+    public static func line(replies: Int = 0, references: Int = 0, open: Int = 0) -> String? {
+        var parts: [String] = []
+        if replies > 0 { parts.append("\(replies) \(replies == 1 ? "reply" : "replies")") }
+        if references > 0 { parts.append("\(references) \(references == 1 ? "reference" : "references")") }
+        if open > 0 { parts.append("\(open) open") }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ·  ")
+    }
+}

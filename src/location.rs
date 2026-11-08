@@ -33,6 +33,88 @@ pub fn detect_root(file: &Path) -> PathBuf {
         .unwrap_or(parent)
 }
 
+/// Which repo a root is a checkout of, and what it has checked out. Wiki links and the set's
+/// sidebar name a repo and a branch, never a worktree's folder: folders come and go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoIdentity {
+    /// The `origin` remote's last path segment without `.git`; with no remote, the main
+    /// checkout's folder name.
+    pub repo: String,
+    /// The branch `HEAD` is on; a detached `HEAD` is its short commit; none when `HEAD` is unreadable.
+    pub branch: Option<String>,
+    /// A linked worktree of the repo, not its main checkout.
+    pub worktree: bool,
+}
+
+/// Reads `root`'s repo and branch from the files in `.git`, without running `git`. None when
+/// `root` is not a checkout (no `.git`).
+pub fn repo_identity(root: &Path) -> Option<RepoIdentity> {
+    let dot_git = root.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        // A worktree (or submodule): `.git` is a file that points at its git directory.
+        let text = std::fs::read_to_string(&dot_git).ok()?;
+        let target = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
+        let target = Path::new(target);
+        if target.is_absolute() { target.to_path_buf() } else { root.join(target) }
+    };
+    // A linked worktree's git directory names the shared one in `commondir`.
+    let common = std::fs::read_to_string(git_dir.join("commondir"))
+        .ok()
+        .map(|text| git_dir.join(text.trim()));
+    let worktree = common.is_some();
+    let common = common.map(|c| dunce::canonicalize(&c).unwrap_or(c)).unwrap_or_else(|| git_dir.clone());
+
+    let branch = std::fs::read_to_string(git_dir.join("HEAD")).ok().and_then(|head| {
+        let head = head.trim();
+        match head.strip_prefix("ref:") {
+            Some(reference) => {
+                let reference = reference.trim();
+                Some(reference.strip_prefix("refs/heads/").unwrap_or(reference).to_string())
+            }
+            None if head.len() >= 7 => Some(head[..7].to_string()),
+            None => None,
+        }
+    });
+
+    let from_remote = std::fs::read_to_string(common.join("config"))
+        .ok()
+        .and_then(|config| origin_url(&config))
+        .and_then(|url| repo_from_url(&url));
+    let repo = from_remote.or_else(|| {
+        // The main checkout's folder: above its `.git`, or the bare repository's own name.
+        let name = if common.file_name().is_some_and(|n| n == ".git") { common.parent()?.file_name()? } else { common.file_name()? };
+        Some(name.to_string_lossy().trim_end_matches(".git").to_string())
+    })?;
+    Some(RepoIdentity { repo, branch, worktree })
+}
+
+fn origin_url(config: &str) -> Option<String> {
+    let mut in_origin = false;
+    for line in config.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_origin = line.replace(' ', "").eq_ignore_ascii_case("[remote\"origin\"]");
+        } else if in_origin {
+            if let Some((key, value)) = line.split_once('=') {
+                if key.trim().eq_ignore_ascii_case("url") {
+                    return Some(value.trim().to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `git@host:team/repo.git`, `https://host/team/repo.git/` and `/srv/git/repo` all name `repo`.
+fn repo_from_url(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches(['/', '\\']);
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let name = url.rsplit(['/', ':', '\\']).next()?;
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 /// `<root>/.folio/<file relative to root>.folio` — what `folio annotate` writes
 /// when run from `root`. Files outside `root` fall back to their absolute path
 /// under `.folio/`, like `folio_path`.
@@ -64,6 +146,92 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dunce::canonicalize(dir).unwrap()
+    }
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn a_checkout_is_named_after_its_origin_and_its_branch() {
+        let tmp = temp_dir("identity");
+        write(&tmp.join(".git/HEAD"), "ref: refs/heads/main\n");
+        write(&tmp.join(".git/config"), "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:team/payments-svc.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n");
+        assert_eq!(
+            repo_identity(&tmp),
+            Some(RepoIdentity { repo: "payments-svc".into(), branch: Some("main".into()), worktree: false })
+        );
+    }
+
+    #[test]
+    fn a_branch_with_slashes_keeps_them() {
+        let tmp = temp_dir("slashes");
+        write(&tmp.join(".git/HEAD"), "ref: refs/heads/fix/logout\n");
+        assert_eq!(repo_identity(&tmp).unwrap().branch.as_deref(), Some("fix/logout"));
+    }
+
+    #[test]
+    fn a_worktree_is_the_same_repo_on_its_own_branch() {
+        let tmp = temp_dir("worktree");
+        let main = tmp.join("payments-svc");
+        write(&main.join(".git/HEAD"), "ref: refs/heads/main\n");
+        write(&main.join(".git/config"), "[remote \"origin\"]\n\turl = https://github.com/team/svc.git\n");
+        let linked = tmp.join("payments-svc-logout");
+        write(&main.join(".git/worktrees/logout/HEAD"), "ref: refs/heads/fix/logout\n");
+        write(&main.join(".git/worktrees/logout/commondir"), "../..\n");
+        write(&linked.join(".git"), &format!("gitdir: {}\n", main.join(".git/worktrees/logout").display()));
+        assert_eq!(
+            repo_identity(&linked),
+            Some(RepoIdentity { repo: "svc".into(), branch: Some("fix/logout".into()), worktree: true })
+        );
+        assert_eq!(repo_identity(&main).unwrap().branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn without_a_remote_a_worktree_is_named_after_the_main_checkouts_folder() {
+        let tmp = temp_dir("noremote");
+        let main = tmp.join("payments-svc");
+        write(&main.join(".git/HEAD"), "ref: refs/heads/main\n");
+        let linked = tmp.join("elsewhere");
+        write(&main.join(".git/worktrees/w/HEAD"), "ref: refs/heads/topic\n");
+        write(&main.join(".git/worktrees/w/commondir"), "../..\n");
+        write(&linked.join(".git"), &format!("gitdir: {}\n", main.join(".git/worktrees/w").display()));
+        assert_eq!(repo_identity(&linked).unwrap().repo, "payments-svc");
+        assert_eq!(repo_identity(&main).unwrap().repo, "payments-svc");
+    }
+
+    #[test]
+    fn a_detached_head_is_its_short_commit() {
+        let tmp = temp_dir("detached");
+        write(&tmp.join(".git/HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+        assert_eq!(repo_identity(&tmp).unwrap().branch.as_deref(), Some("0123456"));
+    }
+
+    #[test]
+    fn an_empty_git_directory_is_a_repo_with_no_branch() {
+        let tmp = temp_dir("emptygit");
+        std::fs::create_dir_all(tmp.join(".git")).unwrap();
+        let identity = repo_identity(&tmp).unwrap();
+        assert_eq!(identity.branch, None);
+        assert_eq!(Some(identity.repo.as_str()), tmp.file_name().and_then(|n| n.to_str()));
+    }
+
+    #[test]
+    fn a_folder_that_is_not_a_checkout_has_no_identity() {
+        let tmp = temp_dir("plain");
+        assert_eq!(repo_identity(&tmp), None);
+        // A `.git` file that points nowhere is not one either.
+        write(&tmp.join(".git"), "not a pointer\n");
+        assert_eq!(repo_identity(&tmp), None);
+    }
+
+    #[test]
+    fn urls_name_the_repo_by_their_last_segment() {
+        for url in ["git@github.com:team/repo.git", "https://host/team/repo.git/", "/srv/git/repo", "ssh://host/repo.git", "C:\\git\\repo.git"] {
+            assert_eq!(repo_from_url(url).as_deref(), Some("repo"), "{url}");
+        }
+        assert_eq!(repo_from_url(""), None);
     }
 
     #[test]

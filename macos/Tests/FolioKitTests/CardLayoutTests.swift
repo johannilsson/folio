@@ -182,4 +182,13 @@ import Testing
                                           visible: visible, textWidth: 800)
         #expect(left.x == 8)
     }
+
+    // MARK: the count line
+
+    @Test func theCountLineNamesWhatHasAnyInOrder() {
+        #expect(CardCounts.line(replies: 2, references: 1, open: 1) == "2 replies  ·  1 reference  ·  1 open")
+        #expect(CardCounts.line(replies: 1) == "1 reply")
+        #expect(CardCounts.line(references: 2, open: 3) == "2 references  ·  3 open")
+        #expect(CardCounts.line() == nil)
+    }
 }

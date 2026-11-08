@@ -328,6 +328,14 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
     }
 
+    func select(passage text: String, before: String) -> (top: Double, bottom: Double)? {
+        guard let range = TextSurface.anchorPassage(text: text, before: before, in: textView.string),
+              let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        return (spot.top, spot.bottom)
+    }
+
     func flush() async {
         flushSave()
     }

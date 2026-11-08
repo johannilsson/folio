@@ -27,12 +27,21 @@ public struct PreviewBuilder {
 
     public static let bodySize: CGFloat = 15
 
+    /// How a link into Folio (to an annotation, a passage, or a wiki page) stands: live, or dead for a
+    /// reason (its branch is gone, its page is not in the wiki). The view decides; the builder draws it.
+    public enum LinkState: Equatable {
+        case live
+        case dead(String)
+    }
+
     /// What is parsed: the file, but with the frontmatter blanked out, so offsets stay the file's.
     private let markdown: String
     /// Where relative image paths start: the folder of the file.
     private let base: URL?
     /// Whether PlantUML blocks are drawn as diagrams (a command or server is set up for them).
     private let plantUML: Bool
+    /// How each link into Folio stands.
+    private let linkState: (URL) -> LinkState
     private let source: NSString
     private var lineStarts = [0]
     private var utf16At: [Int] = []
@@ -40,9 +49,10 @@ public struct PreviewBuilder {
     /// Where the block being written starts, when a list marker has been written ahead of it.
     private var blockStart: Int?
 
-    public static func build(_ markdown: String, base: URL? = nil, plantUML: Bool) -> PreviewText {
+    public static func build(_ markdown: String, base: URL? = nil, plantUML: Bool, linkState: @escaping (URL) -> LinkState = { _ in .live }) -> PreviewText {
         let front = PreviewFrontmatter.split(markdown)
-        var builder = PreviewBuilder(markdown, parsed: front.map { Self.blanked(markdown, $0.range) } ?? markdown, base: base, plantUML: plantUML)
+        var builder = PreviewBuilder(markdown, parsed: front.map { Self.blanked(markdown, $0.range) } ?? markdown, base: base, plantUML: plantUML,
+                                     linkState: linkState)
         if let front { builder.frontmatterBox(front) }
         let document = Markdown.Document(parsing: builder.markdown)
         builder.blocks(of: document, Context())
@@ -56,7 +66,8 @@ public struct PreviewBuilder {
         return String(decoding: units, as: UTF16.self)
     }
 
-    private init(_ original: String, parsed markdown: String, base: URL?, plantUML: Bool) {
+    private init(_ original: String, parsed markdown: String, base: URL?, plantUML: Bool, linkState: @escaping (URL) -> LinkState) {
+        self.linkState = linkState
         self.markdown = markdown
         self.base = base
         self.plantUML = plantUML
@@ -125,8 +136,33 @@ public struct PreviewBuilder {
         ]
         if style.code && !style.block { attributes[.backgroundColor] = NSColor.labelColor.withAlphaComponent(0.07) }
         if style.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-        if let link = style.link { attributes[.link] = link }
+        if let link = style.link { apply(link: link, to: &attributes) }
         return attributes
+    }
+
+    /// A link into Folio is drawn here, not by the text view's link look, and clicked through the view
+    /// (`.folioLink`): a wiki link in the link colour, a link to an annotation or a passage as a purple
+    /// chip, a dead one greyed out with the reason on hover. Any other link is the text view's.
+    private func apply(link: URL, to attributes: inout [NSAttributedString.Key: Any]) {
+        guard link.scheme == "folio", let host = link.host, ["wiki", "annotation", "passage"].contains(host) else {
+            attributes[.link] = link
+            return
+        }
+        attributes[.folioLink] = link
+        switch linkState(link) {
+        case .live where host == "wiki":
+            attributes[.foregroundColor] = NSColor.linkColor
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            attributes[.underlineColor] = NSColor.linkColor
+        case .live:
+            attributes[.foregroundColor] = NSColor.systemPurple
+            attributes[.backgroundColor] = NSColor.systemPurple.withAlphaComponent(0.12)
+        case .dead(let reason):
+            attributes[.foregroundColor] = NSColor.secondaryLabelColor
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue | NSUnderlineStyle.patternDot.rawValue
+            attributes[.underlineColor] = NSColor.secondaryLabelColor
+            attributes[.toolTip] = reason
+        }
     }
 
     // MARK: blocks
@@ -469,7 +505,51 @@ public struct PreviewBuilder {
     }
 
     private mutating func inlines(of parent: Markup, _ style: Style) {
-        for child in parent.children { inline(child, style) }
+        let children = Array(parent.children)
+        var index = 0
+        while index < children.count {
+            // Runs of plain text are read together: the parser can split `[[a]]` into pieces.
+            if style.link == nil, children[index] is Text {
+                var end = index
+                while end + 1 < children.count, children[end + 1] is Text { end += 1 }
+                if !wikiLinks(in: children[index...end].compactMap { $0 as? Text }, style) {
+                    for child in children[index...end] { inline(child, style) }
+                }
+                index = end + 1
+            } else {
+                inline(children[index], style)
+                index += 1
+            }
+        }
+    }
+
+    /// Writes a run of text that has `[[wiki links]]` in it: the text around them as it is, each link as
+    /// what it shows. False, and nothing written, when there are none, or the run is not written in the
+    /// file as it reads (an escape, an entity), so its places cannot be told.
+    private mutating func wikiLinks(in run: [Text], _ style: Style) -> Bool {
+        let string = run.map(\.string).joined()
+        guard string.contains("[["), let first = run.first.flatMap({ range(of: $0) }), let last = run.last.flatMap({ range(of: $0) }),
+              last.upperBound >= first.location, last.upperBound <= source.length else { return false }
+        let whole = NSRange(location: first.location, length: last.upperBound - first.location)
+        let found = WikiLinks.find(in: string)
+        guard !found.isEmpty, source.substring(with: whole) == string else { return false }
+        let text = string as NSString
+        var at = 0
+        for item in found {
+            plain(NSRange(location: at, length: item.range.location - at), of: text, from: whole.location, style)
+            var linked = style
+            linked.link = item.link.url
+            emit(item.link.shown, source: NSRange(location: whole.location + item.range.location, length: item.range.length), linear: false, attributes(linked))
+            at = item.range.upperBound
+        }
+        plain(NSRange(location: at, length: text.length - at), of: text, from: whole.location, style)
+        return true
+    }
+
+    /// The part of a run of text, which starts at `origin` in the file, as it is written there.
+    private mutating func plain(_ part: NSRange, of text: NSString, from origin: Int, _ style: Style) {
+        guard part.length > 0 else { return }
+        emit(text.substring(with: part), source: NSRange(location: origin + part.location, length: part.length), linear: true, attributes(style))
     }
 
     private mutating func inline(_ node: Markup, _ style: Style) {
