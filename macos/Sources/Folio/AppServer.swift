@@ -116,7 +116,7 @@ enum AppServer {
     /// and focuses the annotation. The answer does not wait for a file that opens now: the annotation is
     /// focused once the window has placed it.
     @discardableResult
-    static func reveal(_ url: URL, annotation id: String?) -> String {
+    static func reveal(_ url: URL, annotation id: String?, passage: (text: String, before: String)? = nil) -> String {
         guard FileManager.default.fileExists(atPath: url.path) else { return reply(error: "no such file: \(url.path)") }
         let wanted = url.resolvingSymlinksInPath().path
         func isWanted(_ document: Document) -> Bool { document.file.resolvingSymlinksInPath().path == wanted }
@@ -127,14 +127,103 @@ enum AppServer {
                 set.openFile(document.id)
             }
             editor.showWindow(nil)
-            if let id { focus(id, in: editor) }
+            if let id { focus(id, in: editor) } else if let passage { focus(passage, in: editor) }
             return reply(ok: ["opened": false])
         }
         guard let app = NSApp.delegate as? AppDelegate else { return reply(error: "the app is not ready") }
         app.open(url) { document in
-            if let id, let editor = document?.windowControllers.first as? EditorWindowController { focus(id, in: editor) }
+            guard let editor = document?.windowControllers.first as? EditorWindowController else { return }
+            if let id { focus(id, in: editor) } else if let passage { focus(passage, in: editor) }
         }
         return reply(ok: ["opened": true])
+    }
+
+    /// What is said when a link cannot be followed; the self-test swaps it. The front window's toast,
+    /// or an alert when there is no window.
+    static var tell: (String) -> Void = { message in
+        if let editor = front {
+            editor.annotations.notify(message)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = message
+            alert.runModal()
+        }
+    }
+
+    /// Follows a `folio://annotation` or `folio://passage` link: the file it names in the open windows,
+    /// by repo, branch and path (never by folder: a worktree's folder comes and goes), else the file
+    /// where the link says it was. When the repo is open but the branch or file is not, it says so.
+    static func open(_ link: FolioLink) {
+        let places = openFiles()
+        let resolution = link.resolve(among: places.map(\.candidate))
+        var annotation: String?
+        var passage: (text: String, before: String)?
+        switch link.target {
+        case .annotation(let id): annotation = id
+        case .passage(let text, let before): passage = (text, before)
+        }
+        if case .found(let index) = resolution {
+            reveal(places[index].document.file, annotation: annotation, passage: passage)
+        } else if let message = FolioLink.message(for: resolution, repo: link.repo), resolution != .unknown {
+            tell(message)
+        } else if let file = link.file, FileManager.default.fileExists(atPath: file) {
+            reveal(URL(fileURLWithPath: file), annotation: annotation, passage: passage)
+        } else {
+            tell(FolioLink.message(for: resolution, repo: link.repo) ?? "That file isn't here")
+        }
+    }
+
+    /// The files the windows have open that are in a checkout, for a link to find by repo, branch and path.
+    private static func openFiles() -> [(document: Document, candidate: FolioLink.Candidate)] {
+        var places: [(document: Document, candidate: FolioLink.Candidate)] = []
+        for editor in editors {
+            for entry in editor.workspace.entries {
+                guard let checkout = entry.checkout else { continue }
+                places.append((entry.document, FolioLink.Candidate(repo: checkout.repo, branch: checkout.branch, path: entry.name)))
+            }
+        }
+        return places
+    }
+
+    /// Why a link cannot be followed, nil when it can: the repo is open but not on its branch any more, or
+    /// without the file, or the file it names is nowhere, or the file is there without what it points at (an
+    /// annotation resolved or deleted, or text edited away). Read from disk, which is the truth.
+    static func deadReason(of link: FolioLink) -> String? {
+        let places = openFiles()
+        let resolution = link.resolve(among: places.map(\.candidate))
+        let document: Document
+        switch resolution {
+        case .found(let index):
+            document = places[index].document
+        case .unknown:
+            guard let file = link.file, FileManager.default.fileExists(atPath: file),
+                  let found = try? Document(file: URL(fileURLWithPath: file)) else {
+                return FolioLink.message(for: resolution, repo: link.repo) ?? "That file isn't here"
+            }
+            document = found
+        default:
+            return FolioLink.message(for: resolution, repo: link.repo)
+        }
+        guard let markdown = try? document.readFile() else { return "That file isn't here" }
+        let sidecar = (try? document.readSidecar()) ?? Document.emptySidecar
+        return link.targetFound(markdown: markdown, sidecar: sidecar) ? nil : FolioLink.notFoundMessage(file: document.file.path)
+    }
+
+    /// A file or its annotations changed: every window's links are checked again (one window's page can link
+    /// to a file another window has).
+    static func refreshLinks() {
+        for editor in editors { editor.scrollHost.preview.refreshLinks() }
+    }
+
+    /// Selects the passage once the window has placed it: a file that opens now takes a moment.
+    static func focus(_ passage: (text: String, before: String), in editor: EditorWindowController) {
+        Task { @MainActor in
+            for _ in 0..<50 {
+                if editor.annotations.reveal(passage: passage.text, before: passage.before) { return }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            tell("That text isn't in the file any more")
+        }
     }
 
     /// Focuses the annotation once the window has placed it: a file that opens now takes a moment.

@@ -11,7 +11,10 @@ description: >
   with a .folio file or a Folio-managed document. Also use it to group several
   markdown files into a named Folio set ("folio set", "review these files
   together", "put these in one folio session") that is opened and reviewed
-  together.
+  together. Also use it for the open items of a review — task items tagged
+  #investigate, #waiting or #replied in the notes next to it — when asked what
+  is open or waiting, to check the questions waiting on a pull or merge
+  request, or to add an item.
 ---
 
 # Working with Folio
@@ -267,10 +270,46 @@ Backslashes in text (e.g., in inline code or LaTeX) must be doubled inside JSON 
 **Short `context_before` on repeated phrases**
 If "the" appears 50 times in the document, `context_before: "the"` will anchor to the first one. Use a long, unique slice of text.
 
-## Linking to an annotation
+## Linking to an annotation or a passage
 
 ```bash
-folio link <file.md> <annotation-id>   # prints folio://annotation/<id>?file=<absolute path>
+folio link <file.md> <annotation-id>            # prints folio://annotation/<id>?repo=…&branch=…&path=…&file=…
+folio link <file.md> --passage "rendered text"  # a link that selects that text
+folio link <file.md> --passage "rotate" --before "We "   # when the text appears more than once
+folio link <file.md> <annotation-id> --markdown # a whole [text](url) link, the text saying what it points at
 ```
 
-Put the URL in another document to link to an annotation. Opening it in macOS opens the file in Folio with that annotation in focus; if the annotation is resolved (or gone), the file just opens. The link holds an absolute path, so it works on the machine that made it.
+Put the URL in another document (a wiki page, say) to link to an annotation or a passage. Opening it in macOS opens the file in Folio with that annotation in focus, or the text selected; if the annotation is resolved (or gone), the file just opens. The link names the repo, the branch and the file's path in that checkout, so it finds the right copy of the file in a worktree, and says "isn't checked out any more" when the branch is gone. The absolute path is kept as a fallback, so an older link still works on the machine that made it.
+
+## Open items: what is still to do, and what is waiting on a reply
+
+A review keeps notes next to the document: a wiki folder, in the same set. A task item there is an **open item** when it carries one of three tags, and the Folio app collects them into the set's Open list:
+
+```markdown
+- [ ] Token refresh on logout from a second device #investigate
+- [ ] Key rotation: asked in review #waiting https://github.com/team/svc/pull/42#issuecomment-981 [Priya](folio://annotation/c3d4…)
+- [ ] Key rotation: asked in review #replied https://github.com/team/svc/pull/42#issuecomment-981
+  - Sam: the family is revoked by the gateway since v3 (https://github.com/team/svc/pull/42#issuecomment-990)
+```
+
+- `#investigate`: something to look into. `#waiting`: a question asked somewhere else (the address is the pull or merge request it was asked in, ideally the comment itself), still unanswered. `#replied`: answered, for the reader to look at. Other task items, and ticked ones (`- [x]`), are not open items.
+- An item may carry a `folio://` link to the annotation or passage it is about (`folio link <file.md> <id> --markdown`), which also shows it on that annotation's card.
+- **These notes are the one place you edit markdown directly.** The rule at the top (never modify the `.md`) is for a document under review; a wiki page is ordinary markdown you and the reader both write. Keep your edits to the item you are working on.
+
+```bash
+folio items --set <name> --json              # every open item of a set: file, line, tag, text, url, folio, note
+folio items --set <name> --tag waiting       # only what is waiting
+folio items notes.md tracker.md              # or of some files
+```
+
+### Checking what is waiting
+
+When asked to check the waiting items (or what has come back), the pull and merge requests are yours to read; Folio does not reach out to GitHub or GitLab.
+
+1. `folio items --set <name> --tag waiting --json`. For each item with a `url`:
+2. Read the thread: `gh pr view <number> --comments` or `gh api repos/<owner>/<repo>/issues/<number>/comments` (and `.../pulls/<number>/comments` for review comments) for GitHub; `glab mr view <number> --comments` for GitLab. The end of the address says which comment was the question (`#note_981`, `#issuecomment-123`, `#discussion_r456`).
+3. If someone other than the person who asked has replied after the question: in the item, change `#waiting` to `#replied`, and add one nested line under it: who answered, in a sentence what they said, and the address of their reply. Edit the file with a normal edit; Folio shows the change at once.
+4. If there is no reply yet, leave the item as it is.
+
+**Never tick an item** (`[x]`): a reply arriving does not settle the question; the reader ticks it when it is settled. **Never post to the pull or merge request** unless the reader asks you to. Say what you changed (which items came back, with what), and what is still waiting.
+

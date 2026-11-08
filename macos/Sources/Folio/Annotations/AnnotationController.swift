@@ -270,6 +270,8 @@ final class AnnotationController {
         for annotation in pending {
             let card = cards[annotation.id] ?? makeCard(annotation)
             card.update(annotation)
+            card.references = owner.references(for: annotation.id)
+            card.items = owner.openItems(for: annotation.id)
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil
             card.isInline = inlineShown
@@ -297,7 +299,9 @@ final class AnnotationController {
             reply: { [weak self] id, text in self?.reply(id, text) ?? false },
             collapse: { [weak self] id in self?.collapse(id) },
             keepOpen: { [weak self] id in self?.keepOpen(id) },
-            relayout: { [weak self] in self?.layout() }
+            relayout: { [weak self] in self?.layout() },
+            openReference: { [weak self] backlink in self?.owner.openReference(backlink) },
+            tickItem: { [weak self] entry in self?.owner.tickOpenItem(entry) }
         )
         cards[annotation.id] = card
         return card
@@ -609,6 +613,17 @@ final class AnnotationController {
         host.reveal(top: CGFloat(anchor.top), bottom: CGFloat(anchor.bottom), card: card)
         return true
     }
+
+    /// Selects a passage and brings it into view. False when the text no longer has it.
+    @discardableResult
+    func reveal(passage text: String, before: String) -> Bool {
+        guard let spot = surface.select(passage: text, before: before) else { return false }
+        host.reveal(top: CGFloat(spot.top), bottom: CGFloat(spot.bottom))
+        return true
+    }
+
+    /// Says something short about what a click did not do, in the toast.
+    func notify(_ message: String) { showToast(message) }
 
     // MARK: Undo
 

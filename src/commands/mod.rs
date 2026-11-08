@@ -3,6 +3,7 @@ pub mod annotate;
 pub mod changes;
 pub mod check;
 pub mod init;
+pub mod items;
 pub mod link;
 pub mod open;
 pub mod reject;

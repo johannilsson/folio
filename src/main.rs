@@ -24,6 +24,19 @@ enum Commands {
         #[command(subcommand)]
         command: SetCommands,
     },
+    /// Print the open items (#investigate, #waiting, #replied) of markdown files, or of a set
+    Items {
+        #[arg(required_unless_present = "set")]
+        files: Vec<PathBuf>,
+        /// Read every file of a named set (see `folio set`), its folders as they are on disk
+        #[arg(long)]
+        set: Option<String>,
+        /// Only items with this tag
+        #[arg(long, value_parser = ["investigate", "waiting", "replied"])]
+        tag: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Print pending annotations
     Review {
         file: PathBuf,
@@ -94,10 +107,20 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Print the folio:// link to an annotation
+    /// Print the folio:// link to an annotation, or to a passage of the text
     Link {
         file: PathBuf,
-        id: String,
+        #[arg(required_unless_present = "passage", conflicts_with = "passage")]
+        id: Option<String>,
+        /// Link to this passage (rendered text, as `folio render` shows it) instead of an annotation
+        #[arg(long)]
+        passage: Option<String>,
+        /// With --passage: the rendered words just before it, when it appears more than once
+        #[arg(long, requires = "passage")]
+        before: Option<String>,
+        /// Print a whole markdown link, its text saying what it points at
+        #[arg(long)]
+        markdown: bool,
     },
     /// Print the plain-text view used by the anchoring engine
     Render {
@@ -107,16 +130,19 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum SetCommands {
-    /// Add files to a set, creating it if needed
+    /// Add files or folders to a set, creating it if needed
     Add {
         name: String,
-        #[arg(required = true)]
+        #[arg(required_unless_present = "folders")]
         files: Vec<PathBuf>,
+        /// Add a folder: its markdown files are in the set as they are on disk (repeatable)
+        #[arg(long = "folder", value_name = "FOLDER")]
+        folders: Vec<PathBuf>,
         /// Directory that holds the `.folio/` sidecars (default: the file's git root)
         #[arg(long)]
         root: Option<PathBuf>,
     },
-    /// Remove files from a set, or delete the set when no files are given
+    /// Remove files or folders from a set, or delete the set when none are given
     Rm {
         name: String,
         files: Vec<PathBuf>,
@@ -133,10 +159,11 @@ fn main() {
     let result = match cli.command {
         Commands::Open { file, set } => commands::open::run(file.as_deref(), set.as_deref()),
         Commands::Set { command } => match command {
-            SetCommands::Add { name, files, root } => commands::set::add(&name, &files, root.as_ref()),
+            SetCommands::Add { name, files, folders, root } => commands::set::add(&name, &files, &folders, root.as_ref()),
             SetCommands::Rm { name, files } => commands::set::rm(&name, &files),
             SetCommands::List { name } => commands::set::list(name.as_deref()),
         },
+        Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),
         Commands::Review { file, kind, source, json } => {
             commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
         }
@@ -163,7 +190,9 @@ fn main() {
         }
         Commands::Init { file } => commands::init::run(&file),
         Commands::Check { file, json } => commands::check::run(&file, json),
-        Commands::Link { file, id } => commands::link::run(&file, &id),
+        Commands::Link { file, id, passage, before, markdown } => {
+            commands::link::run(&file, id.as_deref(), passage.as_deref(), before.as_deref(), markdown)
+        }
         Commands::Render { file } => commands::render::run(&file),
     };
 

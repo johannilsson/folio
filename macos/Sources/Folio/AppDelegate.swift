@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         do {
             var info = try Rust.setLoad(name)
-            if info.files.isEmpty {
+            if info.allFiles.isEmpty {
                 guard let files = chooseMarkdownFiles(message: "“\(name)” has no files yet. Choose some to add."), !files.isEmpty else { return nil }
                 try Rust.setAdd(name, files: files)
                 info = try Rust.setLoad(name)
@@ -128,27 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // `folio open --set <name>` arrives as folio://set/<name>, `folio link` URLs as
-    // folio://annotation/<id>?file=<path>; files as file URLs, which the document controller handles.
+    // folio://annotation/<id>?… or folio://passage?…; files as file URLs, which the document controller handles.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.scheme == "folio", url.host == "set" {
                 openSet(url.lastPathComponent)
-            } else if url.scheme == "folio", url.host == "annotation" {
-                openAnnotation(url)
+            } else if url.scheme == "folio", url.host == "annotation" || url.host == "passage" {
+                openLink(url)
             } else if url.isFileURL {
                 open(url)
             }
         }
     }
 
-    /// Opens the file of a folio://annotation/<id>?file=<path> link and brings the annotation into view.
-    /// A link to an annotation that is resolved, or gone, just opens the file.
-    func openAnnotation(_ link: URL) {
-        let id = link.lastPathComponent
-        guard let path = URLComponents(url: link, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "file" })?.value, !id.isEmpty, id != "/" else { return }
+    /// Opens the file a folio://annotation or folio://passage link names and brings its annotation or text
+    /// into view (`AppServer.open`). A link to an annotation that is resolved, or gone, just opens the file.
+    func openLink(_ url: URL) {
+        guard let link = FolioLink(url) else { return }
         // Same as the MCP `reveal`: a file that a set window has opens there, not in a window of its own.
-        MainActor.assumeIsolated { _ = AppServer.reveal(URL(fileURLWithPath: path), annotation: id) }
+        MainActor.assumeIsolated { AppServer.open(link) }
     }
 
     // MARK: launching without a file
@@ -410,6 +408,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             source.keyEquivalentModifierMask = [.command, .shift]
             let comments = m.addItem(withTitle: "Toggle Comments", action: #selector(FolioWindowController.toggleComments(_:)), keyEquivalent: "m")
             comments.keyEquivalentModifierMask = [.command, .shift]
+            // Only set windows have the Open pane, so this is dimmed in the others.
+            let open = m.addItem(withTitle: "Toggle Open Items", action: #selector(SetWindowController.toggleOpenPane(_:)), keyEquivalent: "o")
+            open.keyEquivalentModifierMask = [.command, .shift]
             let inline = m.addItem(withTitle: "Comments Inline", action: #selector(EditorWindowController.toggleCommentsInline(_:)), keyEquivalent: "i")
             inline.keyEquivalentModifierMask = [.command, .option]
             // Xcode's keys for folding code: ⌥⌘← and ⌥⌘→, with ⇧ for all of them.

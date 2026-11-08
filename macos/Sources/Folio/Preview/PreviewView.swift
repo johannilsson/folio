@@ -20,6 +20,13 @@ final class PreviewView: NSView, AnnotationSurface {
     var onAnchors: (([AnchorRect]) -> Void)?
     var onSelection: ((SelectionInfo?) -> Void)?
     var onFocus: ((String?) -> Void)?
+    /// How a link into Folio (to an annotation, a passage, a wiki page) stands, asked when the text is built
+    /// and again on a click: the window knows what is open.
+    var linkState: (URL) -> PreviewBuilder.LinkState = { _ in .live }
+    /// A click on a live link into Folio.
+    var onLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// What `linkState` said of each link in the text, to see when one has changed.
+    private var linkSignature: [String] = []
     var onHover: ((String?) -> Void)?
     var emphasized: Set<String> = [] {
         didSet { if emphasized != oldValue { applyMarks() } }
@@ -95,7 +102,9 @@ final class PreviewView: NSView, AnnotationSurface {
 
     private func setMarkdown(_ text: String) {
         markdown = text
-        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent(), plantUML: AppConfig.renderPlantUML)
+        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent(), plantUML: AppConfig.renderPlantUML,
+                                    linkState: linkState)
+        linkSignature = currentLinkSignature()
         ghosts = []
         model = base
         rebuilding = true
@@ -452,8 +461,34 @@ final class PreviewView: NSView, AnnotationSurface {
         onSelection?(TextSurface.selection(in: textView, displayRange: range, fileRange: inFile, document: markdown))
     }
 
+    /// The links into Folio in the text, each with how it stands now.
+    private func currentLinkSignature() -> [String] {
+        var found: [String] = []
+        base.text.enumerateAttribute(.folioLink, in: NSRange(location: 0, length: base.text.length)) { value, range, _ in
+            guard let url = value as? URL else { return }
+            found.append("\(range.location):\(url.absoluteString):\(linkState(url))")
+        }
+        return found
+    }
+
+    /// Draws the links again when one went live or dead: a file came or went in the wiki, a branch was
+    /// checked out. The text is rebuilt only then.
+    func refreshLinks() {
+        guard currentLinkSignature() != linkSignature else { return }
+        let selection = textView.selectedRange()
+        setMarkdown(markdown)
+        rebuild()
+        textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: textView.textStorage?.length ?? 0)))
+    }
+
     /// A click on a character: the annotation there (or its suggested text) takes the focus, or none.
     private func clicked(at index: Int?) {
+        // A link into Folio opens when it is live; a dead one says why when the mouse rests on it.
+        if let index, let storage = textView.textStorage, index < storage.length,
+           let url = storage.attribute(.folioLink, at: index, effectiveRange: nil) as? URL {
+            if case .live = linkState(url) { onLink(url) }
+            return
+        }
         guard let index else { onFocus?(nil); return }
         let suggested = pending.first { annotation in
             guard let ghost = ghostRanges[annotation.id] else { return false }
@@ -502,6 +537,15 @@ final class PreviewView: NSView, AnnotationSurface {
         guard let range = ranges[id] else { return }
         window?.makeFirstResponder(textView)
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
+    }
+
+    func select(passage text: String, before: String) -> (top: Double, bottom: Double)? {
+        guard let inFile = TextSurface.anchorPassage(text: text, before: before, in: markdown),
+              let shown = model.displayRange(forSource: inFile),
+              let spot = TextSurface.position(of: shown.location, in: textView) else { return nil }
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(shown)
+        return (spot.top, spot.bottom)
     }
 
     func flush() async {}
