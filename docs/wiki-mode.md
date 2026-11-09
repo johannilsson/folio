@@ -21,8 +21,8 @@ backlinks on a card, 3: the Open list).
   `folio open --set <set>`. Its markdown files are listed as a tree under the folder's name, after
   the set's other files. `folio set rm <set> <folder>` takes it out again; its files cannot be
   removed from the set one by one.
-- Clicking a subfolder folds its files away (its chevron points right) and clicking it again
-  unfolds them. Folding is the window's, not saved. A page opened in a folded folder, by a link or
+- Clicking a subfolder, or the folder's heading, folds its files away (its chevron points right)
+  and clicking it again unfolds them. Folding is the window's, not saved. A page opened in a folded folder, by a link or
   an open item, unfolds it; folding the folder of the page on screen keeps the page.
 - The tree is current: a file added, renamed or removed underneath (by the agent, by Obsidian, by
   `git pull`) shows within a second, without a reload. A file that changed since the reader last
