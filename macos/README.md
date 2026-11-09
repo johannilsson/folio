@@ -73,7 +73,7 @@ app's path in it; Copy puts it on the pasteboard. For Claude Desktop
 everything else in it, and says what it did; restart the tool afterwards. Do it again after moving the
 app: it updates the path.
 
-The tools: `render`, `list_annotations`, `annotate` (all or nothing, checked against the text before
+The tools: `render`, `list_annotations`, `annotations_since` (what is new since the `cursor` of the last call: annotations, replies, resolutions; `exclude_author` is optional), `annotate` (all or nothing, checked against the text before
 anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files
 and need no running app. `current_document`, `focused_annotation` and `reveal` ask the running app,
 over a socket (`<config>/app.sock`, mode 0600, `AppServer.swift`): `focused_annotation` is the

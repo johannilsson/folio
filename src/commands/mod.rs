@@ -1,5 +1,6 @@
 pub mod accept;
 pub mod annotate;
+pub mod changes;
 pub mod check;
 pub mod init;
 pub mod link;

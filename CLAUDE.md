@@ -57,11 +57,12 @@ CI takes the pictures only for a pull request labeled `pictures` and shows them 
 
 - `main.rs` — CLI entry point (clap); the modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use. `cargo build` does not touch the frontend.
 
-The engine (`sidecar.rs`, `edit.rs`, `accept.rs`, `location.rs`) uses only itself: no CLI, MCP, sets, config folder or launching processes, so it could serve another app (e.g. mobile). Not enforced by the build; keep it that way by convention.
+The engine (`sidecar.rs`, `edit.rs`, `accept.rs`, `changes.rs`, `location.rs`) uses only itself: no CLI, MCP, sets, config folder or launching processes, so it could serve another app (e.g. mobile). Not enforced by the build; keep it that way by convention.
 
 - `sidecar.rs` — Annotation/Sidecar types + anchoring algorithm
 - `edit.rs` — the editor's actions on a sidecar (resolve, add comment, reply, edit comment, restore for undo), applied to what is on disk so an agent's concurrent writes survive; the app's `AnnotationStore` calls it through `folio_edit`
 - `accept.rs` — accepting: anchoring + reverse-order patch application, marking resolved (`folio accept` and `folio_accept`)
+- `changes.rs` — what changed since a time (new annotations, replies, resolutions; optional `exclude_author`), from the timestamps the sidecar holds (`folio changes` and the MCP tool `annotations_since`)
 - `location.rs` — `folio_path`: the sidecar is `<git root, else the file's folder>/.folio/<path relative to root>.folio` wherever the command runs (`detect_root`, `folio_path_in`; the CLI, sets, MCP and the app use the same rule)
 
 The rest is the desktop around it:

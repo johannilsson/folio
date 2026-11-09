@@ -186,6 +186,22 @@ fn tools() -> Value {
             &["file"],
         ),
         tool(
+            "annotations_since",
+            "What changed on a markdown file's annotations since a time: new annotations, new replies and resolutions \
+             (accepted, rejected, dismissed), oldest first. Call it again from time to time with the `cursor` it last \
+             returned as `since` to see only what is new, for instance to find the person's comments and replies. \
+             Without `since` it gives everything. `since` is inclusive, so a change can come twice: recognise it by \
+             `change`, `id` and `reply_id`. A resolution does not say who resolved.",
+            true,
+            json!({
+                "file": file,
+                "since": { "type": "string", "description": "The `cursor` of the last call, or a time like 2026-01-01T10:00:00Z." },
+                "exclude_author": { "type": "string", "description": "Leave out new annotations and replies written by this author, \
+                                    usually your own `author`. Optional; resolutions are always given." },
+            }),
+            &["file"],
+        ),
+        tool(
             "annotate",
             "Add annotations to a markdown file for the person to review in Folio. Kinds: `replace` (needs target and \
              replacement), `delete` (target), `insert` (replacement, placed right after context_before), `highlight` \
@@ -301,6 +317,7 @@ fn call(name: &str, args: &Value, app: &dyn App) -> Result<String, String> {
     let result = match name {
         "render" => render(args),
         "list_annotations" => list_annotations(args),
+        "annotations_since" => annotations_since(args),
         "annotate" => annotate(args),
         "reply" => reply(args),
         "verify" => verify(args),
@@ -394,6 +411,14 @@ fn list_annotations(args: &Value) -> Result<Value, String> {
         })
         .collect();
     Ok(json!({ "sidecar": folio, "annotations": annotations }))
+}
+
+fn annotations_since(args: &Value) -> Result<Value, String> {
+    let file = file_arg(args)?;
+    let folio = crate::location::folio_path(&file);
+    let optional = |key: &str| args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let report = crate::changes::report(&load_sidecar(&folio)?, optional("since"), optional("exclude_author"));
+    Ok(json!({ "sidecar": folio, "cursor": report.cursor, "changes": report.changes }))
 }
 
 fn annotate(args: &Value) -> Result<Value, String> {
@@ -901,7 +926,7 @@ mod tests {
         let names: Vec<&str> = replies[2]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
-            ["render", "list_annotations", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "open",
+            ["render", "list_annotations", "annotations_since", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "open",
              "current_document", "focused_annotation", "reveal"]
         );
         for tool in replies[2]["result"]["tools"].as_array().unwrap() {
@@ -971,6 +996,37 @@ mod tests {
         let text = ok(&NoApp, "render", json!({ "file": file }));
         assert!(text.as_str().unwrap().contains("The quick brown fox"), "{text}");
         assert!(!text.as_str().unwrap().contains("**"));
+    }
+
+    #[test]
+    fn annotations_since_gives_what_is_new_and_the_filter_is_optional() {
+        let file = document("since", DOC);
+        // No sidecar yet: nothing, and a cursor to start from.
+        let none = ok(&NoApp, "annotations_since", json!({ "file": file }));
+        assert!(none["changes"].as_array().unwrap().is_empty());
+        assert!(none["cursor"].as_str().unwrap().ends_with('Z'));
+
+        ok(&NoApp, "annotate", json!({ "file": file, "author": "reviewer", "annotations": [
+            { "kind": "comment", "context_before": "The quick brown ", "target": "fox", "comment": "why a fox?" }] }));
+        let id = ok(&NoApp, "list_annotations", json!({ "file": file }))["annotations"][0]["id"].as_str().unwrap().to_string();
+        ok(&NoApp, "reply", json!({ "file": file, "author": "me", "id": id, "body": "because" }));
+
+        let all = ok(&NoApp, "annotations_since", json!({ "file": file }));
+        let changes = all["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0]["change"], "new_annotation");
+        assert_eq!(changes[0]["text"], "why a fox?");
+        assert_eq!(changes[1]["change"], "new_reply");
+        assert_eq!(changes[1]["text"], "because");
+
+        let others = ok(&NoApp, "annotations_since", json!({ "file": file, "exclude_author": "reviewer" }));
+        assert_eq!(others["changes"].as_array().unwrap().len(), 1);
+        assert_eq!(others["changes"][0]["change"], "new_reply");
+
+        // An empty filter is no filter, and a later `since` leaves older changes out.
+        assert_eq!(ok(&NoApp, "annotations_since", json!({ "file": file, "exclude_author": "" }))["changes"].as_array().unwrap().len(), 2);
+        let later = ok(&NoApp, "annotations_since", json!({ "file": file, "since": "2999-01-01T00:00:00Z" }));
+        assert!(later["changes"].as_array().unwrap().is_empty());
     }
 
     #[test]
