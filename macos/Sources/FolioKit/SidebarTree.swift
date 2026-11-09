@@ -15,8 +15,10 @@ public enum SidebarTree {
     /// The rows for files given by their paths in the folder ("research/b.md"), in the order
     /// libfolio lists them: each folder's files, then its subfolders. A subfolder gets a heading
     /// before its first file. A folder whose path is in `collapsed` keeps its heading and hides
-    /// everything in it, subfolders included.
+    /// everything in it, subfolders included. The set's folder itself is `""`: folded, nothing in
+    /// it shows (its heading is the sidebar's).
     public static func rows(_ paths: [String], collapsed: Set<String> = []) -> [Row] {
+        if collapsed.contains("") { return [] }
         var rows: [Row] = []
         var open: [String] = []
         for (index, path) in paths.enumerated() {
@@ -38,11 +40,12 @@ public enum SidebarTree {
         return rows
     }
 
-    /// The folders a file is in, outermost first: "research/deep/y.md" is in "research" and
-    /// "research/deep". What has to unfold for the file to show.
+    /// The folders a file is in, outermost first, starting with the set's folder (`""`):
+    /// "research/deep/y.md" is in "", "research" and "research/deep". What has to unfold for the
+    /// file to show.
     public static func folders(containing path: String) -> [String] {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true).dropLast().map(String.init)
-        return parts.indices.map { parts[0...$0].joined(separator: "/") }
+        return [""] + parts.indices.map { parts[0...$0].joined(separator: "/") }
     }
 
     /// A checkout a set's files are in: what the sidebar heads a group of files with.

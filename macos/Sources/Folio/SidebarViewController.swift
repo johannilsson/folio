@@ -7,7 +7,9 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     private enum Row {
         /// The open items of the whole set, above its files, when there are any.
         case openList(count: Int)
-        case header(String)
+        /// A checkout's heading, or a set folder's (`folded` non-nil: clicking it folds or
+        /// unfolds the whole folder; its title is the folder's group).
+        case header(String, folded: Bool?)
         /// A subfolder of one of the set's folders (`group`), at `path` in it; `depth` 1 is
         /// directly in it. Clicking it folds or unfolds its files.
         case folder(name: String, group: String, path: String, depth: Int, collapsed: Bool)
@@ -62,11 +64,16 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     // MARK: what the tests look at
 
     var fileIDs: [String] { rows.compactMap(\.fileID) }
-    var headerTitles: [String] { rows.compactMap { if case .header(let title) = $0 { return title } else { return nil } } }
+    var headerTitles: [String] { rows.compactMap { if case .header(let title, _) = $0 { return title } else { return nil } } }
     var folderTitles: [String] { rows.compactMap { if case .folder(let name, _, _, _, _) = $0 { return name } else { return nil } } }
-    /// The folded subfolders, by name.
+    /// The folded set folders and subfolders, by name.
     var collapsedTitles: [String] {
-        rows.compactMap { if case .folder(let name, _, _, _, true) = $0 { return name } else { return nil } }
+        rows.compactMap {
+            switch $0 {
+            case .folder(let name, _, _, _, true), .header(let name, true?): return name
+            default: return nil
+            }
+        }
     }
     var fileNames: [String] { rows.compactMap { if case .file(_, let name, _, _) = $0 { return name } else { return nil } } }
     var selectedID: String? {
@@ -193,7 +200,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         for entry in picked {
             if multiRoot && entry.root != root {
                 root = entry.root
-                next.append(.header(headings[entry.root.path] ?? entry.group))
+                next.append(.header(headings[entry.root.path] ?? entry.group, folded: nil))
             }
             next.append(.file(id: entry.document.id, name: entry.name, pending: entry.document.pendingCount(), depth: 0))
         }
@@ -203,7 +210,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             let name = inFolders[start].group
             let end = inFolders[start...].firstIndex { $0.group != name } ?? inFolders.endIndex
             let files = Array(inFolders[start..<end])
-            next.append(.header(name))
+            next.append(.header(name, folded: collapsed[name]?.contains("") == true))
             for row in SidebarTree.rows(files.map(\.name), collapsed: collapsed[name] ?? []) {
                 switch row {
                 case .folder(let folder, let path, let depth, let folded):
@@ -224,23 +231,30 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         if keepOpen, openCount > 0 { selectOpenList() } else if let keep { highlight(keep) } else if let first = fileIDs.first { highlight(first) }
     }
 
-    /// Folds a subfolder of a set folder away, or unfolds it.
+    /// Folds a subfolder of a set folder away, or unfolds it; `path` "" is the set folder itself.
     func toggleFolder(group: String, path: String) {
         if collapsed[group, default: []].remove(path) == nil { collapsed[group, default: []].insert(path) }
         reload()
     }
 
-    /// Folds a subfolder by its name, for the tests.
+    /// Folds a set folder or subfolder by its name, for the tests.
     func toggleFolder(named name: String) {
-        for case .folder(name, let group, let path, _, _) in rows {
-            toggleFolder(group: group, path: path)
-            return
+        for row in rows {
+            switch row {
+            case .folder(name, let group, let path, _, _): return toggleFolder(group: group, path: path)
+            case .header(name, _?): return toggleFolder(group: name, path: "")
+            default: continue
+            }
         }
     }
 
     @objc private func rowClicked() {
-        guard table.clickedRow >= 0, case .folder(_, let group, let path, _, _) = rows[table.clickedRow] else { return }
-        toggleFolder(group: group, path: path)
+        guard table.clickedRow >= 0 else { return }
+        switch rows[table.clickedRow] {
+        case .folder(_, let group, let path, _, _): toggleFolder(group: group, path: path)
+        case .header(let group, _?): toggleFolder(group: group, path: "")
+        default: break
+        }
     }
 
     /// Highlights the Open row without announcing it, for when the window shows the list on its own.
@@ -372,7 +386,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             ])
             return cell
 
-        case .header(let title):
+        case .header(let title, let folded):
             let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: 11, weight: .semibold)
             label.textColor = .secondaryLabelColor
@@ -391,15 +405,20 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
                 label.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -12),
                 label.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -4),
             ])
+            // A set folder's heading folds the folder: its chevron sits in the indent before it.
+            if let folded {
+                let chevron = Self.chevron(folded: folded)
+                chevron.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(chevron)
+                NSLayoutConstraint.activate([
+                    chevron.trailingAnchor.constraint(equalTo: label.leadingAnchor, constant: -4),
+                    chevron.centerYAnchor.constraint(equalTo: label.centerYAnchor),
+                ])
+            }
             return cell
 
         case .folder(let name, _, _, let depth, let folded):
-            let chevron = NSImageView(image: NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down",
-                                                     accessibilityDescription: folded ? "Folded" : "Unfolded") ?? NSImage())
-            chevron.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-            chevron.contentTintColor = .tertiaryLabelColor
-            chevron.setContentHuggingPriority(.required, for: .horizontal)
-            chevron.widthAnchor.constraint(equalToConstant: 10).isActive = true
+            let chevron = Self.chevron(folded: folded)
             let icon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil) ?? NSImage())
             icon.contentTintColor = .secondaryLabelColor
             icon.setContentHuggingPriority(.required, for: .horizontal)
@@ -471,6 +490,17 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             ])
             return cell
         }
+    }
+
+    /// The fold mark of a folder: pointing right while folded, down while open.
+    private static func chevron(folded: Bool) -> NSImageView {
+        let chevron = NSImageView(image: NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down",
+                                                 accessibilityDescription: folded ? "Folded" : "Unfolded") ?? NSImage())
+        chevron.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        chevron.contentTintColor = .tertiaryLabelColor
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
+        chevron.widthAnchor.constraint(equalToConstant: 10).isActive = true
+        return chevron
     }
 
     /// How far a level of a folder's tree is indented.

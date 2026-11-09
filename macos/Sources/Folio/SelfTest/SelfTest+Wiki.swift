@@ -44,6 +44,15 @@ extension SelfTest {
         }
         sidebar.toggleFolder(named: "research")
         await check("and clicking it again unfolds them") { sidebar.fileNames == ["index.md", "oauth.md"] && sidebar.collapsedTitles.isEmpty }
+        sidebar.toggleFolder(named: "payments")
+        await check("clicking the folder's heading folds the whole folder and keeps the heading") {
+            sidebar.fileNames.isEmpty && sidebar.folderTitles.isEmpty && sidebar.headerTitles == ["payments"]
+                && sidebar.collapsedTitles == ["payments"] && sidebar.selectedID == nil
+        }
+        sidebar.toggleFolder(named: "payments")
+        await check("and clicking it again unfolds it, the page on screen highlighted") {
+            sidebar.fileNames == ["index.md", "oauth.md"] && sidebar.selectedID == win.currentID
+        }
         await check("the window opens on the folder's first file") {
             await self.until { win.scrollHost.preview.textView.string.contains("WIKI INDEX") }
         }

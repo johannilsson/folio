@@ -66,8 +66,12 @@ import Testing
     }
 
     @Test func theFoldersAFileIsInOutermostFirst() {
-        #expect(SidebarTree.folders(containing: "research/deep/y.md") == ["research", "research/deep"])
-        #expect(SidebarTree.folders(containing: "a.md").isEmpty)
+        #expect(SidebarTree.folders(containing: "research/deep/y.md") == ["", "research", "research/deep"])
+        #expect(SidebarTree.folders(containing: "a.md") == [""])
+    }
+
+    @Test func foldingTheSetsFolderHidesEverythingInIt() {
+        #expect(SidebarTree.rows(["a.md", "research/z.md"], collapsed: [""]).isEmpty)
     }
 
     @Test func noFilesNoRows() {
