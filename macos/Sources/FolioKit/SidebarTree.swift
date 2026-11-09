@@ -3,8 +3,10 @@ import Foundation
 /// How a set's folder is listed in the sidebar, and what is said when its files change on disk.
 public enum SidebarTree {
     public enum Row: Equatable {
-        /// A subfolder heading, at its depth below the set's folder (1 for a folder in it).
-        case folder(name: String, depth: Int)
+        /// A subfolder heading, at its depth below the set's folder (1 for a folder in it). `path`
+        /// is where it is in the folder ("research/deep"), which names it for folding; `collapsed`
+        /// when its files are folded away.
+        case folder(name: String, path: String, depth: Int, collapsed: Bool)
         /// The file at `index` in the paths given, shown by its own name at its depth (0 for a
         /// file directly in the set's folder).
         case file(index: Int, name: String, depth: Int)
@@ -12,23 +14,35 @@ public enum SidebarTree {
 
     /// The rows for files given by their paths in the folder ("research/b.md"), in the order
     /// libfolio lists them: each folder's files, then its subfolders. A subfolder gets a heading
-    /// before its first file.
-    public static func rows(_ paths: [String]) -> [Row] {
+    /// before its first file. A folder whose path is in `collapsed` keeps its heading and hides
+    /// everything in it, subfolders included.
+    public static func rows(_ paths: [String], collapsed: Set<String> = []) -> [Row] {
         var rows: [Row] = []
         var open: [String] = []
         for (index, path) in paths.enumerated() {
             var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             let name = parts.popLast() ?? path
+            // The first folder of the file's that is folded: nothing below it shows.
+            let folded = (0..<parts.count).first { collapsed.contains(parts[0...$0].joined(separator: "/")) }
+            let shown = folded.map { $0 + 1 } ?? parts.count
             // Headings for the folders this file is in that the file before was not.
             var shared = 0
             while shared < min(open.count, parts.count), open[shared] == parts[shared] { shared += 1 }
-            for depth in shared..<parts.count {
-                rows.append(.folder(name: parts[depth], depth: depth + 1))
+            for depth in shared..<max(shared, shown) {
+                let folder = parts[0...depth].joined(separator: "/")
+                rows.append(.folder(name: parts[depth], path: folder, depth: depth + 1, collapsed: collapsed.contains(folder)))
             }
             open = parts
-            rows.append(.file(index: index, name: name, depth: parts.count))
+            if folded == nil { rows.append(.file(index: index, name: name, depth: parts.count)) }
         }
         return rows
+    }
+
+    /// The folders a file is in, outermost first: "research/deep/y.md" is in "research" and
+    /// "research/deep". What has to unfold for the file to show.
+    public static func folders(containing path: String) -> [String] {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true).dropLast().map(String.init)
+        return parts.indices.map { parts[0...$0].joined(separator: "/") }
     }
 
     /// A checkout a set's files are in: what the sidebar heads a group of files with.

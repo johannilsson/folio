@@ -15,7 +15,7 @@ import Testing
     @Test func aSubfolderGetsAHeadingBeforeItsFirstFile() {
         #expect(SidebarTree.rows(["a.md", "research/b.md", "research/c.md"]) == [
             .file(index: 0, name: "a.md", depth: 0),
-            .folder(name: "research", depth: 1),
+            .folder(name: "research", path: "research", depth: 1, collapsed: false),
             .file(index: 1, name: "b.md", depth: 1),
             .file(index: 2, name: "c.md", depth: 1),
         ])
@@ -23,21 +23,51 @@ import Testing
 
     @Test func nestedAndSiblingFoldersEachGetTheirHeadings() {
         #expect(SidebarTree.rows(["archive/x.md", "research/z.md", "research/deep/y.md"]) == [
-            .folder(name: "archive", depth: 1),
+            .folder(name: "archive", path: "archive", depth: 1, collapsed: false),
             .file(index: 0, name: "x.md", depth: 1),
-            .folder(name: "research", depth: 1),
+            .folder(name: "research", path: "research", depth: 1, collapsed: false),
             .file(index: 1, name: "z.md", depth: 1),
-            .folder(name: "deep", depth: 2),
+            .folder(name: "deep", path: "research/deep", depth: 2, collapsed: false),
             .file(index: 2, name: "y.md", depth: 2),
         ])
     }
 
     @Test func aFolderWithOnlySubfoldersStillGetsItsHeading() {
         #expect(SidebarTree.rows(["a/b/c.md"]) == [
-            .folder(name: "a", depth: 1),
-            .folder(name: "b", depth: 2),
+            .folder(name: "a", path: "a", depth: 1, collapsed: false),
+            .folder(name: "b", path: "a/b", depth: 2, collapsed: false),
             .file(index: 0, name: "c.md", depth: 2),
         ])
+    }
+
+    @Test func aFoldedFolderKeepsItsHeadingAndHidesItsFilesAndSubfolders() {
+        let paths = ["a.md", "research/z.md", "research/deep/y.md", "todo/t.md"]
+        #expect(SidebarTree.rows(paths, collapsed: ["research"]) == [
+            .file(index: 0, name: "a.md", depth: 0),
+            .folder(name: "research", path: "research", depth: 1, collapsed: true),
+            .folder(name: "todo", path: "todo", depth: 1, collapsed: false),
+            .file(index: 3, name: "t.md", depth: 1),
+        ])
+    }
+
+    @Test func foldingASubfolderLeavesItsParentsFilesShown() {
+        #expect(SidebarTree.rows(["research/z.md", "research/deep/y.md"], collapsed: ["research/deep"]) == [
+            .folder(name: "research", path: "research", depth: 1, collapsed: false),
+            .file(index: 0, name: "z.md", depth: 1),
+            .folder(name: "deep", path: "research/deep", depth: 2, collapsed: true),
+        ])
+    }
+
+    @Test func aFolderWithOnlyAFoldedSubfolderShowsBothHeadings() {
+        #expect(SidebarTree.rows(["a/b/c.md", "a/b/d.md"], collapsed: ["a/b"]) == [
+            .folder(name: "a", path: "a", depth: 1, collapsed: false),
+            .folder(name: "b", path: "a/b", depth: 2, collapsed: true),
+        ])
+    }
+
+    @Test func theFoldersAFileIsInOutermostFirst() {
+        #expect(SidebarTree.folders(containing: "research/deep/y.md") == ["research", "research/deep"])
+        #expect(SidebarTree.folders(containing: "a.md").isEmpty)
     }
 
     @Test func noFilesNoRows() {

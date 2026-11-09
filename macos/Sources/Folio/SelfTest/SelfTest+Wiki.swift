@@ -38,6 +38,12 @@ extension SelfTest {
             sidebar.headerTitles == ["payments"] && sidebar.fileNames == ["index.md", "oauth.md"]
         }
         await check("a subfolder gets a heading") { sidebar.folderTitles == ["research"] }
+        sidebar.toggleFolder(named: "research")
+        await check("clicking a subfolder folds its files away and keeps its heading") {
+            sidebar.fileNames == ["index.md"] && sidebar.folderTitles == ["research"] && sidebar.collapsedTitles == ["research"]
+        }
+        sidebar.toggleFolder(named: "research")
+        await check("and clicking it again unfolds them") { sidebar.fileNames == ["index.md", "oauth.md"] && sidebar.collapsedTitles.isEmpty }
         await check("the window opens on the folder's first file") {
             await self.until { win.scrollHost.preview.textView.string.contains("WIKI INDEX") }
         }
@@ -75,10 +81,20 @@ extension SelfTest {
         click("Priya")
         try? await Task.sleep(nanoseconds: 300_000_000)
         await check("clicking a grey link does nothing") { win.currentID == indexID }
+        sidebar.toggleFolder(named: "research")
         click("oauth")
         await check("clicking a live link opens the page in the window") {
             await self.until { win.currentID != indexID && win.window?.subtitle == "research/oauth.md" }
         }
+        await check("a page opened in a folded folder unfolds it and is highlighted") {
+            sidebar.collapsedTitles.isEmpty && sidebar.selectedID == win.currentID
+        }
+        sidebar.toggleFolder(named: "research")
+        await check("folding the folder of the page on screen keeps the page, with no row highlighted") {
+            sidebar.fileNames == ["index.md"] && sidebar.selectedID == nil && win.window?.subtitle == "research/oauth.md"
+        }
+        sidebar.toggleFolder(named: "research")
+        await check("unfolding it highlights the page again") { sidebar.selectedID == win.currentID }
         sidebar.choose(indexID)
         await check("and back") { await self.until { win.currentID == indexID && preview.textView.string.contains("WIKI INDEX") } }
         click("oauth › Second part")
