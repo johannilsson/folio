@@ -277,6 +277,8 @@ folio link <file.md> <annotation-id>            # prints folio://annotation/<id>
 folio link <file.md> --passage "rendered text"  # a link that selects that text
 folio link <file.md> --passage "rotate" --before "We "   # when the text appears more than once
 folio link <file.md> <annotation-id> --markdown # a whole [text](url) link, the text saying what it points at
+folio link <file.md> --markdown                 # a link to the document as a whole
+folio refs <file.md> --set <name>               # the pages of the set that link to the file, its passages or annotations
 ```
 
 Put the URL in another document (a wiki page, say) to link to an annotation or a passage. Opening it in macOS opens the file in Folio with that annotation in focus, or the text selected; if the annotation is resolved (or gone), the file just opens. The link names the repo, the branch and the file's path in that checkout, so it finds the right copy of the file in a worktree, and says "isn't checked out any more" when the branch is gone. The absolute path is kept as a fallback, so an older link still works on the machine that made it.

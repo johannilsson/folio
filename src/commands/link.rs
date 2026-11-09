@@ -16,19 +16,22 @@ fn encode(path: &str) -> String {
 /// Where a file is, as a link names it: the repo and branch it is checked out on and its path in
 /// that checkout (they outlive a worktree's folder), and the absolute path as a fallback.
 fn place(file: &Path) -> String {
-    let file = crate::location::absolute(file);
-    let root = crate::location::detect_root(&file);
+    let here = crate::wiki::Here::of(file);
     let mut query = String::new();
-    if let Some(identity) = crate::location::repo_identity(&root) {
-        query.push_str(&format!("repo={}&", encode(&identity.repo)));
-        if let Some(branch) = &identity.branch {
+    if let Some(repo) = &here.repo {
+        query.push_str(&format!("repo={}&", encode(repo)));
+        if let Some(branch) = &here.branch {
             query.push_str(&format!("branch={}&", encode(branch)));
         }
-        let relative = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().replace('\\', "/");
-        query.push_str(&format!("path={}&", encode(&relative)));
+        query.push_str(&format!("path={}&", encode(&here.path)));
     }
-    query.push_str(&format!("file={}", encode(&file.to_string_lossy())));
+    query.push_str(&format!("file={}", encode(&here.file.to_string_lossy())));
     query
+}
+
+/// The link that opens `file` itself, for a wiki page about the document as a whole.
+pub fn document_url(file: &Path) -> String {
+    format!("folio://document?{}", place(file))
 }
 
 /// The link that opens `file` in Folio with the annotation `id` in view.
@@ -53,9 +56,10 @@ fn label(text: &str) -> String {
     short.replace('[', "(").replace(']', ")")
 }
 
-/// Print the link to an annotation or a passage, for pasting into another document. With
-/// `markdown`, a whole markdown link whose text is the author and the start of the comment (or the
-/// passage), so the document still reads once the target is gone.
+/// Print the link to an annotation, a passage or (with neither) the document, for pasting into
+/// another document. With `markdown`, a whole markdown link whose text is the author and the start
+/// of the comment (or the passage, or the file's name), so the document still reads once the target
+/// is gone.
 pub fn run(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<&str>, markdown: bool) -> anyhow::Result<()> {
     let (link, text) = match (id, passage) {
         (Some(id), None) => {
@@ -82,7 +86,14 @@ pub fn run(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<
             }
             (passage_url(file, passage, before), label(passage))
         }
-        _ => anyhow::bail!("give an annotation id, or --passage"),
+        (None, None) => {
+            if !file.is_file() {
+                anyhow::bail!("cannot read {}", file.display());
+            }
+            let name = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            (document_url(file), label(&name))
+        }
+        _ => anyhow::bail!("give an annotation id or --passage, not both"),
     };
     if markdown {
         println!("[{}]({})", text, link);
@@ -151,7 +162,16 @@ mod tests {
         assert!(err.contains("appears 2 times") && err.contains("--before"), "{err}");
         assert!(run(&file, None, Some("rotate"), Some("We "), false).is_ok());
         assert!(run(&file, None, Some("there and there"), None, false).is_ok());
-        assert!(run(&file, None, None, None, false).unwrap_err().to_string().contains("--passage"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_document_link_names_the_file_and_nothing_in_it() {
+        let (root, file) = repo_with("A whole document, linked as one.\n");
+        let link = document_url(&file);
+        assert!(link.starts_with("folio://document?repo=payments-svc&branch=fix/logout&path=docs/t.md&file="), "{link}");
+        assert!(run(&file, None, None, None, true).is_ok());
+        assert!(run(&root.join("docs/none.md"), None, None, None, false).unwrap_err().to_string().contains("cannot read"));
         std::fs::remove_dir_all(root).ok();
     }
 

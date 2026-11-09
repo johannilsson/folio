@@ -166,6 +166,180 @@ fn nested(after: &[&str], indent: usize) -> Option<String> {
     Some(text.trim().to_string()).filter(|text| !text.is_empty())
 }
 
+/// What a `folio://` link points at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum LinkTarget {
+    /// `folio://document?…`: the file as a whole.
+    Document,
+    /// `folio://annotation/<id>?…`.
+    Annotation { id: String },
+    /// `folio://passage?…&q=…`: rendered text of the file.
+    Passage { text: String },
+}
+
+/// A `folio://` link as `folio link` writes it: its target, and the file's repo, branch and path in
+/// that checkout (`file`, where it was on disk, for an older link or a file in no repo).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FolioLink {
+    #[serde(flatten)]
+    pub target: LinkTarget,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+}
+
+/// Where a file is, as links name it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Here {
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    /// The path in the checkout ("docs/t.md"), with `/` between folders.
+    pub path: String,
+    /// Absolute.
+    pub file: std::path::PathBuf,
+}
+
+impl Here {
+    pub fn of(file: &std::path::Path) -> Here {
+        let file = crate::location::absolute(file);
+        let root = crate::location::detect_root(&file);
+        let identity = crate::location::repo_identity(&root);
+        let path = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().replace('\\', "/");
+        Here { repo: identity.as_ref().map(|i| i.repo.clone()), branch: identity.and_then(|i| i.branch), path, file }
+    }
+}
+
+impl FolioLink {
+    pub fn parse(url: &str) -> Option<FolioLink> {
+        let rest = url.strip_prefix("folio://")?;
+        let (head, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let pairs: Vec<(String, String)> = query
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .map(|(key, value)| (key.to_string(), decode(value)))
+            .collect();
+        let get = |name: &str| pairs.iter().find(|(key, value)| key == name && !value.is_empty()).map(|(_, value)| value.clone());
+        let target = match head.split_once('/').unwrap_or((head, "")) {
+            ("document", _) => LinkTarget::Document,
+            ("annotation", id) if !id.is_empty() => LinkTarget::Annotation { id: decode(id) },
+            ("passage", _) => LinkTarget::Passage { text: get("q")? },
+            _ => return None,
+        };
+        Some(FolioLink { target, repo: get("repo"), branch: get("branch"), path: get("path"), file: get("file") })
+    }
+
+    /// Whether the link names this file: by repo, branch and path when it has them (no branch: any
+    /// checkout of the repo), else by where the file was. As `FolioLink.points(to:)` in the app.
+    pub fn points_to(&self, here: &Here) -> bool {
+        if let (Some(repo), Some(path)) = (&self.repo, &self.path) {
+            return here.repo.as_ref() == Some(repo)
+                && &here.path == path
+                && (self.branch.is_none() || self.branch == here.branch);
+        }
+        self.file.as_ref().is_some_and(|file| crate::location::absolute(std::path::Path::new(file)) == here.file)
+    }
+}
+
+fn decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        match (bytes[i], bytes.get(i + 1).copied().and_then(hex), bytes.get(i + 2).copied().and_then(hex)) {
+            (b'%', Some(high), Some(low)) => {
+                out.push((high * 16 + low) as u8);
+                i += 3;
+            }
+            (b, ..) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A `folio://` link in a page, where it is and what it says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reference {
+    /// 1-based.
+    pub line: usize,
+    /// The heading the link is under, else its line, short.
+    pub context: String,
+    /// The words of the markdown link (`[these](folio://…)`), empty for a bare one.
+    pub label: String,
+    pub url: String,
+    #[serde(flatten)]
+    pub link: FolioLink,
+}
+
+/// The `folio://document`, `folio://annotation` and `folio://passage` links of `markdown`, in order.
+/// A fenced block of code has none.
+pub fn references(markdown: &str) -> Vec<Reference> {
+    let mut found = Vec::new();
+    let mut heading: Option<String> = None;
+    let mut fenced = false;
+    for (index, line) in markdown.lines().enumerate() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced {
+            continue;
+        }
+        let hashes = line.len() - line.trim_start_matches('#').len();
+        if hashes > 0 && line[hashes..].starts_with(' ') {
+            let title = line.trim_start_matches('#').trim().trim_end_matches('#').trim();
+            if !title.is_empty() {
+                heading = Some(title.to_string());
+            }
+        }
+        for (at, _) in line.match_indices("folio://") {
+            let tail = &line[at..];
+            let end = tail.find(|c: char| c.is_whitespace() || ")>]\"'".contains(c)).unwrap_or(tail.len());
+            let url = &tail[..end];
+            let Some(link) = FolioLink::parse(url) else { continue };
+            found.push(Reference {
+                line: index + 1,
+                context: heading.clone().unwrap_or_else(|| snippet(line)),
+                label: link_words(&line[..at]),
+                url: url.to_string(),
+                link,
+            });
+        }
+    }
+    found
+}
+
+/// The words of the markdown link whose target starts right after `before`: `[these](`.
+fn link_words(before: &str) -> String {
+    let Some(head) = before.strip_suffix("](") else { return String::new() };
+    head.rfind('[').map(|open| head[open + 1..].trim().to_string()).unwrap_or_default()
+}
+
+/// A line without its list marker, short.
+fn snippet(line: &str) -> String {
+    let mut text = line.trim();
+    for marker in ["- [ ] ", "- [x] ", "- ", "* ", "+ ", "> "] {
+        if let Some(rest) = text.strip_prefix(marker) {
+            text = rest.trim();
+            break;
+        }
+    }
+    if text.chars().count() > 80 {
+        format!("{}…", text.chars().take(80).collect::<String>())
+    } else {
+        text.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +452,45 @@ mod tests {
         assert_eq!(tick("- [x] done\n", 1), None);
         assert_eq!(tick("plain\n", 1), None);
         assert_eq!(tick("- [ ] a\n", 2), None);
+    }
+
+    #[test]
+    fn a_link_parses_to_its_target_and_place() {
+        let link = FolioLink::parse("folio://passage?repo=svc&branch=fix/logout&path=docs/t.md&file=/x/a%20b.md&q=rotate%20on&before=We%20").unwrap();
+        assert_eq!(link.target, LinkTarget::Passage { text: "rotate on".into() });
+        assert_eq!((link.repo.as_deref(), link.branch.as_deref(), link.path.as_deref()), (Some("svc"), Some("fix/logout"), Some("docs/t.md")));
+        assert_eq!(link.file.as_deref(), Some("/x/a b.md"));
+        assert_eq!(FolioLink::parse("folio://annotation/c3d4?file=/x").unwrap().target, LinkTarget::Annotation { id: "c3d4".into() });
+        assert_eq!(FolioLink::parse("folio://document?path=a.md").unwrap().target, LinkTarget::Document);
+        assert_eq!(FolioLink::parse("folio://wiki?name=x"), None);
+        assert_eq!(FolioLink::parse("folio://passage?repo=svc"), None);
+        assert_eq!(FolioLink::parse("https://example.com"), None);
+    }
+
+    #[test]
+    fn a_link_points_to_a_file_by_repo_branch_and_path() {
+        let here = Here { repo: Some("svc".into()), branch: Some("main".into()), path: "docs/t.md".into(), file: "/w/svc/docs/t.md".into() };
+        let link = |q: &str| FolioLink::parse(&format!("folio://document?{q}")).unwrap();
+        assert!(link("repo=svc&branch=main&path=docs/t.md").points_to(&here));
+        assert!(link("repo=svc&path=docs/t.md").points_to(&here));
+        assert!(!link("repo=svc&branch=fix&path=docs/t.md").points_to(&here));
+        assert!(!link("repo=svc&branch=main&path=docs/u.md").points_to(&here));
+        assert!(!link("repo=other&branch=main&path=docs/t.md").points_to(&here));
+        // The place wins over `file`; an older link has only `file`.
+        assert!(!link("repo=svc&branch=fix&path=docs/t.md&file=/w/svc/docs/t.md").points_to(&here));
+        assert!(link("file=/w/svc/docs/t.md").points_to(&here));
+        assert!(!link("file=/w/svc/docs/u.md").points_to(&here));
+    }
+
+    #[test]
+    fn references_have_their_line_heading_and_words() {
+        let doc = "Intro [spec](folio://document?path=t.md) here\n\n## Rotation ##\n\n- [Priya: “Does”](folio://annotation/c3d4?path=t.md) and folio://passage?path=t.md&q=x.\n```\nfolio://document?path=t.md\n```\n[[page]] [web](https://x)\n";
+        let refs = references(doc);
+        assert_eq!(refs.len(), 3);
+        assert_eq!((refs[0].line, refs[0].context.as_str(), refs[0].label.as_str()), (1, "Intro [spec](folio://document?path=t.md) here", "spec"));
+        assert_eq!((refs[1].line, refs[1].context.as_str(), refs[1].label.as_str()), (5, "Rotation", "Priya: “Does”"));
+        assert_eq!(refs[1].url, "folio://annotation/c3d4?path=t.md");
+        assert_eq!(refs[2].label, "");
+        assert_eq!(refs[2].link.target, LinkTarget::Passage { text: "x.".into() });
     }
 }
