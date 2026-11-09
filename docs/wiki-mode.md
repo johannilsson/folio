@@ -98,6 +98,33 @@ Two kinds, both plain markdown links, so the files read the same outside Folio:
 - The list follows the pages: a link added to or taken out of a page, a page added or removed, shows
   on the card without a reload.
 
+### Between a document and the wiki
+
+Backlinks above are per annotation. A reviewer also wants to go from the document under review to
+every wiki page about it, and from a wiki page to the document, without an annotation in between.
+
+- **Wiki → document**: a third Folio link, to the file as a whole:
+  `folio://document?repo=payments-svc&branch=main&path=docs/token-refresh.md&file=…`.
+  `folio link <file>` (no id, no `--passage`) prints it; with `--markdown` its text is the file's
+  name. In the preview it is a chip like the other Folio links; clicking it opens the file in the
+  set window. Dead as the others are ("fix/logout isn't checked out any more", "docs/t.md isn't
+  in this checkout"); a document link has no "Not found in …".
+- **Document → wiki**: the file on screen gets a **Referenced in** list for the whole file: every
+  page of the set with a link to the document, to a passage of it or to one of its annotations,
+  with the heading or line the link is under, grouped by page. It sits at the top of the comments
+  pane, above the first card, and folds to "Referenced in 3 pages" (the count also shows in the
+  window's subtitle while the pane is closed). Clicking a row opens the page with the link's words
+  selected, as a backlink does. A passage link that overlaps no annotation shows here and only here
+  (today it shows nowhere). Matched by repo, branch and path, as backlinks are; it follows the
+  pages without a reload.
+- A wiki page is a file of the set like any other, so the list works for it too: a page linked
+  from another page lists that one. `[[wiki links]]` count for wiki pages (they name a page, not a
+  document under review).
+- `folio refs <file> --set <name> [--json]` prints the same list for the agent: page, line,
+  heading and what the link points at (`the document`, `annotation <id>`, `passage “…”`).
+- Not yet: marks in the text for passage links; an open item linking to the document (not an
+  annotation) counting as "about" it in the Open pane's "This file".
+
 ### 3. Open items
 
 - A task item in any file of the set with one of three tags is an open item:
@@ -233,6 +260,16 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
      `SetWindowController.computeCardItems`). Self-test: `cardItemsScenario`.
 6. The skill's convention for waiting items: done (`.claude/skills/folio/SKILL.md`, "Open items").
 7. `CLAUDE.md` and the README: done.
+8. Between a document and the wiki:
+   - Done: `folio://document` links (`folio link <file>`, `document_url` in `link.rs`), parsing
+     Folio links and the pages' references in Rust (`wiki::FolioLink`, `wiki::references`,
+     `FolioLink::points_to`, the same rule as `FolioLink.points(to:)` in the app), and
+     `folio refs` (`commands/refs.rs`). Unit tests for parsing, matching and a set's pages.
+   - Not yet (app): `FolioLink.Target.document` in FolioKit, `WikiReferences` finding
+     `folio://document`, following and greying it (`AppServer.open`, `linkState`), the
+     Referenced in list (`SetWindowController.computeBacklinks` keeping every link to the file, not
+     only those on an annotation; a header view in the comments pane), the subtitle count.
+     Self-test in `backlinkScenario`; a picture of the pane with the list.
 
 ## Open questions
 

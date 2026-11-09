@@ -37,6 +37,15 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Print the wiki pages of a set that link to a file: to the file, its passages or its annotations
+    Refs {
+        file: PathBuf,
+        /// The set whose files and folders are read for links
+        #[arg(long)]
+        set: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Print pending annotations
     Review {
         file: PathBuf,
@@ -97,10 +106,10 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Print the folio:// link to an annotation, or to a passage of the text
+    /// Print the folio:// link to an annotation, to a passage of the text, or (with neither) to the file
     Link {
         file: PathBuf,
-        #[arg(required_unless_present = "passage", conflicts_with = "passage")]
+        #[arg(conflicts_with = "passage")]
         id: Option<String>,
         /// Link to this passage (rendered text, as `folio render` shows it) instead of an annotation
         #[arg(long)]
@@ -154,6 +163,7 @@ fn main() {
             SetCommands::List { name } => commands::set::list(name.as_deref()),
         },
         Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),
+        Commands::Refs { file, set, json } => commands::refs::run(&file, &set, json),
         Commands::Review { file, kind, source, json } => {
             commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
         }
