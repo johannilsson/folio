@@ -8,8 +8,9 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         /// The open items of the whole set, above its files, when there are any.
         case openList(count: Int)
         case header(String)
-        /// A subfolder of one of the set's folders; `depth` 1 is directly in it.
-        case folder(name: String, depth: Int)
+        /// A subfolder of one of the set's folders (`group`), at `path` in it; `depth` 1 is
+        /// directly in it. Clicking it folds or unfolds its files.
+        case folder(name: String, group: String, path: String, depth: Int, collapsed: Bool)
         /// `depth` is how far below its set folder a file is (0 for a file added on its own).
         case file(id: String, name: String, pending: Int, depth: Int)
 
@@ -39,6 +40,13 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     /// The Open row is the selected one: the window shows the list, not a file.
     private var openSelected = false
 
+    /// The subfolders folded away, by the set folder they are in: a reader's choice for this
+    /// window, kept across reloads.
+    private var collapsed: [String: Set<String>] = [:]
+    /// The file the window shows, highlighted whenever its row is in the list (a folded folder
+    /// can hide it).
+    private var shownID: String?
+
     private let notice = NSTextField(wrappingLabelWithString: "")
     private var noticeShown = 0
 
@@ -55,7 +63,11 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     var fileIDs: [String] { rows.compactMap(\.fileID) }
     var headerTitles: [String] { rows.compactMap { if case .header(let title) = $0 { return title } else { return nil } } }
-    var folderTitles: [String] { rows.compactMap { if case .folder(let name, _) = $0 { return name } else { return nil } } }
+    var folderTitles: [String] { rows.compactMap { if case .folder(let name, _, _, _, _) = $0 { return name } else { return nil } } }
+    /// The folded subfolders, by name.
+    var collapsedTitles: [String] {
+        rows.compactMap { if case .folder(let name, _, _, _, true) = $0 { return name } else { return nil } }
+    }
     var fileNames: [String] { rows.compactMap { if case .file(_, let name, _, _) = $0 { return name } else { return nil } } }
     var selectedID: String? {
         guard table.selectedRow >= 0 else { return nil }
@@ -87,13 +99,16 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     override func loadView() {
         table.style = .sourceList
         table.headerView = nil
-        table.allowsEmptySelection = false
+        // A folded folder can hide the file on screen, leaving no row to highlight.
+        table.allowsEmptySelection = true
         table.rowSizeStyle = .custom  // the system size follows the "Sidebar icon size" setting, which can be as tight as 20pt
         table.rowHeight = 34
         table.intercellSpacing = NSSize(width: 0, height: 2)
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file")))
         table.dataSource = self
         table.delegate = self
+        table.target = self
+        table.action = #selector(rowClicked)
 
         let menu = NSMenu()
         menu.delegate = self
@@ -164,7 +179,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     /// Rebuilds the rows, keeping the selection where the file still exists.
     func reload() {
-        let keep = selectedID
+        let keep = shownID
         let keepOpen = openRowSelected || (openSelected && selectedID == nil)
         let picked = workspace.entries.filter { !$0.inFolder }
         let inFolders = workspace.entries.filter(\.inFolder)
@@ -189,10 +204,10 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             let end = inFolders[start...].firstIndex { $0.group != name } ?? inFolders.endIndex
             let files = Array(inFolders[start..<end])
             next.append(.header(name))
-            for row in SidebarTree.rows(files.map(\.name)) {
+            for row in SidebarTree.rows(files.map(\.name), collapsed: collapsed[name] ?? []) {
                 switch row {
-                case .folder(let folder, let depth):
-                    next.append(.folder(name: folder, depth: depth))
+                case .folder(let folder, let path, let depth, let folded):
+                    next.append(.folder(name: folder, group: name, path: path, depth: depth, collapsed: folded))
                 case .file(let index, let file, let depth):
                     let entry = files[index]
                     next.append(.file(id: entry.document.id, name: file, pending: entry.document.pendingCount(), depth: depth))
@@ -206,12 +221,32 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         selecting = true
         table.reloadData()
         selecting = false
-        if keepOpen, openCount > 0 { selectOpenList() } else if let keep { select(keep) } else if let first = fileIDs.first { select(first) }
+        if keepOpen, openCount > 0 { selectOpenList() } else if let keep { highlight(keep) } else if let first = fileIDs.first { highlight(first) }
+    }
+
+    /// Folds a subfolder of a set folder away, or unfolds it.
+    func toggleFolder(group: String, path: String) {
+        if collapsed[group, default: []].remove(path) == nil { collapsed[group, default: []].insert(path) }
+        reload()
+    }
+
+    /// Folds a subfolder by its name, for the tests.
+    func toggleFolder(named name: String) {
+        for case .folder(name, let group, let path, _, _) in rows {
+            toggleFolder(group: group, path: path)
+            return
+        }
+    }
+
+    @objc private func rowClicked() {
+        guard table.clickedRow >= 0, case .folder(_, let group, let path, _, _) = rows[table.clickedRow] else { return }
+        toggleFolder(group: group, path: path)
     }
 
     /// Highlights the Open row without announcing it, for when the window shows the list on its own.
     func selectOpenList() {
         openSelected = true
+        shownID = nil
         guard let index = rows.firstIndex(where: { if case .openList = $0 { return true } else { return false } }) else { return }
         selecting = true
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
@@ -224,12 +259,35 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         onOpenList?()
     }
 
-    /// Highlights a file without announcing it, for when the page moved on its own.
+    /// Highlights a file without announcing it, for when the page moved on its own. A folded
+    /// folder the file is in unfolds, so it shows.
     func select(_ id: String) {
+        if let entry = workspace.entries.first(where: { $0.document.id == id }), entry.inFolder {
+            let folders = SidebarTree.folders(containing: entry.name)
+            if !collapsed[entry.group, default: []].isDisjoint(with: folders) {
+                collapsed[entry.group]?.subtract(folders)
+                openSelected = false
+                shownID = id
+                selecting = true
+                table.deselectAll(nil)
+                selecting = false
+                reload()
+                return
+            }
+        }
+        highlight(id)
+    }
+
+    /// Highlights the file's row, or none while a folded folder hides it.
+    private func highlight(_ id: String) {
         openSelected = false
-        guard let index = rows.firstIndex(where: { $0.fileID == id }) else { return }
+        shownID = id
         selecting = true
-        table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        if let index = rows.firstIndex(where: { $0.fileID == id }) {
+            table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        } else {
+            table.deselectAll(nil)
+        }
         selecting = false
     }
 
@@ -335,7 +393,13 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             ])
             return cell
 
-        case .folder(let name, let depth):
+        case .folder(let name, _, _, let depth, let folded):
+            let chevron = NSImageView(image: NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down",
+                                                     accessibilityDescription: folded ? "Folded" : "Unfolded") ?? NSImage())
+            chevron.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+            chevron.contentTintColor = .tertiaryLabelColor
+            chevron.setContentHuggingPriority(.required, for: .horizontal)
+            chevron.widthAnchor.constraint(equalToConstant: 10).isActive = true
             let icon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil) ?? NSImage())
             icon.contentTintColor = .secondaryLabelColor
             icon.setContentHuggingPriority(.required, for: .horizontal)
@@ -344,9 +408,9 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             label.lineBreakMode = .byTruncatingMiddle
             label.toolTip = name
             label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-            let stack = NSStackView(views: [icon, label])
+            let stack = NSStackView(views: [chevron, icon, label])
             stack.orientation = .horizontal
-            stack.spacing = 6
+            stack.spacing = 4
             stack.alignment = .centerY
             let cell = NSTableCellView()
             stack.translatesAutoresizingMaskIntoConstraints = false
@@ -414,11 +478,17 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !selecting else { return }
+        // A click on empty space clears the selection: the shown file stays highlighted.
+        if table.selectedRow < 0 {
+            if let shownID, !openSelected { highlight(shownID) } else if openSelected { selectOpenList() }
+            return
+        }
         if openRowSelected {
             openSelected = true
             onOpenList?()
         } else if let id = selectedID {
             openSelected = false
+            shownID = id
             onSelect?(id)
         }
     }
