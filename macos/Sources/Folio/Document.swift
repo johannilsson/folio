@@ -78,10 +78,8 @@ final class Document {
 
     /// Unresolved annotations, for the file menu badge.
     func pendingCount() -> Int {
-        guard let text = try? readSidecar(),
-              let obj = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-              let annotations = obj["annotations"] as? [[String: Any]] else { return 0 }
-        return annotations.filter { ($0["resolved"] as? Bool) != true }.count
+        guard let text = try? readSidecar(), let sidecar = try? Sidecar.parse(text) else { return 0 }
+        return sidecar.pending.count
     }
 
     // MARK: watching
