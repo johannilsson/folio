@@ -566,7 +566,12 @@ mod tests {
 
     #[test]
     fn a_link_points_to_a_file_by_repo_branch_and_path() {
-        let here = Here { repo: Some("svc".into()), branch: Some("main".into()), path: "docs/t.md".into(), file: "/w/svc/docs/t.md".into() };
+        // A real file: an absolute path means something else on Windows ("/w/…" has no drive).
+        let dir = std::env::temp_dir().join(format!("folio-points-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dunce::canonicalize(&dir).unwrap().join("t.md");
+        std::fs::write(&file, "x\n").unwrap();
+        let here = Here { repo: Some("svc".into()), branch: Some("main".into()), path: "docs/t.md".into(), file: file.clone() };
         let link = |q: &str| FolioLink::parse(&format!("folio://document?{q}")).unwrap();
         assert!(link("repo=svc&branch=main&path=docs/t.md").points_to(&here));
         assert!(link("repo=svc&path=docs/t.md").points_to(&here));
@@ -574,9 +579,11 @@ mod tests {
         assert!(!link("repo=svc&branch=main&path=docs/u.md").points_to(&here));
         assert!(!link("repo=other&branch=main&path=docs/t.md").points_to(&here));
         // The place wins over `file`; an older link has only `file`.
-        assert!(!link("repo=svc&branch=fix&path=docs/t.md&file=/w/svc/docs/t.md").points_to(&here));
-        assert!(link("file=/w/svc/docs/t.md").points_to(&here));
-        assert!(!link("file=/w/svc/docs/u.md").points_to(&here));
+        let there = file.to_string_lossy();
+        assert!(!link(&format!("repo=svc&branch=fix&path=docs/t.md&file={there}")).points_to(&here));
+        assert!(link(&format!("file={there}")).points_to(&here));
+        assert!(!link(&format!("file={}", file.with_file_name("u.md").to_string_lossy())).points_to(&here));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
