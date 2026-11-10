@@ -109,14 +109,20 @@ every wiki page about it, and from a wiki page to the document, without an annot
   name. In the preview it is a chip like the other Folio links; clicking it opens the file in the
   set window. Dead as the others are ("fix/logout isn't checked out any more", "docs/t.md isn't
   in this checkout"); a document link has no "Not found in …".
-- **Document → wiki**: the file on screen gets a **Referenced in** list for the whole file: every
+- **Document → wiki**: the file on screen gets a **References** list for the whole file: every
   page of the set with a link to the document, to a passage of it or to one of its annotations,
-  with the heading or line the link is under, grouped by page. It sits at the top of the comments
-  pane, above the first card, and folds to "Referenced in 3 pages" (the count also shows in the
-  window's subtitle while the pane is closed). Clicking a row opens the page with the link's words
-  selected, as a backlink does. A passage link that overlaps no annotation shows here and only here
-  (today it shows nowhere). Matched by repo, branch and path, as backlinks are; it follows the
-  pages without a reload.
+  with the heading or line the link is under, grouped by page. It lives in the set window's
+  inspector beside **Open**: a segmented control at the top of the inspector switches between
+  "Open 4" and "References 3", as Xcode's inspectors switch. Open keeps its scope (the set, or
+  "This file"); References is always about the file on screen and follows it as the sidebar
+  changes file. The inspector's toolbar button opens the tab last shown. Clicking a row opens the
+  page with the link's words selected, as a backlink does; a row about an annotation also focuses
+  that annotation's card when the page is closed again. A passage link that overlaps no annotation
+  shows here and only here (today it shows nowhere). Matched by repo, branch and path, as
+  backlinks are; it follows the pages without a reload.
+- Nothing is written on the document's side: the list (like the backlinks on cards) is worked out
+  from the pages each time one changes, so it cannot go stale. Only the page's link can, and it
+  shows so (grey, with the reason).
 - A wiki page is a file of the set like any other, so the list works for it too: a page linked
   from another page lists that one. `[[wiki links]]` count for wiki pages (they name a page, not a
   document under review).
@@ -267,9 +273,10 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
      `folio refs` (`commands/refs.rs`). Unit tests for parsing, matching and a set's pages.
    - Not yet (app): `FolioLink.Target.document` in FolioKit, `WikiReferences` finding
      `folio://document`, following and greying it (`AppServer.open`, `linkState`), the
-     Referenced in list (`SetWindowController.computeBacklinks` keeping every link to the file, not
-     only those on an annotation; a header view in the comments pane), the subtitle count.
-     Self-test in `backlinkScenario`; a picture of the pane with the list.
+     References list (`SetWindowController.computeBacklinks` keeping every link to the file, not
+     only those on an annotation; the inspector's Open / References control, its rows grouped by
+     page as a function in FolioKit with unit tests). Self-test in `backlinkScenario` (the list
+     follows a page changing and the file on screen changing); a picture of the inspector on each tab.
 
 ## Open questions
 
