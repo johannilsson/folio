@@ -86,9 +86,16 @@ public struct Sidecar: Codable, Equatable {
 
     public static let empty = Sidecar(version: 1, annotations: [])
 
+    public var pending: [Annotation] { annotations.pending }
+
     public static func parse(_ text: String) throws -> Sidecar {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(Sidecar.self, from: Data(text.utf8))
     }
+}
+
+extension Array where Element == Annotation {
+    /// The annotations still to be dealt with: the ones not resolved.
+    public var pending: [Annotation] { filter { !$0.resolved } }
 }

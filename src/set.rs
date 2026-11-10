@@ -141,7 +141,15 @@ pub fn save(name: &str, set: &Set) -> anyhow::Result<()> {
     // again without them.
     let mut set = set.clone();
     set.version = if set.folders.is_empty() { 1 } else { 2 };
-    std::fs::write(&path, serde_json::to_string_pretty(&set)?)?;
+    // Through a temp file and a rename, so a failed write leaves the old set and the app never
+    // reads a half-written one (sidecars are saved the same way).
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, serde_json::to_string_pretty(&set)?)?;
+    std::fs::rename(&tmp, &path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
     Ok(())
 }
 
@@ -283,7 +291,7 @@ pub fn folder_files(folder: &SetFolder) -> Vec<FolderFile> {
 /// Add folders to the set `name`, creating it if needed. A missing path or one that is not a
 /// folder fails before anything is saved.
 pub fn add_folders(name: &str, folders: &[PathBuf]) -> anyhow::Result<AddOutcome> {
-    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    let mut current = if set_path(name)?.exists() { load(name)? } else { Set::empty() };
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for folder in folders {
         let canonical = dunce::canonicalize(folder)
@@ -317,7 +325,9 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
         ),
         None => None,
     };
-    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    // Only a set that does not exist yet starts empty: a malformed or newer-version file must not
+    // be overwritten with an empty set.
+    let mut current = if set_path(name)?.exists() { load(name)? } else { Set::empty() };
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for file in files {
         let canonical = dunce::canonicalize(file)
@@ -416,6 +426,23 @@ mod tests {
 
         delete("demo").unwrap();
         assert!(load("demo").is_err());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn save_replaces_the_set_and_leaves_no_temp_file() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("saveatomic");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        let mut set = Set::empty();
+        set.add(PathBuf::from("/a/x.md"), None);
+        save("demo", &set).unwrap();
+        set.add(PathBuf::from("/b/y.md"), None);
+        save("demo", &set).unwrap();
+
+        assert_eq!(load("demo").unwrap().files.len(), 2);
+        let names: Vec<_> = std::fs::read_dir(tmp.join("sets")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("demo.json")]);
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
@@ -577,6 +604,38 @@ mod tests {
         std::fs::write(tmp.join("sets").join("bad.json"), "{ not json").unwrap();
         let err = load("bad").unwrap_err().to_string();
         assert!(err.contains("invalid set file"), "{err}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn add_files_does_not_overwrite_a_set_file_it_cannot_read() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("keepbad");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let sets = tmp.join("cfg").join("sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        let bad = sets.join("s.json");
+        std::fs::write(&bad, "{ not json").unwrap();
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        assert!(add_files("s", &[a], None).is_err());
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{ not json");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn add_folders_does_not_overwrite_a_set_file_it_cannot_read() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("keepbadfolder");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let sets = tmp.join("cfg").join("sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        let bad = sets.join("s.json");
+        std::fs::write(&bad, "{ not json").unwrap();
+        let wiki = tmp.join("wiki");
+        std::fs::create_dir_all(&wiki).unwrap();
+        assert!(add_folders("s", &[wiki]).is_err());
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{ not json");
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 

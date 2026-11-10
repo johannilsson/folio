@@ -70,6 +70,16 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Print what changed on the annotations since a time (new annotations, replies, resolutions), as JSON
+    Changes {
+        file: PathBuf,
+        /// A `cursor` from the last call, inclusive; omit for everything
+        #[arg(long)]
+        since: Option<String>,
+        /// Leave out annotations and replies written by this author
+        #[arg(long)]
+        exclude_author: Option<String>,
+    },
     /// Accept and apply annotations
     Accept {
         file: PathBuf,
@@ -181,6 +191,9 @@ fn main() {
         Commands::Relink { set, dry_run } => commands::refs::relink(&set, dry_run),
         Commands::Review { file, kind, source, json } => {
             commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
+        }
+        Commands::Changes { file, since, exclude_author } => {
+            commands::changes::run(&file, since.as_deref(), exclude_author.as_deref())
         }
         Commands::Accept { file, id, all, source, dry_run } => {
             commands::accept::run(&file, id.as_deref(), all, source.as_deref(), dry_run)

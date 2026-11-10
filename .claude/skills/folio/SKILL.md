@@ -39,7 +39,7 @@ Folio is a local markdown editor with an AI annotation system. Your job as an ag
 
 ## If the Folio MCP server is connected
 
-When tools named `render`, `annotate`, `focused_annotation` and so on come from a `folio` MCP server (Folio ▸ Connect to MCP Clients… in the app), use them instead of the CLI and of writing the sidecar by hand. The workflow is the same: `render`, then `annotate` with `context_before` and `target` copied from it, then `verify`. `annotate` refuses the whole batch, naming the ones that do not anchor, so fix those and send it again. `reply` answers a thread, and `list_annotations` shows the threads. `focused_annotation` gives the annotation the person has open, with its thread, so "answer this one" can be done without asking which. Paths must be absolute.
+When tools named `render`, `annotate`, `focused_annotation` and so on come from a `folio` MCP server (Folio ▸ Connect to MCP Clients… in the app), use them instead of the CLI and of writing the sidecar by hand. The workflow is the same: `render`, then `annotate` with `context_before` and `target` copied from it, then `verify`. `annotate` refuses the whole batch, naming the ones that do not anchor, so fix those and send it again. `reply` answers a thread, and `list_annotations` shows the threads. `annotations_since` (or `folio changes`) polls for what is new: pass the `cursor` it returned as `since`, and your own `author` as `exclude_author` to skip your own writes (optional). `focused_annotation` gives the annotation the person has open, with its thread, so "answer this one" can be done without asking which. Paths must be absolute.
 
 ---
 
@@ -196,6 +196,10 @@ folio annotate <file.md> --kind insert --context-before "rendered text before" -
 
 # List pending annotations (optionally filter by kind or source)
 folio review <file.md> [--kind replace] [--source agent] [--json]
+
+# What changed since a time (new annotations, replies, resolutions), as JSON with a `cursor` to pass as --since next time.
+# --since is inclusive and optional (omit for everything); --exclude-author is optional (e.g. your own --author).
+folio changes <file.md> [--since <cursor>] [--exclude-author your-name]
 
 # Preview what accept would do without changing files
 folio accept <file.md> --all --source agent --dry-run

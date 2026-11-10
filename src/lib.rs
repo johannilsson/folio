@@ -1,4 +1,5 @@
 pub mod accept;
+pub mod changes;
 pub mod commands;
 pub mod edit;
 pub mod ffi;

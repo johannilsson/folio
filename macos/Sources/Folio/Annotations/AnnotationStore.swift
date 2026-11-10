@@ -22,7 +22,7 @@ final class AnnotationStore {
     let document: Document
     private(set) var annotations: [Annotation] = []
     /// The annotations still waiting for the reader.
-    var pending: [Annotation] { annotations.filter { !$0.resolved } }
+    var pending: [Annotation] { annotations.pending }
 
     /// The annotations changed: by an action here, or by someone else writing the sidecar.
     var onChange: (() -> Void)?
