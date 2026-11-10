@@ -183,6 +183,20 @@ mod tests {
     }
 
     #[test]
+    fn a_resolution_needs_both_the_flag_and_its_time() {
+        // Resolved without a time (written by hand or an older version): nothing to place it by.
+        // A time left on an annotation that is pending again (undo restores it): not a resolution.
+        let s: Sidecar = serde_json::from_str(
+            r#"{"version":1,"annotations":[
+              {"id":"n1","kind":"replace","source":"agent","author":"bot","context_before":"x","target":"y","replacement":"z","created":"2026-01-01T10:00:00Z","resolved":true},
+              {"id":"n2","kind":"replace","source":"agent","author":"bot","context_before":"x","target":"y","replacement":"z","created":"2026-01-01T10:00:00Z","resolved":false,"resolved_at":"2026-01-01T10:09:00Z"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(keys(&since(&s, None, None)), ["new_annotation:n1", "new_annotation:n2"]);
+    }
+
+    #[test]
     fn an_empty_sidecar_has_no_changes_and_still_a_cursor() {
         let r = report(&Sidecar::empty(), Some("2026-01-01T00:00:00Z"), None);
         assert!(r.changes.is_empty());
