@@ -120,6 +120,19 @@ every wiki page about it, and from a wiki page to the document, without an annot
   that annotation's card when the page is closed again. A passage link that overlaps no annotation
   shows here and only here (today it shows nowhere). Matched by repo, branch and path, as
   backlinks are; it follows the pages without a reload.
+- **Keeping links true.** A link is text in a page, written by a person or the agent, so it can go
+  stale: the branch is merged and its worktree removed, the passage is edited away. The app greys
+  such a link with the reason; the CLI does the same check for the agent:
+  - `folio refs --set <name> --dead [--json]` lists every link in the set's pages that cannot be
+    followed, with the page, line, heading and the reason the app would give ("fix/logout isn't
+    checked out any more", "docs/t.md isn't in this checkout", "Not found in t.md"). "Followable"
+    is judged among the files of the set, as the app judges among its open windows.
+  - `folio relink --set <name> [--dry-run]` repairs the one case a tool can repair without
+    guessing: the branch is gone and exactly one checkout of the repo in the set has the file. The
+    link's `branch=` and `file=` are rewritten (through a temp file and a rename); with two
+    candidates, or a moved file or edited text, it leaves the link for the reader or the agent.
+  - The skill has the agent run `refs --dead` with its other review checks, and `relink` before it
+    reports.
 - Nothing is written on the document's side: the list (like the backlinks on cards) is worked out
   from the pages each time one changes, so it cannot go stale. Only the page's link can, and it
   shows so (grey, with the reason).
@@ -271,6 +284,8 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
      Folio links and the pages' references in Rust (`wiki::FolioLink`, `wiki::references`,
      `FolioLink::points_to`, the same rule as `FolioLink.points(to:)` in the app), and
      `folio refs` (`commands/refs.rs`). Unit tests for parsing, matching and a set's pages.
+   - Done: `folio refs --dead` and `folio relink` (`commands/refs.rs`; `wiki::resolve`,
+     `dead_reason`, `moved_to`, the same rules as `FolioLink.resolve` and `targetFound`).
    - Not yet (app): `FolioLink.Target.document` in FolioKit, `WikiReferences` finding
      `folio://document`, following and greying it (`AppServer.open`, `linkState`), the
      References list (`SetWindowController.computeBacklinks` keeping every link to the file, not

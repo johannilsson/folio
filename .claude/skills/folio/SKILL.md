@@ -275,9 +275,13 @@ folio link <file.md> --passage "rotate" --before "We "   # when the text appears
 folio link <file.md> <annotation-id> --markdown # a whole [text](url) link, the text saying what it points at
 folio link <file.md> --markdown                 # a link to the document as a whole
 folio refs <file.md> --set <name>               # the pages of the set that link to the file, its passages or annotations
+folio refs --set <name> --dead                  # links in the set's pages that no longer work, and why
+folio relink --set <name> [--dry-run]           # repair links whose branch is gone, when one checkout has the file
 ```
 
 Put the URL in another document (a wiki page, say) to link to an annotation or a passage. Opening it in macOS opens the file in Folio with that annotation in focus, or the text selected; if the annotation is resolved (or gone), the file just opens. The link names the repo, the branch and the file's path in that checkout, so it finds the right copy of the file in a worktree, and says "isn't checked out any more" when the branch is gone. The absolute path is kept as a fallback, so an older link still works on the machine that made it.
+
+Links are text in a page and go stale (a branch merged and its worktree removed, a passage edited away, an annotation resolved). Run `folio refs --set <name> --dead` with your other checks on a set that has a wiki: run `folio relink` for "isn't checked out any more", and for the rest re-link with `folio link … --markdown` (the passage moved or was reworded) or tell the person (the file moved, the annotation was resolved: the link text still says what it was).
 
 ## Open items: what is still to do, and what is waiting on a reply
 

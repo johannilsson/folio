@@ -174,8 +174,13 @@ pub enum LinkTarget {
     Document,
     /// `folio://annotation/<id>?…`.
     Annotation { id: String },
-    /// `folio://passage?…&q=…`: rendered text of the file.
-    Passage { text: String },
+    /// `folio://passage?…&q=…[&before=…]`: rendered text of the file, and the words just before it
+    /// when it appears more than once.
+    Passage {
+        text: String,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        before: String,
+    },
 }
 
 /// A `folio://` link as `folio link` writes it: its target, and the file's repo, branch and path in
@@ -228,7 +233,7 @@ impl FolioLink {
         let target = match head.split_once('/').unwrap_or((head, "")) {
             ("document", _) => LinkTarget::Document,
             ("annotation", id) if !id.is_empty() => LinkTarget::Annotation { id: decode(id) },
-            ("passage", _) => LinkTarget::Passage { text: get("q")? },
+            ("passage", _) => LinkTarget::Passage { text: get("q")?, before: get("before").unwrap_or_default() },
             _ => return None,
         };
         Some(FolioLink { target, repo: get("repo"), branch: get("branch"), path: get("path"), file: get("file") })
@@ -243,6 +248,90 @@ impl FolioLink {
                 && (self.branch.is_none() || self.branch == here.branch);
         }
         self.file.as_ref().is_some_and(|file| crate::location::absolute(std::path::Path::new(file)) == here.file)
+    }
+}
+
+/// Which open file a link means (as `FolioLink.resolve(among:)` in the app): a link names repo, branch
+/// and path, never a folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolution {
+    /// The index in the files given.
+    Found(usize),
+    /// The repo is there but not on this branch any more.
+    BranchGone(String),
+    /// The repo is there on the branch, without this path.
+    Missing(String),
+    /// The link names no repo that is there (or none): go by `file`.
+    Unknown,
+}
+
+pub fn resolve(link: &FolioLink, open: &[Here]) -> Resolution {
+    let (Some(repo), Some(path)) = (&link.repo, &link.path) else { return Resolution::Unknown };
+    let same: Vec<usize> = (0..open.len()).filter(|&i| open[i].repo.as_ref() == Some(repo)).collect();
+    if same.is_empty() {
+        return Resolution::Unknown;
+    }
+    let on_branch: Vec<usize> = same.into_iter().filter(|&i| link.branch.is_none() || open[i].branch == link.branch).collect();
+    if on_branch.is_empty() {
+        return Resolution::BranchGone(link.branch.clone().unwrap_or_default());
+    }
+    match on_branch.iter().find(|&&i| &open[i].path == path) {
+        Some(&i) => Resolution::Found(i),
+        None => Resolution::Missing(path.clone()),
+    }
+}
+
+/// Whether what the link points at is in `file`: the document itself, an annotation its sidecar has,
+/// unresolved, whose text the markdown still has, or a passage the markdown has. Anchored as the app does.
+pub fn target_found(target: &LinkTarget, file: &std::path::Path) -> bool {
+    let Ok(markdown) = std::fs::read_to_string(file) else { return false };
+    match target {
+        LinkTarget::Document => true,
+        LinkTarget::Passage { text, before } => crate::sidecar::anchor_raw_chars(&markdown, before, Some(text)).is_some(),
+        LinkTarget::Annotation { id } => {
+            let Ok(sidecar) = crate::sidecar::Sidecar::load(&crate::location::folio_path(file)) else { return false };
+            sidecar
+                .annotations
+                .iter()
+                .find(|a| &a.id == id && !a.resolved)
+                .is_some_and(|a| crate::sidecar::anchor_raw_chars(&markdown, &a.context_before, a.target.as_deref()).is_some())
+        }
+    }
+}
+
+/// Why a link cannot be followed among the `open` files, None when it can. The same reasons the app
+/// greys a link with.
+pub fn dead_reason(link: &FolioLink, open: &[Here]) -> Option<String> {
+    let name = |file: &std::path::Path| file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let in_file = |file: &std::path::Path| (!target_found(&link.target, file)).then(|| format!("Not found in {}", name(file)));
+    match resolve(link, open) {
+        Resolution::Found(index) => in_file(&open[index].file),
+        Resolution::BranchGone(branch) => Some(format!("{branch} isn't checked out any more")),
+        Resolution::Missing(path) => Some(format!("{path} isn't in this checkout")),
+        Resolution::Unknown => match &link.file {
+            // Not in the set, but where the file was is still there.
+            Some(file) if std::path::Path::new(file).is_file() => in_file(std::path::Path::new(file)),
+            Some(file) => Some(match &link.repo {
+                Some(repo) => format!("{repo} isn't in the set"),
+                None => format!("{} isn't there any more", name(std::path::Path::new(file))),
+            }),
+            None => Some(link.repo.as_ref().map_or("The link names no file".to_string(), |repo| format!("{repo} isn't in the set"))),
+        },
+    }
+}
+
+/// The branch a link whose branch is gone can move to: the one checkout among `open` of the repo that
+/// has the file. None when the link is not in that state, or two branches have the file (the reader's
+/// call).
+pub fn moved_to(link: &FolioLink, open: &[Here]) -> Option<usize> {
+    if !matches!(resolve(link, open), Resolution::BranchGone(_)) {
+        return None;
+    }
+    let (repo, path) = (link.repo.as_ref()?, link.path.as_ref()?);
+    let has: Vec<usize> = (0..open.len()).filter(|&i| open[i].repo.as_ref() == Some(repo) && &open[i].path == path).collect();
+    match has.as_slice() {
+        [one] => Some(*one),
+        _ => None,
     }
 }
 
@@ -457,7 +546,7 @@ mod tests {
     #[test]
     fn a_link_parses_to_its_target_and_place() {
         let link = FolioLink::parse("folio://passage?repo=svc&branch=fix/logout&path=docs/t.md&file=/x/a%20b.md&q=rotate%20on&before=We%20").unwrap();
-        assert_eq!(link.target, LinkTarget::Passage { text: "rotate on".into() });
+        assert_eq!(link.target, LinkTarget::Passage { text: "rotate on".into(), before: "We ".into() });
         assert_eq!((link.repo.as_deref(), link.branch.as_deref(), link.path.as_deref()), (Some("svc"), Some("fix/logout"), Some("docs/t.md")));
         assert_eq!(link.file.as_deref(), Some("/x/a b.md"));
         assert_eq!(FolioLink::parse("folio://annotation/c3d4?file=/x").unwrap().target, LinkTarget::Annotation { id: "c3d4".into() });
@@ -491,6 +580,60 @@ mod tests {
         assert_eq!((refs[1].line, refs[1].context.as_str(), refs[1].label.as_str()), (5, "Rotation", "Priya: “Does”"));
         assert_eq!(refs[1].url, "folio://annotation/c3d4?path=t.md");
         assert_eq!(refs[2].label, "");
-        assert_eq!(refs[2].link.target, LinkTarget::Passage { text: "x.".into() });
+        assert_eq!(refs[2].link.target, LinkTarget::Passage { text: "x.".into(), before: String::new() });
+    }
+
+    fn here(branch: &str, path: &str) -> Here {
+        Here { repo: Some("svc".into()), branch: Some(branch.into()), path: path.into(), file: format!("/nowhere/{branch}/{path}").into() }
+    }
+
+    #[test]
+    fn a_link_resolves_to_an_open_file_or_says_why_not() {
+        let open = [here("main", "docs/t.md"), here("fix", "docs/u.md")];
+        let link = |q: &str| FolioLink::parse(&format!("folio://document?{q}")).unwrap();
+        assert_eq!(resolve(&link("repo=svc&branch=main&path=docs/t.md"), &open), Resolution::Found(0));
+        assert_eq!(resolve(&link("repo=svc&path=docs/u.md"), &open), Resolution::Found(1));
+        assert_eq!(resolve(&link("repo=svc&branch=gone&path=docs/t.md"), &open), Resolution::BranchGone("gone".into()));
+        assert_eq!(resolve(&link("repo=svc&branch=main&path=docs/x.md"), &open), Resolution::Missing("docs/x.md".into()));
+        assert_eq!(resolve(&link("repo=other&branch=main&path=docs/t.md"), &open), Resolution::Unknown);
+        assert_eq!(resolve(&link("file=/x/y.md"), &open), Resolution::Unknown);
+        let reasons = |q: &str| dead_reason(&link(q), &open);
+        assert_eq!(reasons("repo=svc&branch=gone&path=docs/t.md").as_deref(), Some("gone isn't checked out any more"));
+        assert_eq!(reasons("repo=svc&branch=main&path=docs/x.md").as_deref(), Some("docs/x.md isn't in this checkout"));
+        assert_eq!(reasons("repo=other&path=a.md&file=/no/such.md").as_deref(), Some("other isn't in the set"));
+        assert_eq!(reasons("file=/no/such.md").as_deref(), Some("such.md isn't there any more"));
+    }
+
+    #[test]
+    fn a_link_with_a_gone_branch_moves_to_the_only_checkout_that_has_the_file() {
+        let link = FolioLink::parse("folio://document?repo=svc&branch=gone&path=docs/t.md").unwrap();
+        assert_eq!(moved_to(&link, &[here("main", "docs/t.md"), here("fix", "docs/u.md")]), Some(0));
+        // Two branches have it: the reader's call. Nothing is gone: nothing moves.
+        assert_eq!(moved_to(&link, &[here("main", "docs/t.md"), here("fix", "docs/t.md")]), None);
+        assert_eq!(moved_to(&link, &[here("fix", "docs/u.md")]), None);
+        let live = FolioLink::parse("folio://document?repo=svc&branch=main&path=docs/t.md").unwrap();
+        assert_eq!(moved_to(&live, &[here("main", "docs/t.md")]), None);
+    }
+
+    #[test]
+    fn a_target_is_found_while_the_file_still_has_it() {
+        let dir = std::env::temp_dir().join(format!("folio-target-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let file = dunce::canonicalize(&dir).unwrap().join("a.md");
+        std::fs::write(&file, "We rotate on every use. Then we rotate again.\n").unwrap();
+        crate::commands::annotate::run(&file, "highlight", "We ", Some("rotate on every use"), None, None, "me", "local").unwrap();
+        let sidecar = crate::location::folio_path(&file);
+        let id = crate::sidecar::Sidecar::load(&sidecar).unwrap().annotations[0].id.clone();
+        let passage = |text: &str, before: &str| LinkTarget::Passage { text: text.into(), before: before.into() };
+        assert!(target_found(&LinkTarget::Document, &file));
+        assert!(target_found(&passage("rotate again", ""), &file));
+        assert!(target_found(&LinkTarget::Annotation { id: id.clone() }, &file));
+        assert!(!target_found(&LinkTarget::Annotation { id: "ann_nope".into() }, &file));
+        assert!(!target_found(&LinkTarget::Document, &dir.join("missing.md")));
+        // Edited away: the passage and the annotation's text are gone.
+        std::fs::write(&file, "Tokens are replaced on every refresh.\n").unwrap();
+        assert!(!target_found(&passage("rotate again", ""), &file));
+        assert!(!target_found(&LinkTarget::Annotation { id }, &file));
+        std::fs::remove_dir_all(dir).ok();
     }
 }
