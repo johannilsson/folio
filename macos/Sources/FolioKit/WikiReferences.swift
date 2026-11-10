@@ -20,7 +20,7 @@ public struct Backlink: Equatable {
     }
 }
 
-/// The `folio://annotation` and `folio://passage` links in a wiki page.
+/// The `folio://annotation`, `folio://passage` and `folio://document` links in a wiki page.
 public enum WikiReferences {
     public struct Reference: Equatable {
         public let link: FolioLink
@@ -30,7 +30,7 @@ public enum WikiReferences {
         public let label: String
     }
 
-    private static let pattern = try! NSRegularExpression(pattern: "folio://(?:annotation|passage)[^\\s)>\\]\"']*")
+    private static let pattern = try! NSRegularExpression(pattern: "folio://(?:annotation|passage|document)[^\\s)>\\]\"']*")
 
     public static func find(in markdown: String) -> [Reference] {
         let text = markdown as NSString

@@ -24,7 +24,7 @@ pub struct OpenItem {
     /// The pull or merge request (or other page) the question was asked in: the first `http(s)` address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// The annotation or passage it is about: the first `folio://` link.
+    /// The annotation, passage or document it is about: the first `folio://` link.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folio: Option<String>,
     /// The first line nested under the item: where an answer is summed up.
@@ -52,7 +52,7 @@ pub fn open_items(markdown: &str) -> Vec<OpenItem> {
             tag: tag.to_string(),
             text: clean(rest),
             url: address(rest, &["https://", "http://"]),
-            folio: address(rest, &["folio://annotation", "folio://passage"]),
+            folio: address(rest, &["folio://annotation", "folio://passage", "folio://document"]),
             note: nested(&lines[index + 1..], indent),
         });
     }
@@ -488,6 +488,14 @@ mod tests {
         assert_eq!(items[0].folio.as_deref(), Some(link));
         assert_eq!(items[0].url.as_deref(), Some(MR));
         assert_eq!(items[0].text, "Key rotation");
+    }
+
+    #[test]
+    fn a_link_to_the_document_is_what_the_item_is_about_too() {
+        let link = "folio://document?repo=svc&branch=main&path=docs/t.md&file=/x/docs/t.md";
+        let items = open_items(&format!("- [ ] Check the whole spec #investigate [spec.md]({link})\n"));
+        assert_eq!(items[0].folio.as_deref(), Some(link));
+        assert_eq!(items[0].text, "Check the whole spec");
     }
 
     #[test]

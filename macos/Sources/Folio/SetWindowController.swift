@@ -26,6 +26,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     private var openPaneObservation: NSKeyValueObservation?
     var openPaneOn: Bool { openPaneSplitItem.map { !$0.isCollapsed } ?? false }
     private(set) var openScope: OpenList.Scope = .set
+    /// Which of the pane's two tabs is shown, Open or References; the toolbar button opens the one last shown.
+    private(set) var paneTab: OpenPaneView.Tab = .open
     private static let openPaneID = NSToolbarItem.Identifier("openPane")
     private static let openPaneSeparatorID = NSToolbarItem.Identifier("openPaneSeparator")
     private let openPaneItem = NSToolbarItem(itemIdentifier: SetWindowController.openPaneID)
@@ -147,6 +149,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         openPane.onTick = { [weak self] entry in self?.tickOpenItem(entry) }
         openPane.onOpen = { [weak self] entry in self?.openItem(entry) }
         openPane.onScope = { [weak self] scope in self?.setOpenScope(scope) }
+        openPane.onTab = { [weak self] tab in self?.setPaneTab(tab) }
+        openPane.onOpenReference = { [weak self] backlink in self?.openReference(backlink) }
         openPaneItem.label = "Open"
         openPaneItem.target = self
         openPaneItem.action = #selector(toggleOpenPane(_:))
@@ -157,6 +161,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         }
         workspace.onChange = { [weak self] in self?.filesChanged() }
         updateOpenItems()
+        updateFileReferences()
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -213,6 +218,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         // What was typed in the file left is on disk by now: it may have tagged an item.
         pageItems[previous] = nil
         updateOpenItems()
+        // The pages that link to this file, not the last one.
+        updateFileReferences()
         completion?()
     }
 
@@ -290,10 +297,20 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         updateOpenPane()
     }
 
-    /// The pane lists what its scope says, with the items about an annotation of the file on screen marked.
+    /// Open or References in the pane.
+    func setPaneTab(_ tab: OpenPaneView.Tab) {
+        paneTab = tab
+        updateOpenPane()
+    }
+
+    /// The pane lists what its scope says, with the items about an annotation of the file on screen marked, or
+    /// on its References tab the wiki pages that link to the file on screen.
     private func updateOpenPane() {
         let here = linkTarget()
+        openPane.tab = paneTab
         openPane.scope = openScope
+        openPane.references = FileReferences.byPage(fileReferences)
+        openPane.counts = (openEntries.count, fileReferences.count)
         openPane.rows = OpenList.paneRows(openEntries, scope: openScope, candidate: here?.candidate, file: here?.file ?? "")
         syncOpenButton()
     }
@@ -409,6 +426,31 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     /// The open items that link to each annotation of the file on screen, by annotation id; nil until asked.
     private var cardItems: [String: [OpenEntry]]?
 
+    /// Every link in the wiki pages to the file on screen, whatever it points at: the References tab lists them.
+    private(set) var fileReferences: [FileReference] = []
+
+    /// What a wiki page links to, read again when the page changes.
+    private func links(in page: Workspace.Entry) -> [WikiReferences.Reference] {
+        if pageReferences[page.document.id] == nil {
+            pageReferences[page.document.id] = WikiReferences.find(in: (try? page.document.readFile()) ?? "")
+        }
+        return pageReferences[page.document.id] ?? []
+    }
+
+    private func computeFileReferences() -> [FileReference] {
+        guard let here = linkTarget() else { return [] }
+        let pages = workspace.entries.filter(\.inFolder).map { FileReferences.Page(id: $0.document.id, name: $0.name, references: links(in: $0)) }
+        return FileReferences.collect(pages, candidate: here.candidate, file: here.file)
+    }
+
+    /// The links to the file on screen changed (a page, or the file shown): the References tab is drawn again.
+    private func updateFileReferences() {
+        let now = computeFileReferences()
+        guard now != fileReferences else { return }
+        fileReferences = now
+        updateOpenPane()
+    }
+
     override func references(for annotation: String) -> [Backlink] {
         if backlinks == nil { backlinks = computeBacklinks() }
         return backlinks?[annotation] ?? []
@@ -446,6 +488,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
 
     /// A page's links or the file on screen changed: the cards are drawn again when what they list does.
     private func updateBacklinks() {
+        updateFileReferences()
         let now = computeBacklinks()
         guard now != backlinks else { return }
         backlinks = now
@@ -463,12 +506,12 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         var placed: [String: NSRange]?
         var found: [String: [Backlink]] = [:]
         for page in pages {
-            if pageReferences[page.document.id] == nil {
-                pageReferences[page.document.id] = WikiReferences.find(in: (try? page.document.readFile()) ?? "")
-            }
-            for reference in pageReferences[page.document.id] ?? [] where reference.link.points(to: candidate, file: file) {
+            for reference in links(in: page) where reference.link.points(to: candidate, file: file) {
                 let backlink = Backlink(pageID: page.document.id, page: page.name, context: reference.context, label: reference.label, line: reference.line)
                 switch reference.link.target {
+                case .document:
+                    // Not on a card; the References tab lists it.
+                    break
                 case .annotation(let id):
                     found[id, default: []].append(backlink)
                 case .passage(let words, let before):

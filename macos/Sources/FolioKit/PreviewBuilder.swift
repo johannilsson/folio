@@ -141,10 +141,10 @@ public struct PreviewBuilder {
     }
 
     /// A link into Folio is drawn here, not by the text view's link look, and clicked through the view
-    /// (`.folioLink`): a wiki link in the link colour, a link to an annotation or a passage as a purple
+    /// (`.folioLink`): a wiki link in the link colour, a link to an annotation, a passage or a document as a purple
     /// chip, a dead one greyed out with the reason on hover. Any other link is the text view's.
     private func apply(link: URL, to attributes: inout [NSAttributedString.Key: Any]) {
-        guard link.scheme == "folio", let host = link.host, ["wiki", "annotation", "passage"].contains(host) else {
+        guard link.scheme == "folio", let host = link.host, ["wiki", "annotation", "passage", "document"].contains(host) else {
             attributes[.link] = link
             return
         }
