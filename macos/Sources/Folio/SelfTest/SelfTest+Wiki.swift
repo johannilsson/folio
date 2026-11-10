@@ -585,7 +585,10 @@ extension SelfTest {
         }
         func disk() -> String { (try? String(contentsOf: wiki.appendingPathComponent("tracker.md"), encoding: .utf8)) ?? "" }
         let item = "- [ ] Key rotation, asked in PR 42 #waiting https://github.com/t/s/pull/42 \(link)\n  - Sam: revoked by the gateway\n"
-        write("# Tracker\n\n" + item + "- [ ] Not about this file #waiting\n")
+        // A link to the whole document, at the end so the items keep their lines.
+        let toDocument = cli(["link", "spec.md", "--markdown"], in: repo).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let documentURL = cli(["link", "spec.md"], in: repo).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        write("# Tracker\n\n" + item + "- [ ] Not about this file #waiting\n\nSee \(toDocument).\n")
         _ = cli(["set", "add", "carditems", spec.path, "--folder", wiki.path], in: repo)
         guard let win = app.openSet("carditems") else {
             report("the set opens", false)
@@ -671,6 +674,38 @@ extension SelfTest {
         _ = await until { win.currentID == specID && pane.rowTexts.count == 1 }
         pane.choose(.set)
         await check("Whole set lists every item again") { await self.until { pane.rowTexts.count == 2 } }
+
+        // The References tab: the wiki pages that link to the file on screen, whatever the link points at.
+        await check("the tabs say how many open items the set has and how many links point at this file") {
+            await self.until { pane.tabTitles == ["Open 2", "References 2"] }
+        }
+        pane.choose(tab: .references)
+        await check("References lists the page that links to this file, a row for the annotation and one for the document") {
+            await self.until {
+                win.paneTab == .references && !pane.scopeShown && pane.referenceTexts == [
+                    "Tracker\nline 3 · an annotation", "Tracker\nline 7 · the document",
+                ]
+            }
+        }
+        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await snapshot("\(base)-references-pane.png", of: win)
+        }
+        pane.open(reference: 1)
+        await check("clicking a row opens the page") {
+            await self.until { win.currentID == trackerID && win.paneTab == .references }
+        }
+        await check("and the tab follows the file on screen: nothing links to the page") {
+            await self.until { pane.emptyText == "No page links to this file" && pane.referenceTexts.isEmpty }
+        }
+        if let url = URL(string: documentURL), let link = FolioLink(url) { AppServer.open(link) }
+        await check("following the document link opens the file, and the tab lists its links again") {
+            await self.until { win.currentID == specID && pane.referenceTexts.count == 2 }
+        }
+        pane.choose(tab: .open)
+        await check("back on Open, the scope choice and the items are there") {
+            await self.until { win.paneTab == .open && pane.scopeShown && pane.rowTexts.count == 2 }
+        }
         // Back on the file, the annotation is focused again for the card's checks below.
         _ = await until { win.annotations.reveal(annotation: id) }
 

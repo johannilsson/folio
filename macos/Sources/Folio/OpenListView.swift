@@ -74,6 +74,7 @@ private final class OpenItemRowView: NSView {
             switch link.target {
             case .annotation: word = "annotation"
             case .passage: word = "passage"
+            case .document: word = "document"
             }
             return PassthroughLabel(NSAttributedString(string: word, attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: NSColor.systemPurple,
@@ -337,13 +338,89 @@ final class OpenListView: NSView {
     override var allowsVibrancy: Bool { false }
 }
 
-/// The Open pane: the inspector of a set window, beside the editor and its comments pane, listing by tag the open
-/// items of the whole set or only those about the file on screen. The window controller owns what it lists and
-/// its scope (`SetWindowController.openPaneOn`, `openScope`); the pane draws what it is given.
+/// One wiki page's link to the file on screen, a row of the References tab: where in the page it is, and what it
+/// points at. Clicking it opens the page.
+private final class ReferenceRowView: NSView {
+    let reference: FileReference
+    var onOpen: () -> Void = {}
+
+    private let context: PassthroughLabel
+    private let meta: PassthroughLabel
+    private let pad: CGFloat = 8
+
+    /// What the row says, for the self-test.
+    var plainText: String { context.stringValue + "\n" + meta.stringValue }
+
+    init(reference: FileReference) {
+        self.reference = reference
+        let backlink = reference.backlink
+        context = PassthroughLabel(NSAttributedString(string: backlink.context, attributes: [
+            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor,
+        ]))
+        meta = PassthroughLabel(NSAttributedString(string: "line \(backlink.line) · \(reference.aimText)", attributes: [
+            .font: NSFont.systemFont(ofSize: 10.5), .foregroundColor: NSColor.secondaryLabelColor,
+        ]))
+        super.init(frame: .zero)
+        for label in [context, meta] {
+            label.maximumNumberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
+            addSubview(label)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityLabel("\(backlink.page), \(backlink.context)")
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isFlipped: Bool { true }
+
+    func layoutContent(width: CGFloat) -> CGFloat {
+        let mainW = max(40, width - 2 * pad)
+        // Measured by the labels' cells, which wrap a little earlier than the bare text would (their padding).
+        func height(_ label: PassthroughLabel) -> CGFloat {
+            ceil(label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: mainW, height: .greatestFiniteMagnitude)).height
+                ?? AnnotationStyle.height(of: label.attributedStringValue, width: mainW))
+        }
+        context.frame = NSRect(x: pad, y: pad - 1, width: mainW, height: height(context))
+        meta.frame = NSRect(x: pad, y: context.frame.maxY + 2, width: mainW, height: height(meta))
+        let total = meta.frame.maxY + pad - 1
+        frame.size = NSSize(width: width, height: total)
+        needsDisplay = true
+        return total
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        AnnotationStyle.cardFill.setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    override func mouseDown(with event: NSEvent) { onOpen() }
+
+    override var allowsVibrancy: Bool { false }
+}
+
+/// The inspector of a set window, beside the editor and its comments pane, with two tabs. Open lists by tag the open
+/// items of the whole set or only those about the file on screen; References lists the wiki pages that link to the
+/// file on screen, by page. The window controller owns what they list, the scope and the tab
+/// (`SetWindowController.openPaneOn`, `openScope`, `paneTab`); the pane draws what it is given.
 final class OpenPaneView: NSView {
     /// Its width, fixed.
     static let width: CGFloat = 272
 
+    enum Tab: Equatable {
+        case open, references
+    }
+
+    var tab: Tab = .open {
+        didSet {
+            tabs.selectedSegment = tab == .open ? 0 : 1
+            if tab != oldValue { rebuild() }
+        }
+    }
     var rows: [OpenList.PaneRow] = [] {
         didSet { if rows != oldValue { rebuild() } }
     }
@@ -353,26 +430,45 @@ final class OpenPaneView: NSView {
             if scope != oldValue { rebuild() }
         }
     }
+    /// The wiki pages that link to the file on screen, by page.
+    var references: [FileReferences.Group] = [] {
+        didSet { if references != oldValue { rebuild() } }
+    }
+    /// The tabs say how many each holds: the open items of the set, the links to the file on screen.
+    var counts: (open: Int, references: Int) = (0, 0) {
+        didSet { if counts != oldValue { titleTabs() } }
+    }
     /// The reader chose "This file" or "Whole set".
     var onScope: (OpenList.Scope) -> Void = { _ in }
+    /// The reader chose Open or References.
+    var onTab: (Tab) -> Void = { _ in }
     /// An item was ticked.
     var onTick: (OpenEntry) -> Void = { _ in }
     /// Open the file at the item.
     var onOpen: (OpenEntry) -> Void = { _ in }
+    /// Open the page at a link to the file.
+    var onOpenReference: (Backlink) -> Void = { _ in }
 
-    private let heading = PassthroughLabel(NSAttributedString(string: "Open", attributes: [
-        .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor,
-    ]))
+    private let tabs = NSSegmentedControl(labels: ["Open", "References"], trackingMode: .selectOne, target: nil, action: nil)
     private let picker = NSSegmentedControl(labels: ["This file", "Whole set"], trackingMode: .selectOne, target: nil, action: nil)
     private let scroll = NSScrollView()
     private let canvas = FlippedView()
     private let empty = PassthroughLabel(NSAttributedString(string: "", attributes: [:]))
     private var headings: [PassthroughLabel] = []
     private var rowViews: [OpenItemRowView] = []
+    private var referenceViews: [ReferenceRowView] = []
     private var groupSizes: [Int] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        tabs.controlSize = .small
+        tabs.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        tabs.segmentDistribution = .fillEqually
+        tabs.selectedSegment = 0
+        tabs.target = self
+        tabs.action = #selector(tabChanged)
+        tabs.setAccessibilityLabel("Show")
+        titleTabs()
         picker.controlSize = .small
         picker.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         picker.selectedSegment = 1
@@ -383,7 +479,7 @@ final class OpenPaneView: NSView {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
-        for view in [scroll, heading, picker, empty] { addSubview(view) }
+        for view in [scroll, tabs, picker, empty] { addSubview(view) }
         setAccessibilityIdentifier("open-pane")
         rebuild()
     }
@@ -396,19 +492,38 @@ final class OpenPaneView: NSView {
         onScope(picker.selectedSegment == 0 ? .file : .set)
     }
 
+    @objc private func tabChanged() {
+        onTab(tabs.selectedSegment == 0 ? .open : .references)
+    }
+
+    private func titleTabs() {
+        tabs.setLabel(counts.open > 0 ? "Open \(counts.open)" : "Open", forSegment: 0)
+        tabs.setLabel(counts.references > 0 ? "References \(counts.references)" : "References", forSegment: 1)
+    }
+
     // MARK: what the self-test looks at
 
+    var tabTitles: [String] { (0..<tabs.segmentCount).map { tabs.label(forSegment: $0) ?? "" } }
     var groupTitles: [String] { headings.map(\.stringValue) }
     var rowTexts: [String] { rowViews.map(\.plainText) }
     var rowPlaces: [String] { rowViews.map(\.placeText) }
     var rowMarked: [Bool] { rowViews.map(\.marked) }
+    var referenceTexts: [String] { referenceViews.map(\.plainText) }
     var emptyText: String? { empty.isHidden ? nil : empty.stringValue }
+    /// Whether the scope choice is shown (only on the Open tab).
+    var scopeShown: Bool { !picker.isHidden }
     func tick(row index: Int) { if rowViews.indices.contains(index) { rowViews[index].tick() } }
     func open(row index: Int) { if rowViews.indices.contains(index) { rowViews[index].onOpen() } }
+    func open(reference index: Int) { if referenceViews.indices.contains(index) { referenceViews[index].onOpen() } }
     /// What a click on "This file" or "Whole set" does.
     func choose(_ scope: OpenList.Scope) {
         picker.selectedSegment = scope == .file ? 0 : 1
         scopeChanged()
+    }
+    /// What a click on Open or References does.
+    func choose(tab: Tab) {
+        tabs.selectedSegment = tab == .open ? 0 : 1
+        tabChanged()
     }
 
     // MARK: content
@@ -424,9 +539,18 @@ final class OpenPaneView: NSView {
     private func rebuild() {
         headings.forEach { $0.removeFromSuperview() }
         rowViews.forEach { $0.removeFromSuperview() }
+        referenceViews.forEach { $0.removeFromSuperview() }
         headings = []
         rowViews = []
+        referenceViews = []
         groupSizes = []
+        picker.isHidden = tab != .open
+        tabs.selectedSegment = tab == .open ? 0 : 1
+        if tab == .references {
+            rebuildReferences()
+            needsLayout = true
+            return
+        }
         empty.attributedStringValue = NSAttributedString(
             string: scope == .file ? "Nothing open about this file" : "No open items",
             attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
@@ -457,6 +581,30 @@ final class OpenPaneView: NSView {
         needsLayout = true
     }
 
+    /// The References tab: each page that links to the file on screen under its name, a row for each link.
+    private func rebuildReferences() {
+        empty.attributedStringValue = NSAttributedString(
+            string: "No page links to this file",
+            attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
+        empty.isHidden = !references.isEmpty
+        for group in references {
+            let label = PassthroughLabel(NSAttributedString(string: group.title.uppercased(), attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor, .kern: 0.3,
+            ]))
+            label.maximumNumberOfLines = 1
+            label.lineBreakMode = .byTruncatingMiddle
+            canvas.addSubview(label)
+            headings.append(label)
+            groupSizes.append(group.rows.count)
+            for reference in group.rows {
+                let row = ReferenceRowView(reference: reference)
+                row.onOpen = { [weak self] in self?.onOpenReference(reference.backlink) }
+                canvas.addSubview(row)
+                referenceViews.append(row)
+            }
+        }
+    }
+
     // MARK: layout
 
     override func layout() {
@@ -464,23 +612,35 @@ final class OpenPaneView: NSView {
         // The toolbar floats over the content side: the pane starts below it.
         let inset: CGFloat = 12
         let top = max(safeAreaInsets.top, 52) + 10
-        heading.sizeToFit()
-        heading.frame.origin = NSPoint(x: inset, y: top)
-        picker.sizeToFit()
-        picker.frame.origin = NSPoint(x: bounds.width - inset - picker.frame.width, y: top - 2)
-        let below = top + 28
+        tabs.sizeToFit()
+        tabs.frame = NSRect(x: inset, y: top - 2, width: max(100, bounds.width - 2 * inset), height: tabs.frame.height)
+        var below = tabs.frame.maxY + 10
+        if tab == .open {
+            picker.sizeToFit()
+            picker.frame.origin = NSPoint(x: bounds.width - inset - picker.frame.width, y: below)
+            below = picker.frame.maxY + 8
+        }
         scroll.frame = NSRect(x: 0, y: below, width: bounds.width, height: max(0, bounds.height - below))
         let width = max(100, scroll.contentSize.width - 2 * inset)
         var y: CGFloat = 4
         var next = 0
         for (index, title) in headings.enumerated() {
             title.sizeToFit()
-            title.frame = NSRect(x: inset, y: y, width: width, height: title.frame.height)
+            title.frame = NSRect(x: inset, y: y, width: min(width, title.frame.width), height: title.frame.height)
             y += title.frame.height + 5
-            for row in rowViews[next..<(next + groupSizes[index])] {
-                let height = row.layoutContent(width: width)
-                row.frame = NSRect(x: inset, y: y, width: width, height: height)
-                y += height + 5
+            let range = next..<(next + groupSizes[index])
+            if tab == .open {
+                for row in rowViews[range] {
+                    let height = row.layoutContent(width: width)
+                    row.frame = NSRect(x: inset, y: y, width: width, height: height)
+                    y += height + 5
+                }
+            } else {
+                for row in referenceViews[range] {
+                    let height = row.layoutContent(width: width)
+                    row.frame = NSRect(x: inset, y: y, width: width, height: height)
+                    y += height + 5
+                }
             }
             next += groupSizes[index]
             y += 8

@@ -116,8 +116,7 @@ every wiki page about it, and from a wiki page to the document, without an annot
   "Open 4" and "References 3", as Xcode's inspectors switch. Open keeps its scope (the set, or
   "This file"); References is always about the file on screen and follows it as the sidebar
   changes file. The inspector's toolbar button opens the tab last shown. Clicking a row opens the
-  page with the link's words selected, as a backlink does; a row about an annotation also focuses
-  that annotation's card when the page is closed again. A passage link that overlaps no annotation
+  page with the link's words selected, as a backlink does. A passage link that overlaps no annotation
   shows here and only here (today it shows nowhere). Matched by repo, branch and path, as
   backlinks are; it follows the pages without a reload.
 - **Keeping links true.** A link is text in a page, written by a person or the agent, so it can go
@@ -141,8 +140,9 @@ every wiki page about it, and from a wiki page to the document, without an annot
   document under review).
 - `folio refs <file> --set <name> [--json]` prints the same list for the agent: page, line,
   heading and what the link points at (`the document`, `annotation <id>`, `passage “…”`).
-- Not yet: marks in the text for passage links; an open item linking to the document (not an
-  annotation) counting as "about" it in the Open pane's "This file".
+- An open item that links to the document counts as about the file in the Open pane's "This file"
+  (no dot: the dot is for an annotation).
+- Not yet: marks in the text for passage links.
 
 ### 3. Open items
 
@@ -286,12 +286,13 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
      `folio refs` (`commands/refs.rs`). Unit tests for parsing, matching and a set's pages.
    - Done: `folio refs --dead` and `folio relink` (`commands/refs.rs`; `wiki::resolve`,
      `dead_reason`, `moved_to`, the same rules as `FolioLink.resolve` and `targetFound`).
-   - Not yet (app): `FolioLink.Target.document` in FolioKit, `WikiReferences` finding
-     `folio://document`, following and greying it (`AppServer.open`, `linkState`), the
-     References list (`SetWindowController.computeBacklinks` keeping every link to the file, not
-     only those on an annotation; the inspector's Open / References control, its rows grouped by
-     page as a function in FolioKit with unit tests). Self-test in `backlinkScenario` (the list
-     follows a page changing and the file on screen changing); a picture of the inspector on each tab.
+   - Done (app): `FolioLink.Target.document` and `PreviewBuilder` drawing it as a chip, followed
+     by `AppServer.open` and greyed like the others (`targetFound` has nothing to lose);
+     `FileReferences` in FolioKit (`collect`: the links of the pages to the file on screen, whatever
+     they point at; `byPage`) with unit tests; `OpenPaneView`'s Open / References control
+     (`SetWindowController.paneTab`, `fileReferences`, `computeFileReferences`, kept current when a
+     page or the shown file changes). Self-test in `cardItemsScenario`, a picture of the References tab.
+   - Not yet: a Copy Folio Link command in the app.
 
 ## Open questions
 

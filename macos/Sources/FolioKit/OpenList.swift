@@ -67,14 +67,15 @@ public enum OpenList {
         return order.map { Group(title: groups[$0]?.first?.page ?? "", entries: groups[$0] ?? []) }
     }
 
-    /// What an item is about in the file on screen: one of its annotations, or a passage of it.
+    /// What an item is about in the file on screen: one of its annotations, a passage of it, or all of it.
     public enum About: Equatable {
         case annotation(String)
         case passage
+        case document
     }
 
     /// An item is about the file on screen when its Folio link points at that file (`FolioLink.points(to:file:)`):
-    /// about an annotation of it when the link is to one, else about a passage. Nil for any other item.
+    /// about an annotation of it when the link is to one, a passage when it is to one, else the document. Nil for any other item.
     /// `candidate` is the file's checkout, nil when it is in none; `file` is its path on disk.
     public static func about(_ item: OpenItem, candidate: FolioLink.Candidate?, file: String) -> About? {
         guard let url = item.folio.flatMap({ URL(string: $0) }), let link = FolioLink(url),
@@ -82,6 +83,7 @@ public enum OpenList {
         switch link.target {
         case .annotation(let id): return .annotation(id)
         case .passage: return .passage
+        case .document: return .document
         }
     }
 

@@ -1,12 +1,14 @@
 import Foundation
 
-/// A link into Folio: `folio://annotation/<id>?repo=…&branch=…&path=…&file=…` to an annotation, or
-/// `folio://passage?repo=…&branch=…&path=…&file=…&q=…[&before=…]` to a passage of the text, as
-/// `folio link` writes them. A link names the repo and branch and the file's path in that checkout,
+/// A link into Folio: `folio://annotation/<id>?repo=…&branch=…&path=…&file=…` to an annotation,
+/// `folio://passage?repo=…&branch=…&path=…&file=…&q=…[&before=…]` to a passage of the text, or
+/// `folio://document?repo=…&branch=…&path=…&file=…` to the file as a whole, as `folio link` writes them. A link names the repo and branch and the file's path in that checkout,
 /// which outlive a worktree's folder; `file` is where the file was, kept for a link whose repo is not
 /// open. A link without a repo is an older one and has only `file`.
 public struct FolioLink: Equatable {
     public enum Target: Equatable {
+        /// The file itself.
+        case document
         case annotation(String)
         /// Rendered text, and the rendered words just before it when it appears more than once.
         case passage(text: String, before: String)
@@ -26,6 +28,8 @@ public struct FolioLink: Equatable {
             components.queryItems?.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
         }
         switch components.host {
+        case "document":
+            target = .document
         case "annotation":
             let id = url.lastPathComponent
             guard !id.isEmpty, id != "/" else { return nil }
@@ -93,6 +97,8 @@ public struct FolioLink: Equatable {
     /// `markdown` and `sidecar` are the text of the file the link resolved to and of its sidecar.
     public func targetFound(markdown: String, sidecar: String) -> Bool {
         switch target {
+        case .document:
+            return true
         case .annotation(let id):
             guard let annotation = (try? Sidecar.parse(sidecar))?.annotations.first(where: { $0.id == id && !$0.resolved }) else { return false }
             var item: [String: Any] = ["id": id, "context_before": annotation.contextBefore]

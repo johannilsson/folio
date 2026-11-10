@@ -150,7 +150,7 @@ enum AppServer {
         }
     }
 
-    /// Follows a `folio://annotation` or `folio://passage` link: the file it names in the open windows,
+    /// Follows a `folio://document`, `folio://annotation` or `folio://passage` link: the file it names in the open windows,
     /// by repo, branch and path (never by folder: a worktree's folder comes and goes), else the file
     /// where the link says it was. When the repo is open but the branch or file is not, it says so.
     static func open(_ link: FolioLink) {
@@ -159,6 +159,7 @@ enum AppServer {
         var annotation: String?
         var passage: (text: String, before: String)?
         switch link.target {
+        case .document: break
         case .annotation(let id): annotation = id
         case .passage(let text, let before): passage = (text, before)
         }
