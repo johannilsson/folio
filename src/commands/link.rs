@@ -2,7 +2,7 @@ use crate::sidecar::Sidecar;
 use std::path::Path;
 
 /// Percent-encode everything but unreserved characters and `/`.
-fn encode(path: &str) -> String {
+pub(crate) fn encode(path: &str) -> String {
     let mut out = String::new();
     for b in path.bytes() {
         match b {

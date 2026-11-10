@@ -39,12 +39,26 @@ enum Commands {
     },
     /// Print the wiki pages of a set that link to a file: to the file, its passages or its annotations
     Refs {
-        file: PathBuf,
+        #[arg(required_unless_present = "dead")]
+        file: Option<PathBuf>,
         /// The set whose files and folders are read for links
         #[arg(long)]
         set: String,
+        /// Instead, print the links in the set's pages that cannot be followed, and why (a branch no
+        /// longer checked out, a file moved, text edited away or an annotation resolved)
+        #[arg(long, conflicts_with = "file")]
+        dead: bool,
         #[arg(long)]
         json: bool,
+    },
+    /// Repair links in a set's pages whose branch is gone, when exactly one checkout in the set has the file
+    Relink {
+        /// The set whose files and folders are read for links
+        #[arg(long)]
+        set: String,
+        /// Print what would change without writing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Print pending annotations
     Review {
@@ -173,7 +187,8 @@ fn main() {
             SetCommands::List { name } => commands::set::list(name.as_deref()),
         },
         Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),
-        Commands::Refs { file, set, json } => commands::refs::run(&file, &set, json),
+        Commands::Refs { file, set, dead, json } => commands::refs::run(file.as_deref(), &set, dead, json),
+        Commands::Relink { set, dry_run } => commands::refs::relink(&set, dry_run),
         Commands::Review { file, kind, source, json } => {
             commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
         }
