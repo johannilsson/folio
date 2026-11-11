@@ -664,6 +664,12 @@ extension SelfTest {
         await check("This file lists only the items whose link is to the file on screen") {
             win.openScope == .file && pane.rowTexts == ["Key rotation, asked in PR 42"]
         }
+        await check("the scope is a filter toggle in a bar along the bottom of the pane, counting what it shows") {
+            await self.until {
+                pane.scopeShown && pane.filterFrame.minY > pane.bounds.height - 31 && pane.filterFrame.maxY <= pane.bounds.height
+                    && pane.filterCountText == "1 of 2"
+            }
+        }
         let specID = win.currentID
         let trackerID = win.workspace.entries.first { $0.name == "tracker.md" }?.document.id ?? ""
         win.openFile(trackerID)

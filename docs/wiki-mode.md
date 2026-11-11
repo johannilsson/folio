@@ -113,7 +113,7 @@ every wiki page about it, and from a wiki page to the document, without an annot
   page of the set with a link to the document, to a passage of it or to one of its annotations,
   with the heading or line the link is under, grouped by page. It lives in the set window's
   inspector beside **Open**: a segmented control at the top of the inspector switches between
-  "Open 4" and "References 3", as Xcode's inspectors switch. Open keeps its scope (the set, or
+  "Open 4" and "References 3", as Xcode's inspectors switch. Open keeps its filter (the set, or
   "This file"); References is always about the file on screen and follows it as the sidebar
   changes file. The inspector's toolbar button opens the tab last shown. Clicking a row opens the
   page with the link's words selected, as a backlink does. A passage link that overlaps no annotation
@@ -166,7 +166,9 @@ every wiki page about it, and from a wiki page to the document, without an annot
   editor and its comments pane, so both can be open at once. As in Xcode, the toolbar is divided over it:
   its button, with the set's count, is at the trailing edge, and the editor's buttons stay over the editor.
   View ▸ Toggle Open Items (⇧⌘O) opens it too. It is 272 points wide and can be dragged shut. It lists the whole set by tag
-  until the reader picks "This file", the items whose Folio link points at the file on screen; a purple
+  until the reader turns on the "This file" filter, a toggle in a bar along the pane's bottom edge as in
+  Xcode's navigators, with the count beside it ("1 of 4"): the items whose Folio link points at the file
+  on screen. The bar is the Open tab's; References has no filter. A purple
   dot marks an item about an annotation of that file. A row is compact: the box, the words, then the file
   and line and the short address; clicking it opens the file with the item's words selected. The list in
   place of the editor stays for grouping by file, the answers' lines and following the addresses.
