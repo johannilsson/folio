@@ -97,6 +97,7 @@ final class SelfTest {
 
         await setScenario()
         await wikiScenario()
+        await documentLinkScenario()
         await worktreeScenario()
         await backlinkScenario()
         await openItemsScenario()

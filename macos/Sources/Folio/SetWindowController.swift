@@ -531,16 +531,16 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
 
     // MARK: the wiki
 
-    /// The wiki page a `[[link]]` means, among the files of the set's folders.
+    /// The file a `[[link]]` means: a page of the set's folders, else another file of the set.
     private func page(of link: WikiLink) -> Workspace.Entry? {
-        let wiki = workspace.entries.filter(\.inFolder)
-        return WikiLinks.resolve(link.name, among: wiki.map(\.name)).map { wiki[$0] }
+        let entries = workspace.entries
+        return WikiLinks.resolve(link.name, among: entries.map(\.name), inWiki: entries.map(\.inFolder)).map { entries[$0] }
     }
 
     override func linkState(_ url: URL) -> PreviewBuilder.LinkState {
         guard url.host == "wiki" else { return super.linkState(url) }
         guard let link = WikiLink(url: url) else { return .live }
-        return page(of: link) == nil ? .dead("“\(link.name)” isn't in the wiki") : .live
+        return page(of: link) == nil ? .dead("“\(link.name)” isn't in the wiki or the set") : .live
     }
 
     override func follow(_ url: URL) {

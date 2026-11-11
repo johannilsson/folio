@@ -73,6 +73,16 @@ public enum WikiLinks {
         }
     }
 
+    /// The file `name` means among the files of a set: a page of its wiki folders (`inWiki`) as `resolve`
+    /// picks one, else a file added to the set on its own, the same way. Nil when neither has it.
+    public static func resolve(_ name: String, among paths: [String], inWiki: [Bool]) -> Int? {
+        for wiki in [true, false] {
+            let indices = paths.indices.filter { inWiki[$0] == wiki }
+            if let found = resolve(name, among: indices.map { paths[$0] }) { return indices[found] }
+        }
+        return nil
+    }
+
     /// Lower case, without a leading "/" or a markdown extension.
     private static func bare(_ path: String) -> String {
         var text = path.trimmingCharacters(in: .whitespaces).lowercased()

@@ -75,7 +75,7 @@ extension SelfTest {
             attributes("oauth").link != nil && attributes("oauth").color == .linkColor && attributes("oauth").tip == nil
         }
         await check("a link to a page it lacks is grey, saying why") {
-            attributes("missing").color == .secondaryLabelColor && attributes("missing").tip == "“missing” isn't in the wiki"
+            attributes("missing").color == .secondaryLabelColor && attributes("missing").tip == "“missing” isn't in the wiki or the set"
                 && attributes("the options").color == .secondaryLabelColor
         }
         await check("a link to an annotation of a repo no window has is grey, saying why") {
@@ -177,6 +177,52 @@ extension SelfTest {
         await check("deleting the set leaves the folder's files") {
             FileManager.default.fileExists(atPath: wiki.appendingPathComponent("index.md").path)
         }
+    }
+
+    /// `[[links]]` between documents added to a set on their own, with no wiki folder: a link to another
+    /// file of the set is live and opens it.
+    func documentLinkScenario() async {
+        let config = FileManager.default.temporaryDirectory
+            .appendingPathComponent("folio-selftest-config-\(UUID().uuidString)").resolvingSymlinksInPath()
+        dirs.append(config)
+        setenv("FOLIO_CONFIG_DIR", config.path, 1)
+        defer { unsetenv("FOLIO_CONFIG_DIR") }
+
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("folio-selftest-doclinks-\(UUID().uuidString)").resolvingSymlinksInPath()
+        dirs.append(folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let first = folder.appendingPathComponent("first.md"), second = folder.appendingPathComponent("second.md")
+        try? "# First\n\nFIRST DOC\n\nSee [[second#Details]] and [[nowhere]].\n".write(to: first, atomically: true, encoding: .utf8)
+        try? "# Second\n\nSECOND DOC\n\n## Details\n\nBack to [[first]].\n".write(to: second, atomically: true, encoding: .utf8)
+
+        let added = cli(["set", "add", "doclinks", first.path, second.path], in: folder)
+        await check("a set of two documents without a folder is made") { added.status == 0 }
+        guard let win = app.openSet("doclinks") else {
+            report("a set of two documents opens", false)
+            return
+        }
+        let preview = win.scrollHost.preview
+        _ = await until { preview.textView.string.contains("FIRST DOC") }
+        let storage = preview.textView.textStorage!
+        func at(_ word: String) -> Int { (storage.string as NSString).range(of: word).location }
+        await check("a [[link]] to another document of the set is live") {
+            let index = at("second › Details")
+            return index != NSNotFound && storage.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor == .linkColor
+        }
+        await check("a [[link]] to a file the set lacks is grey, saying why") {
+            storage.attribute(.toolTip, at: at("nowhere"), effectiveRange: nil) as? String == "“nowhere” isn't in the wiki or the set"
+        }
+        let firstID = win.currentID
+        preview.textView.onClick?(at("second › Details") + 1)
+        await check("clicking it opens the other document with the heading selected") {
+            await self.until {
+                let page = win.scrollHost.preview.textView
+                return win.currentID != firstID && page.string.contains("SECOND DOC")
+                    && (page.string as NSString).substring(with: page.selectedRange()) == "Details"
+            }
+        }
+        win.performDeleteSet()
     }
 }
 

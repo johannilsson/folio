@@ -89,6 +89,16 @@ import Testing
         #expect(WikiLinks.resolve("tation-options", among: paths) == nil)
     }
 
+    @Test func aLinkReachesTheOtherFilesOfASetAfterItsWiki() {
+        let set = ["docs/spec.md", "notes/spec.md", "notes/index.md", "docs/design.md"]
+        let inWiki = [false, true, true, false]
+        #expect(WikiLinks.resolve("spec", among: set, inWiki: inWiki) == 1)
+        #expect(WikiLinks.resolve("design", among: set, inWiki: inWiki) == 3)
+        #expect(WikiLinks.resolve("docs/spec", among: set, inWiki: inWiki) == 0)
+        #expect(WikiLinks.resolve("missing", among: set, inWiki: inWiki) == nil)
+        #expect(WikiLinks.resolve("spec", among: ["a.md", "spec.md"], inWiki: [false, false]) == 1)
+    }
+
     @Test func nothingMatchesNothing() {
         #expect(WikiLinks.resolve("missing", among: paths) == nil)
         #expect(WikiLinks.resolve("", among: paths) == nil)
