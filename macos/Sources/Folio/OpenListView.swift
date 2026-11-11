@@ -426,7 +426,7 @@ final class OpenPaneView: NSView {
     }
     var scope: OpenList.Scope = .set {
         didSet {
-            picker.selectedSegment = scope == .file ? 0 : 1
+            styleFilter()
             if scope != oldValue { rebuild() }
         }
     }
@@ -436,7 +436,7 @@ final class OpenPaneView: NSView {
     }
     /// The tabs say how many each holds: the open items of the set, the links to the file on screen.
     var counts: (open: Int, references: Int) = (0, 0) {
-        didSet { if counts != oldValue { titleTabs() } }
+        didSet { if counts != oldValue { titleTabs(); countFilter() } }
     }
     /// The reader chose "This file" or "Whole set".
     var onScope: (OpenList.Scope) -> Void = { _ in }
@@ -450,7 +450,11 @@ final class OpenPaneView: NSView {
     var onOpenReference: (Backlink) -> Void = { _ in }
 
     private let tabs = NSSegmentedControl(labels: ["Open", "References"], trackingMode: .selectOne, target: nil, action: nil)
-    private let picker = NSSegmentedControl(labels: ["This file", "Whole set"], trackingMode: .selectOne, target: nil, action: nil)
+    /// The Open tab's filter, in a bar at the bottom as in Xcode's navigators: on, only the items about the file on screen.
+    private let filter = NSButton(title: "This file", target: nil, action: nil)
+    /// How many items the Open tab shows, beside the filter.
+    private let filterCount = PassthroughLabel(NSAttributedString(string: "", attributes: [:]))
+    private static let barHeight: CGFloat = 30
     private let scroll = NSScrollView()
     private let canvas = FlippedView()
     private let empty = PassthroughLabel(NSAttributedString(string: "", attributes: [:]))
@@ -469,17 +473,22 @@ final class OpenPaneView: NSView {
         tabs.action = #selector(tabChanged)
         tabs.setAccessibilityLabel("Show")
         titleTabs()
-        picker.controlSize = .small
-        picker.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        picker.selectedSegment = 1
-        picker.target = self
-        picker.action = #selector(scopeChanged)
-        picker.setAccessibilityLabel("Show the open items of")
+        filter.isBordered = false
+        filter.setButtonType(.toggle)
+        filter.imagePosition = .imageLeading
+        filter.imageHugsTitle = true
+        filter.font = NSFont.systemFont(ofSize: 11)
+        filter.target = self
+        filter.action = #selector(filterToggled)
+        filter.toolTip = "Show only the items about the file on screen"
+        filter.setAccessibilityLabel("Show only the items about the file on screen")
+        filterCount.maximumNumberOfLines = 1
+        styleFilter()
         scroll.documentView = canvas
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
-        for view in [scroll, tabs, picker, empty] { addSubview(view) }
+        for view in [scroll, tabs, filter, filterCount, empty] { addSubview(view) }
         setAccessibilityIdentifier("open-pane")
         rebuild()
     }
@@ -488,8 +497,29 @@ final class OpenPaneView: NSView {
 
     override var isFlipped: Bool { true }
 
-    @objc private func scopeChanged() {
-        onScope(picker.selectedSegment == 0 ? .file : .set)
+    @objc private func filterToggled() {
+        onScope(scope == .file ? .set : .file)
+    }
+
+    /// The filter in the accent colour, its symbol filled, while it is on.
+    private func styleFilter() {
+        let on = scope == .file
+        filter.state = on ? .on : .off
+        filter.contentTintColor = on ? .controlAccentColor : .secondaryLabelColor
+        filter.image = NSImage(systemSymbolName: on ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
+                               accessibilityDescription: nil)
+        filter.attributedTitle = NSAttributedString(string: "This file", attributes: [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: on ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
+        ])
+    }
+
+    /// "1 of 2" while the filter is on, else how many items the set has.
+    private func countFilter() {
+        let shown = rows.count
+        let text = scope == .file ? "\(shown) of \(counts.open)" : (shown == 1 ? "1 item" : "\(shown) items")
+        filterCount.attributedStringValue = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
+        ])
     }
 
     @objc private func tabChanged() {
@@ -510,15 +540,17 @@ final class OpenPaneView: NSView {
     var rowMarked: [Bool] { rowViews.map(\.marked) }
     var referenceTexts: [String] { referenceViews.map(\.plainText) }
     var emptyText: String? { empty.isHidden ? nil : empty.stringValue }
-    /// Whether the scope choice is shown (only on the Open tab).
-    var scopeShown: Bool { !picker.isHidden }
+    /// Whether the filter bar is shown (only on the Open tab).
+    var scopeShown: Bool { !filter.isHidden }
+    /// The filter's count ("1 of 2"), and where the filter is in the pane.
+    var filterCountText: String { filterCount.stringValue }
+    var filterFrame: NSRect { filter.frame }
     func tick(row index: Int) { if rowViews.indices.contains(index) { rowViews[index].tick() } }
     func open(row index: Int) { if rowViews.indices.contains(index) { rowViews[index].onOpen() } }
     func open(reference index: Int) { if referenceViews.indices.contains(index) { referenceViews[index].onOpen() } }
-    /// What a click on "This file" or "Whole set" does.
+    /// What clicking the filter does when it is not already showing `scope`.
     func choose(_ scope: OpenList.Scope) {
-        picker.selectedSegment = scope == .file ? 0 : 1
-        scopeChanged()
+        if scope != self.scope { filterToggled() }
     }
     /// What a click on Open or References does.
     func choose(tab: Tab) {
@@ -544,8 +576,11 @@ final class OpenPaneView: NSView {
         rowViews = []
         referenceViews = []
         groupSizes = []
-        picker.isHidden = tab != .open
+        filter.isHidden = tab != .open
+        filterCount.isHidden = tab != .open
+        countFilter()
         tabs.selectedSegment = tab == .open ? 0 : 1
+        needsDisplay = true
         if tab == .references {
             rebuildReferences()
             needsLayout = true
@@ -614,13 +649,17 @@ final class OpenPaneView: NSView {
         let top = max(safeAreaInsets.top, 52) + 10
         tabs.sizeToFit()
         tabs.frame = NSRect(x: inset, y: top - 2, width: max(100, bounds.width - 2 * inset), height: tabs.frame.height)
-        var below = tabs.frame.maxY + 10
+        let below = tabs.frame.maxY + 10
+        // The Open tab's filter bar along the bottom edge.
+        let bar = tab == .open ? Self.barHeight : 0
         if tab == .open {
-            picker.sizeToFit()
-            picker.frame.origin = NSPoint(x: bounds.width - inset - picker.frame.width, y: below)
-            below = picker.frame.maxY + 8
+            filter.sizeToFit()
+            filter.frame.origin = NSPoint(x: 8, y: bounds.height - bar + (bar - filter.frame.height) / 2)
+            filterCount.sizeToFit()
+            filterCount.frame.origin = NSPoint(x: bounds.width - inset - filterCount.frame.width,
+                                               y: bounds.height - bar + (bar - filterCount.frame.height) / 2)
         }
-        scroll.frame = NSRect(x: 0, y: below, width: bounds.width, height: max(0, bounds.height - below))
+        scroll.frame = NSRect(x: 0, y: below, width: bounds.width, height: max(0, bounds.height - below - bar))
         let width = max(100, scroll.contentSize.width - 2 * inset)
         var y: CGFloat = 4
         var next = 0
@@ -654,6 +693,11 @@ final class OpenPaneView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         bounds.fill()
+        // The hairline over the filter bar.
+        if tab == .open {
+            NSColor.separatorColor.setFill()
+            NSRect(x: 0, y: bounds.height - Self.barHeight, width: bounds.width, height: 1).fill()
+        }
     }
 
     override var allowsVibrancy: Bool { false }
