@@ -76,7 +76,9 @@ Two kinds, both plain markdown links, so the files read the same outside Folio:
   - "fix/logout isn't checked out any more": no open checkout is on that branch. Its
     annotations went with the worktree.
   - "docs/t.md isn't in this checkout": the branch is open, without that file.
-  - "“missing” isn't in the wiki": no page by that name in the set's folders.
+  - "“missing” isn't in the wiki or the set": no page by that name in the set's folders, nor another
+    file of the set (a `[[name]]` looks in the wiki first, then at the files added on their own, so
+    documents under review can link each other).
   - "payments-svc isn't in an open set": no open window has the repo.
   - "Not found in token-refresh.md": the file is there, but the annotation was resolved or deleted, or
     its text or the passage was edited away (read from the file and its sidecar, anchored as the app
