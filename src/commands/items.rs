@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 /// An open item and the file it is in.
 #[derive(Serialize)]
-struct Found {
-    file: PathBuf,
+pub struct Found {
+    pub file: PathBuf,
     #[serde(flatten)]
-    item: OpenItem,
+    pub item: OpenItem,
 }
 
 /// The files to read: those named, and every markdown file of the set (its folders as they are on disk).
@@ -24,8 +24,8 @@ fn files(files: &[PathBuf], set_name: Option<&str>) -> anyhow::Result<Vec<PathBu
     Ok(all)
 }
 
-/// Print the open items (`#investigate`, `#waiting`, `#replied`) of some files, or of a set.
-pub fn run(named: &[PathBuf], set_name: Option<&str>, tag: Option<&str>, json: bool) -> anyhow::Result<()> {
+/// The open items (`#investigate`, `#waiting`, `#replied`) of some files, or of a set.
+pub fn find(named: &[PathBuf], set_name: Option<&str>, tag: Option<&str>) -> anyhow::Result<Vec<Found>> {
     let mut found = Vec::new();
     let extra = match set_name {
         Some(name) => set::load(name)?.open_tags().into_iter().map(|t| t.name).collect(),
@@ -35,6 +35,12 @@ pub fn run(named: &[PathBuf], set_name: Option<&str>, tag: Option<&str>, json: b
         let text = std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
         found.extend(open_items_with(&text, &extra).into_iter().filter(|i| tag.map_or(true, |t| i.tag == t)).map(|item| Found { file: file.clone(), item }));
     }
+    Ok(found)
+}
+
+/// Print the open items of some files, or of a set.
+pub fn run(named: &[PathBuf], set_name: Option<&str>, tag: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let found = find(named, set_name, tag)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&found)?);
         return Ok(());

@@ -56,11 +56,10 @@ fn label(text: &str) -> String {
     short.replace('[', "(").replace(']', ")")
 }
 
-/// Print the link to an annotation, a passage or (with neither) the document, for pasting into
-/// another document. With `markdown`, a whole markdown link whose text is the author and the start
-/// of the comment (or the passage, or the file's name), so the document still reads once the target
-/// is gone.
-pub fn run(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<&str>, markdown: bool) -> anyhow::Result<()> {
+/// The link to an annotation, a passage or (with neither) the document, for pasting into another
+/// document. With `markdown`, a whole markdown link whose text is the author and the start of the
+/// comment (or the passage, or the file's name), so the document still reads once the target is gone.
+pub fn build(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<&str>, markdown: bool) -> anyhow::Result<String> {
     let (link, text) = match (id, passage) {
         (Some(id), None) => {
             let sidecar = Sidecar::load(&crate::location::folio_path(file))?;
@@ -95,11 +94,12 @@ pub fn run(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<
         }
         _ => anyhow::bail!("give an annotation id or --passage, not both"),
     };
-    if markdown {
-        println!("[{}]({})", text, link);
-    } else {
-        println!("{}", link);
-    }
+    Ok(if markdown { format!("[{}]({})", text, link) } else { link })
+}
+
+/// Print what `build` gives.
+pub fn run(file: &Path, id: Option<&str>, passage: Option<&str>, before: Option<&str>, markdown: bool) -> anyhow::Result<()> {
+    println!("{}", build(file, id, passage, before, markdown)?);
     Ok(())
 }
 
