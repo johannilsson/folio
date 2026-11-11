@@ -1,0 +1,4 @@
+bin/
+obj/
+selftest-result.txt
+snapshots/

@@ -19,3 +19,7 @@ clap         = { version = "4",   features = ["derive"] }
 anyhow       = "1"
 dunce        = "1"
 toml_edit    = "0.22"
+
+# The link between the MCP server and the running app (live.rs) is a Unix domain socket on Windows too.
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1"
