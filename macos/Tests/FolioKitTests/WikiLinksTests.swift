@@ -105,3 +105,17 @@ import Testing
         #expect(WikiLinks.resolve("a", among: []) == nil)
     }
 }
+
+@Suite struct RelativeFileLinkTests {
+    let file = URL(fileURLWithPath: "/wiki/notes/a.md")
+
+    @Test func relativeToTheFileThatHoldsIt() {
+        #expect(WikiLinks.file(for: URL(string: "b.md")!, relativeTo: file)?.path == "/wiki/notes/b.md")
+        #expect(WikiLinks.file(for: URL(string: "../c%20d.md#part")!, relativeTo: file)?.path == "/wiki/c d.md")
+    }
+
+    @Test func linksWithASchemeAreNotFiles() {
+        #expect(WikiLinks.file(for: URL(string: "https://x.org/a.md")!, relativeTo: file) == nil)
+        #expect(WikiLinks.file(for: URL(string: "#heading")!, relativeTo: file) == nil)
+    }
+}

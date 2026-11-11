@@ -116,6 +116,7 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         syncButtons()
         scrollHost.preview.linkState = { [weak self] url in self?.linkState(url) ?? .live }
         scrollHost.preview.onLink = { [weak self] url in self?.follow(url) }
+        scrollHost.preview.onFileLink = { [weak self] url in self?.follow(file: url) }
         scrollHost.preview.load(currentDocument)
         annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore,
                                            source: scrollHost.source, preview: scrollHost.preview)
@@ -156,6 +157,14 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
 
     /// A box ticked on a card.
     func tickOpenItem(_ entry: OpenEntry) {}
+
+    /// A click on a link to another file: a markdown file opens (in the set window that has it), anything
+    /// else in the app the system picks.
+    func follow(file link: URL) {
+        guard let url = WikiLinks.file(for: link, relativeTo: currentDocument.file) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return AppServer.tell("That file isn't here") }
+        if WelcomeDropView.isMarkdown(url) { _ = AppServer.reveal(url, annotation: nil) } else { NSWorkspace.shared.open(url) }
+    }
 
     /// A click on a live link in the preview.
     func follow(_ url: URL) {

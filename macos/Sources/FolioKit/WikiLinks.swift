@@ -94,3 +94,16 @@ public enum WikiLinks {
         return text
     }
 }
+
+extension WikiLinks {
+    /// The file an ordinary markdown link (`[text](other.md#part)`) means, written relative to the file
+    /// that holds it: nil for a link with a scheme of its own (web addresses, mail, folio://).
+    public static func file(for link: URL, relativeTo file: URL) -> URL? {
+        guard link.scheme == nil else { return link.isFileURL ? link : nil }
+        let path = link.path
+        guard !path.isEmpty else { return nil }
+        let base = file.deletingLastPathComponent()
+        let target = path.hasPrefix("/") ? URL(fileURLWithPath: path) : URL(fileURLWithPath: path, relativeTo: base)
+        return target.standardizedFileURL
+    }
+}

@@ -25,6 +25,8 @@ final class PreviewView: NSView, AnnotationSurface {
     var linkState: (URL) -> PreviewBuilder.LinkState = { _ in .live }
     /// A click on a live link into Folio.
     var onLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// A click on a link to another file, written relative to this one.
+    var onFileLink: (URL) -> Void = { _ in }
     /// What `linkState` said of each link in the text, to see when one has changed.
     private var linkSignature: [String] = []
     var onHover: ((String?) -> Void)?
@@ -613,5 +615,16 @@ extension PreviewView {
 extension PreviewView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()
+    }
+}
+
+extension PreviewView {
+    /// A click on a link the text view would hand to the system: web addresses and mail go on, a link to
+    /// another file (no scheme, so macOS answers -50) is the window's to follow.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
+        guard let url, url.scheme == nil || url.isFileURL else { return false }
+        onFileLink(url)
+        return true
     }
 }
