@@ -39,9 +39,7 @@ private final class OpenItemRowView: NSView {
         self.compact = compact
         self.marked = marked
         let item = entry.item
-        text = PassthroughLabel(NSAttributedString(string: item.text, attributes: [
-            .font: NSFont.systemFont(ofSize: compact ? 12 : 13), .foregroundColor: NSColor.labelColor,
-        ]))
+        text = PassthroughLabel(AnnotationStyle.markdown(item.text, font: .systemFont(ofSize: compact ? 12 : 13), color: .labelColor))
         if compact {
             // Where it is and the address it waits on, as one line under the words.
             let meta = ["\(entry.page):\(item.line)"] + (item.url.map { [OpenList.shortAddress($0)] } ?? [])
@@ -57,9 +55,7 @@ private final class OpenItemRowView: NSView {
             return
         }
         note = item.note.map {
-            PassthroughLabel(NSAttributedString(string: $0, attributes: [
-                .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
+            PassthroughLabel(AnnotationStyle.markdown($0, font: .systemFont(ofSize: 12), color: .secondaryLabelColor))
         }
         place = PassthroughLabel(NSAttributedString(string: "\(entry.page):\(item.line)", attributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.controlAccentColor,
