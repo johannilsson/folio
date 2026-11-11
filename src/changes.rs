@@ -70,7 +70,7 @@ fn change(kind: ChangeKind, annotation: &Annotation, time: &str) -> Change {
 /// replies written by `exclude_author` are left out; resolutions are always given, since
 /// the sidecar does not say who resolved.
 pub fn since(sidecar: &Sidecar, since: Option<&str>, exclude_author: Option<&str>) -> Vec<Change> {
-    let newer = |time: &str| since.is_none_or(|s| time >= s);
+    let newer = |time: &str| since.is_none_or(|s| to_the_second(time) >= to_the_second(s));
     let wanted = |author: &str| exclude_author.is_none_or(|x| author != x);
     let mut out = Vec::new();
     for a in &sidecar.annotations {
@@ -103,8 +103,14 @@ pub fn since(sidecar: &Sidecar, since: Option<&str>, exclude_author: Option<&str
         }
     }
     // Stable, so changes in the same second stay in file order.
-    out.sort_by(|a, b| a.time.cmp(&b.time));
+    out.sort_by(|a, b| to_the_second(&a.time).cmp(to_the_second(&b.time)));
     out
+}
+
+/// A timestamp cut to `YYYY-MM-DDTHH:MM:SS`, so one with fractional seconds (`10:05:00.5Z`, as
+/// JavaScript's `toISOString` writes) is not ordered before `10:05:00Z`: `.` sorts before `Z`.
+fn to_the_second(time: &str) -> &str {
+    time.get(..19).unwrap_or(time)
 }
 
 /// `since` with the cursor to ask with next time: the time of this call.
@@ -151,6 +157,15 @@ mod tests {
         let from = since(&sidecar(), Some("2026-01-01T10:05:00Z"), None);
         assert_eq!(keys(&from), ["new_reply:r1", "new_reply:r2", "resolved:a2"]);
         assert!(since(&sidecar(), Some("2026-01-01T10:07:01Z"), None).is_empty());
+    }
+
+    #[test]
+    fn fractional_seconds_are_not_missed() {
+        let mut s = sidecar();
+        s.annotations[2].created = "2026-01-01T10:05:00.500Z".into();
+        assert_eq!(keys(&since(&s, Some("2026-01-01T10:05:00Z"), None)), ["new_reply:r1", "new_annotation:a3", "new_reply:r2", "resolved:a2"]);
+        s.annotations[2].created = "2026-01-01T10:06:30.250Z".into();
+        assert_eq!(keys(&since(&s, Some("2026-01-01T10:05:00Z"), None)), ["new_reply:r1", "new_reply:r2", "new_annotation:a3", "resolved:a2"]);
     }
 
     #[test]
