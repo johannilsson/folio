@@ -319,3 +319,17 @@ When asked to check the waiting items (or what has come back), the pull and merg
 
 **Never tick an item** (`[x]`): a reply arriving does not settle the question; the reader ticks it when it is settled. **Never post to the pull or merge request** unless the reader asks you to. Say what you changed (which items came back, with what), and what is still waiting.
 
+
+### Tracking your edits as open items
+
+When you leave edits for the reader to settle (suggestions as `replace` / `insert` / `delete` annotations, or a change you made to a wiki page), or work you could not finish, add one open item to the set's wiki so it shows in the Open list. Only when the set has a wiki folder (`folio set list`), and only for edits the reader has to act on: a batch of proofreading fixes is one item, not one per annotation.
+
+1. Link the item to what it is about: `folio link <file.md> <annotation-id> --markdown` for one annotation, `folio link <file.md> --markdown` for the document. The link also puts the item on that annotation's card and under "This file" in the Open pane.
+2. Append a task item tagged `#investigate` to an existing page in the wiki folder (the page the reader keeps their notes in; ask which if it is not clear, and do not create a page unprompted). Say in a few words what you changed and what is needed from the reader:
+
+   ```markdown
+   - [ ] Section 3 reworded for the new rate limit, check the numbers #investigate [rate limit](folio://annotation/c3d4…)
+   ```
+3. Run `folio items --set <name> --tag investigate` and check that the item is listed.
+
+Edit only the line you add. **Never tick an item**, and do not remove one: the reader does that when the edit is settled. When you later find the edit accepted or rejected (`folio changes <file.md> --since <time>` shows resolutions), leave the item and mention it to the reader.
