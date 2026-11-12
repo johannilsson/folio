@@ -30,9 +30,10 @@ public enum Rust {
         return (target, context)
     }
 
-    /// The task items of the markdown tagged #investigate, #waiting or #replied (src/wiki.rs).
-    public static func openItems(in doc: String) throws -> [OpenItem] {
-        let out = try object(folio_open_items(doc))
+    /// The task items of the markdown tagged #investigate, #waiting or #replied (src/wiki.rs). `tags` are the names the set lists.
+    public static func openItems(in doc: String, tags: [String] = []) throws -> [OpenItem] {
+        let tagsJSON = String(decoding: try JSONSerialization.data(withJSONObject: tags), as: UTF8.self)
+        let out = try object(folio_open_items(doc, tagsJSON))
         return (out["items"] as? [[String: Any]] ?? []).compactMap { item in
             guard let line = (item["line"] as? NSNumber)?.intValue, let tag = item["tag"] as? String, let text = item["text"] as? String else { return nil }
             return OpenItem(line: line, tag: tag, text: text, url: item["url"] as? String, folio: item["folio"] as? String, note: item["note"] as? String)
@@ -160,6 +161,8 @@ public enum Rust {
         /// The files added one by one.
         public let files: [SetFile]
         public let folders: [SetFolder]
+        /// The tags that make a task item open, in the order the Open list shows them.
+        public let tags: [OpenTag]
 
         /// Every file the window shows: the files added one by one, then each folder's.
         public var allFiles: [SetFile] { files + folders.flatMap(\.files) }
@@ -175,6 +178,10 @@ public enum Rust {
             throw RustError(description: "unexpected set result")
         }
         let folders = obj["folders"] as? [[String: Any]] ?? []
+        let tags = (obj["tags"] as? [[String: Any]])?.compactMap { tag -> OpenTag? in
+            guard let name = tag["name"] as? String else { return nil }
+            return OpenTag(name: name, label: tag["label"] as? String, colorName: tag["color"] as? String ?? "gray")
+        } ?? OpenTag.defaults
         return SetInfo(
             name: name,
             manifest: URL(fileURLWithPath: manifest),
@@ -183,7 +190,8 @@ public enum Rust {
                 guard let id = folder["id"] as? String, let name = folder["name"] as? String,
                       let path = folder["path"] as? String, let files = folder["files"] as? [[String: Any]] else { return nil }
                 return SetFolder(id: id, name: name, path: URL(fileURLWithPath: path), files: files.compactMap(setFile))
-            }
+            },
+            tags: tags
         )
     }
 

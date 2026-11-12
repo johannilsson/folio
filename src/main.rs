@@ -31,8 +31,8 @@ enum Commands {
         /// Read every file of a named set (see `folio set`), its folders as they are on disk
         #[arg(long)]
         set: Option<String>,
-        /// Only items with this tag
-        #[arg(long, value_parser = ["investigate", "waiting", "replied"])]
+        /// Only items with this tag (one of the set's, see `folio set tags`)
+        #[arg(long)]
         tag: Option<String>,
         #[arg(long)]
         json: bool,
@@ -174,6 +174,15 @@ enum SetCommands {
     List {
         name: Option<String>,
     },
+    /// Show, add (--add) or remove (--rm) the tags that make a set's task items open ones, with their colours
+    Tags {
+        name: String,
+        /// A tag, or tag:colour (red, orange, yellow, green, blue, purple, pink, gray); repeatable
+        #[arg(long = "add", value_name = "TAG[:COLOR]")]
+        add: Vec<String>,
+        #[arg(long = "rm", value_name = "TAG")]
+        remove: Vec<String>,
+    },
 }
 
 fn main() {
@@ -185,6 +194,7 @@ fn main() {
             SetCommands::Add { name, files, folders, root } => commands::set::add(&name, &files, &folders, root.as_ref()),
             SetCommands::Rm { name, files } => commands::set::rm(&name, &files),
             SetCommands::List { name } => commands::set::list(name.as_deref()),
+            SetCommands::Tags { name, add, remove } => commands::set::tags(&name, &add, &remove),
         },
         Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),
         Commands::Refs { file, set, dead, json } => commands::refs::run(file.as_deref(), &set, dead, json),

@@ -271,6 +271,7 @@ final class AnnotationController {
             let card = cards[annotation.id] ?? makeCard(annotation)
             card.update(annotation)
             card.references = owner.references(for: annotation.id)
+            card.tags = owner.openTags
             card.items = owner.openItems(for: annotation.id)
             card.isFocused = annotation.id == focusedID
             card.isUnanchored = anchorsKnown && anchors[annotation.id] == nil

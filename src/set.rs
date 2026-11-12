@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::wiki::{default_tags, OpenTag, COLORS};
 use crate::location::{detect_root, folio_path_in, repo_identity};
 use std::path::{Path, PathBuf};
 
@@ -23,11 +24,20 @@ pub struct Set {
     pub files: Vec<SetFile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folders: Vec<SetFolder>,
+    /// The tags that make a task item an open one, with their labels and colours. A new set starts with the
+    /// defaults to be seen and changed; a set file without the list (older ones) has the defaults too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<OpenTag>>,
 }
 
 impl Set {
     pub fn empty() -> Self {
-        Self { version: 1, files: Vec::new(), folders: Vec::new() }
+        Self { version: 1, files: Vec::new(), folders: Vec::new(), tags: Some(default_tags()) }
+    }
+
+    /// The tags that make a task item open, resolved: the set's own list, else the defaults.
+    pub fn open_tags(&self) -> Vec<OpenTag> {
+        self.tags.clone().unwrap_or_else(default_tags).iter().map(OpenTag::resolved).collect()
     }
 
     /// Add `path` (already canonical) unless present. Returns false for duplicates.
@@ -288,6 +298,44 @@ pub fn folder_files(folder: &SetFolder) -> Vec<FolderFile> {
         .collect()
 }
 
+/// Add and remove open-item tags of the set `name`. An added tag is `blocked` or `blocked:red` (a `#` and case
+/// are ignored; one already there only changes colour, when one is given). Returns the tags it has now. A
+/// name with a character other than a letter, digit, `-` or `_`, or a colour not in `COLORS`, fails before
+/// anything is saved.
+pub fn change_tags(name: &str, add: &[String], remove: &[String]) -> anyhow::Result<Vec<OpenTag>> {
+    fn clean(tag: &str) -> anyhow::Result<String> {
+        let tag = tag.trim().trim_start_matches('#').to_lowercase();
+        if tag.is_empty() || !tag.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            anyhow::bail!("invalid tag '{}': use letters, digits, '-' and '_'", tag);
+        }
+        Ok(tag)
+    }
+    let mut current = load(name)?;
+    let mut tags = current.open_tags();
+    let remove = remove.iter().map(|t| clean(t)).collect::<anyhow::Result<Vec<_>>>()?;
+    let mut added = Vec::new();
+    for tag in add {
+        let (tag, color) = match tag.split_once(':') {
+            Some((tag, color)) => (tag, Some(color.trim().to_lowercase())),
+            None => (tag.as_str(), None),
+        };
+        if let Some(color) = color.as_deref().filter(|c| !COLORS.contains(c)) {
+            anyhow::bail!("unknown colour '{}': use one of {}", color, COLORS.join(", "));
+        }
+        added.push((clean(tag)?, color));
+    }
+    tags.retain(|t| !remove.contains(&t.name));
+    for (tag, color) in added {
+        match tags.iter_mut().find(|t| t.name == tag) {
+            Some(existing) => existing.color = color.unwrap_or_else(|| existing.color.clone()),
+            None => tags.push(OpenTag::new(&tag, color.as_deref().unwrap_or("gray"))),
+        }
+    }
+    current.tags = Some(tags.clone());
+    save(name, &current)?;
+    Ok(tags)
+}
+
 /// Add folders to the set `name`, creating it if needed. A missing path or one that is not a
 /// folder fails before anything is saved.
 pub fn add_folders(name: &str, folders: &[PathBuf]) -> anyhow::Result<AddOutcome> {
@@ -427,6 +475,31 @@ mod tests {
         delete("demo").unwrap();
         assert!(load("demo").is_err());
         std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn a_new_set_lists_the_default_tags_and_they_can_be_changed() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("tags");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        save("demo", &Set::empty()).unwrap();
+        let names = |tags: &[OpenTag]| tags.iter().map(|t| format!("{}:{}", t.name, t.color)).collect::<Vec<_>>();
+        assert_eq!(names(&load("demo").unwrap().open_tags()), ["replied:green", "waiting:orange", "investigate:gray"]);
+
+        let add = ["#Blocked:red".to_string(), "decision".to_string(), "waiting:blue".to_string()];
+        let tags = change_tags("demo", &add, &["investigate".to_string()]).unwrap();
+        assert_eq!(names(&tags), ["replied:green", "waiting:blue", "blocked:red", "decision:gray"]);
+        assert_eq!(names(&load("demo").unwrap().open_tags()), names(&tags));
+        assert!(change_tags("demo", &["bad tag".to_string()], &[]).is_err());
+        assert!(change_tags("demo", &["x:teal".to_string()], &[]).is_err());
+        assert_eq!(load("demo").unwrap().open_tags().len(), 4);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn a_set_file_without_tags_has_the_defaults() {
+        let set: Set = serde_json::from_str(r#"{"version":1,"files":[]}"#).unwrap();
+        assert_eq!(set.open_tags().len(), 3);
     }
 
     #[test]

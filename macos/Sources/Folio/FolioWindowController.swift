@@ -155,6 +155,9 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     /// The open items (`- [ ] … #waiting`) that link to an annotation of the file on screen.
     func openItems(for annotation: String) -> [OpenEntry] { [] }
 
+    /// The tags that make a task item open: a set lists its own.
+    var openTags: [OpenTag] { OpenTag.defaults }
+
     /// A box ticked on a card.
     func tickOpenItem(_ entry: OpenEntry) {}
 

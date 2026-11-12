@@ -30,6 +30,8 @@ final class Workspace {
     /// The set's name; nil for a single file.
     let setName: String?
     private(set) var entries: [Entry]
+    /// The tags that make a task item open (`Rust.SetInfo.tags`).
+    private(set) var tags: [OpenTag] = OpenTag.defaults
 
     /// A file's change event: "md:changed" or "folio:changed", and the id of the file.
     var onEvent: ((_ type: String, _ id: String) -> Void)?
@@ -48,6 +50,7 @@ final class Workspace {
     init(set info: Rust.SetInfo) {
         setName = info.name
         manifest = info.manifest
+        tags = info.tags
         let inFolder = Set(info.folders.flatMap { $0.files.map(\.id) })
         entries = info.allFiles.map { Self.entry($0, inFolder: inFolder.contains($0.id)) }
         entries.forEach(wire)
@@ -99,8 +102,10 @@ final class Workspace {
         for gone in entries where !next.contains(where: { $0.document === gone.document }) {
             gone.document.stopWatching()
         }
+        let tagsChanged = tags != info.tags
+        tags = info.tags
         entries = next
-        if entries.map(Self.signature) != before { onChange?() }
+        if entries.map(Self.signature) != before || tagsChanged { onChange?() }
     }
 
     // MARK: private

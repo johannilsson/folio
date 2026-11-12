@@ -273,6 +273,14 @@ final class AnnotationCardView: NSView {
             handlers.relayout()
         }
     }
+    /// The set's tags, for the colour and name an item's tag is shown with.
+    var tags = OpenTag.defaults {
+        didSet {
+            guard tags != oldValue else { return }
+            rebuild()
+            handlers.relayout()
+        }
+    }
     private var itemHeading: PassthroughLabel?
     /// An item: its box, its words, and the answer under them when it has one.
     private var itemRows: [(box: NSButton, label: PassthroughLabel, note: PassthroughLabel?)] = []
@@ -515,10 +523,9 @@ final class AnnotationCardView: NSView {
             let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(itemTicked(_:)))
             box.tag = index
             addSubview(box)
-            let tag = OpenList.tags.first { $0.tag == entry.item.tag }?.title ?? entry.item.tag
-            let color: NSColor = entry.item.tag == "replied" ? .systemGreen : entry.item.tag == "waiting" ? .systemOrange : .secondaryLabelColor
-            let text = NSMutableAttributedString(string: tag.uppercased() + "  ", attributes: [
-                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold), .foregroundColor: color,
+            let tag = OpenTag.find(entry.item.tag, in: tags)
+            let text = NSMutableAttributedString(string: tag.label.uppercased() + "  ", attributes: [
+                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold), .foregroundColor: tag.color,
             ])
             text.append(NSAttributedString(string: entry.item.text, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]))
             let row = label(text)

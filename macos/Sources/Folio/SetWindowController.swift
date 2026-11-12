@@ -16,6 +16,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     private(set) var openListShown = false
     /// The open items of each file, by file id; a file is read again when it changes.
     private var pageItems: [String: [OpenItem]] = [:]
+    /// The tags `pageItems` were read with: a set that gains or loses one is read again.
+    private var itemTags: [OpenTag] = []
     private(set) var openEntries: [OpenEntry] = []
 
     /// The Open pane: the split view's inspector, at the right beside the editor (and so beside the comments
@@ -255,13 +257,19 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
 
     /// The open items of every file of the set, read again for a file that changed.
     func updateOpenItems() {
+        if itemTags != workspace.tags {
+            itemTags = workspace.tags
+            pageItems = [:]
+        }
         var entries: [OpenEntry] = []
         for entry in workspace.entries {
             let id = entry.document.id
-            if pageItems[id] == nil { pageItems[id] = (try? Rust.openItems(in: (try? entry.document.readFile()) ?? "")) ?? [] }
+            if pageItems[id] == nil { pageItems[id] = (try? Rust.openItems(in: (try? entry.document.readFile()) ?? "", tags: workspace.tags.map(\.name))) ?? [] }
             entries += (pageItems[id] ?? []).map { OpenEntry(pageID: id, page: entry.name, item: $0) }
         }
         openEntries = entries
+        openList.tags = workspace.tags
+        openPane.tags = workspace.tags
         openList.entries = entries
         sidebar.openCount = entries.count
         updateOpenPane()
@@ -392,7 +400,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             guard let self else { return }
             do {
                 let text = try document.readFile()
-                if try Rust.openItems(in: text).contains(where: { $0.line == entry.item.line && $0.text == entry.item.text }) {
+                if try Rust.openItems(in: text, tags: workspace.tags.map(\.name)).contains(where: { $0.line == entry.item.line && $0.text == entry.item.text }) {
                     try document.writeFile(try Rust.tickItem(in: text, line: entry.item.line))
                     // Our own write is not reported back by the poller.
                     if document === currentDocument {
@@ -455,6 +463,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         if backlinks == nil { backlinks = computeBacklinks() }
         return backlinks?[annotation] ?? []
     }
+
+    override var openTags: [OpenTag] { workspace.tags }
 
     override func openItems(for annotation: String) -> [OpenEntry] {
         if cardItems == nil { cardItems = computeCardItems() }

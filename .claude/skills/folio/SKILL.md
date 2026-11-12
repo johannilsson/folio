@@ -298,7 +298,7 @@ A review keeps notes next to the document: a wiki folder, in the same set. A tas
   - Sam: the family is revoked by the gateway since v3 (https://github.com/team/svc/pull/42#issuecomment-990)
 ```
 
-- `#investigate`: something to look into. `#waiting`: a question asked somewhere else (the address is the pull or merge request it was asked in, ideally the comment itself), still unanswered. `#replied`: answered, for the reader to look at. Other task items, and ticked ones (`- [x]`), are not open items.
+- `#investigate`: something to look into. `#waiting`: a question asked somewhere else (the address is the pull or merge request it was asked in, ideally the comment itself), still unanswered. `#replied`: answered, for the reader to look at. Other task items, and ticked ones (`- [x]`), are not open items. Those are what a new set starts with: the set's own list of tags, each with a label and a colour, which `folio set tags <name>` prints and `--add blocked:red` / `--rm` change (the colours are red, orange, yellow, green, blue, purple, pink, gray). Run it before relying on the three: a set may have other tags, and only the ones it lists count.
 - An item may carry a `folio://` link to the annotation or passage it is about (`folio link <file.md> <id> --markdown`), which also shows it on that annotation's card.
 - **These notes are the one place you edit markdown directly.** The rule at the top (never modify the `.md`) is for a document under review; a wiki page is ordinary markdown you and the reader both write. Keep your edits to the item you are working on.
 

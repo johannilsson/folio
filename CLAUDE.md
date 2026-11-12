@@ -68,7 +68,7 @@ The engine (`sidecar.rs`, `edit.rs`, `accept.rs`, `changes.rs`, `location.rs`) u
 The rest is the desktop around it:
 
 - `ffi.rs` — C API over anchoring, accept, editor actions, sidecar paths and sets (strings in, JSON out); the macOS app links it as a static library (`macos/Sources/CFolio/include/folio.h`)
-- `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), explicit roots, how a set file is shown; a set can also hold folders (the wiki, `docs/wiki-mode.md`), whose markdown files are listed again each time the set is loaded; a set with folders is version 2
+- `set.rs` — named multi-file sets (`~/.config/folio/sets/<name>.json`), explicit roots, how a set file is shown; the open-item tags a set lists, each with a label and a colour (`tags`, seeded with `wiki::default_tags` for a new set; `folio set tags`); a set can also hold folders (the wiki, `docs/wiki-mode.md`), whose markdown files are listed again each time the set is loaded; a set with folders is version 2
 - `wiki.rs` — open items: the task items tagged `#investigate`, `#waiting` or `#replied` (with their address, `folio://` link and nested answer), and ticking one; the `folio://` links in a page (`references`) and whether one points at a file (`FolioLink::points_to`); `resolve` / `dead_reason` / `moved_to` (why a link does not work among a set's files); `folio items`, `folio refs` (`--dead`), `folio relink` and the C API (`folio_open_items`, `folio_tick_item`) use it. Desktop side, not the engine
 - `commands/` — the CLI subcommands, thin over the engine
 - `commands/set.rs` — `folio set add / rm / list` (`--folder` for a folder)

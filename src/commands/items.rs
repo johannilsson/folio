@@ -1,5 +1,5 @@
 use crate::set;
-use crate::wiki::{open_items, OpenItem};
+use crate::wiki::{open_items_with, OpenItem};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -27,9 +27,13 @@ fn files(files: &[PathBuf], set_name: Option<&str>) -> anyhow::Result<Vec<PathBu
 /// Print the open items (`#investigate`, `#waiting`, `#replied`) of some files, or of a set.
 pub fn run(named: &[PathBuf], set_name: Option<&str>, tag: Option<&str>, json: bool) -> anyhow::Result<()> {
     let mut found = Vec::new();
+    let extra = match set_name {
+        Some(name) => set::load(name)?.open_tags().into_iter().map(|t| t.name).collect(),
+        None => crate::wiki::TAGS.map(String::from).to_vec(),
+    };
     for file in files(named, set_name)? {
         let text = std::fs::read_to_string(&file).map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
-        found.extend(open_items(&text).into_iter().filter(|i| tag.map_or(true, |t| i.tag == t)).map(|item| Found { file: file.clone(), item }));
+        found.extend(open_items_with(&text, &extra).into_iter().filter(|i| tag.map_or(true, |t| i.tag == t)).map(|item| Found { file: file.clone(), item }));
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&found)?);

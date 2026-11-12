@@ -8,16 +8,55 @@
 //!
 //! The markdown is the record: this only reads it. Ticked items (`- [x]`) are done and not collected.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-/// The tags that make a task item an open one.
-pub const TAGS: [&str; 3] = ["investigate", "waiting", "replied"];
+/// The tags that make a task item an open one in a set that has not chosen its own (`Set::open_tags`).
+pub const TAGS: [&str; 3] = ["replied", "waiting", "investigate"];
+
+/// The colours a tag may have: the system colours the app draws them in.
+pub const COLORS: [&str; 8] = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "gray"];
+
+/// A tag that makes a task item an open one: how it is written (`#name`), what the Open list calls it and the
+/// colour it is drawn in. A set holds its own list (`Set::tags`), which new sets start with the defaults of.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenTag {
+    /// Lower case, as written after the `#`.
+    pub name: String,
+    /// Empty: the name, capitalised.
+    #[serde(default)]
+    pub label: String,
+    /// One of `COLORS`; anything else is gray.
+    #[serde(default)]
+    pub color: String,
+}
+
+impl OpenTag {
+    pub fn new(name: &str, color: &str) -> Self {
+        let label = name.chars().take(1).flat_map(char::to_uppercase).chain(name.chars().skip(1)).collect();
+        Self { name: name.to_string(), label, color: color.to_string() }
+    }
+
+    /// With the label and colour filled in, for a tag written by hand with only a name.
+    pub fn resolved(&self) -> Self {
+        let named = Self::new(&self.name, "");
+        Self {
+            name: self.name.clone(),
+            label: if self.label.is_empty() { named.label } else { self.label.clone() },
+            color: if COLORS.contains(&self.color.as_str()) { self.color.clone() } else { "gray".to_string() },
+        }
+    }
+}
+
+/// The tags a new set starts with: an answer to read, a question waiting, something to look into.
+pub fn default_tags() -> Vec<OpenTag> {
+    vec![OpenTag::new("replied", "green"), OpenTag::new("waiting", "orange"), OpenTag::new("investigate", "gray")]
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OpenItem {
     /// 1-based.
     pub line: usize,
-    /// One of `TAGS`.
+    /// One of the set's tags (`TAGS` for a set that has not chosen).
     pub tag: String,
     /// What the item says, without its tags, links and addresses.
     pub text: String,
@@ -34,6 +73,11 @@ pub struct OpenItem {
 
 /// The open items of `markdown`, in order. A fenced block of code has none.
 pub fn open_items(markdown: &str) -> Vec<OpenItem> {
+    open_items_with(markdown, &TAGS.map(String::from))
+}
+
+/// The open items of `markdown` that carry one of `tags` (names, as a set lists them: `Set::open_tags`).
+pub fn open_items_with(markdown: &str, names: &[String]) -> Vec<OpenItem> {
     let lines: Vec<&str> = markdown.lines().collect();
     let mut items = Vec::new();
     let mut fenced = false;
@@ -46,11 +90,11 @@ pub fn open_items(markdown: &str) -> Vec<OpenItem> {
             continue;
         }
         let Some((indent, rest)) = unticked(line) else { continue };
-        let Some(tag) = first_tag(rest) else { continue };
+        let Some(tag) = first_tag(rest, names) else { continue };
         items.push(OpenItem {
             line: index + 1,
-            tag: tag.to_string(),
-            text: clean(rest),
+            tag,
+            text: clean(rest, names),
             url: address(rest, &["https://", "http://"]),
             folio: address(rest, &["folio://annotation", "folio://passage", "folio://document"]),
             note: nested(&lines[index + 1..], indent),
@@ -90,12 +134,12 @@ fn unticked(line: &str) -> Option<(usize, &str)> {
 }
 
 /// The first of the known tags the text carries, as `#tag` ending at a space or punctuation.
-fn first_tag(text: &str) -> Option<&'static str> {
-    tags(text).next().map(|(_, _, tag)| tag)
+fn first_tag(text: &str, names: &[String]) -> Option<String> {
+    tags(text, names).next().map(|(_, _, tag)| tag)
 }
 
 /// Each `#tag` in the text: where it starts and ends, and which it is.
-fn tags(text: &str) -> impl Iterator<Item = (usize, usize, &'static str)> + '_ {
+fn tags<'a>(text: &'a str, names: &'a [String]) -> impl Iterator<Item = (usize, usize, String)> + 'a {
     text.match_indices('#').filter_map(move |(at, _)| {
         // Not the middle of a word or an address: `…#issuecomment-981` is not a tag.
         if text[..at].chars().next_back().is_some_and(|c| !c.is_whitespace() && !"([,;".contains(c)) {
@@ -104,7 +148,7 @@ fn tags(text: &str) -> impl Iterator<Item = (usize, usize, &'static str)> + '_ {
         let word = &text[at + 1..];
         let end = word.find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_')).unwrap_or(word.len());
         let name = word[..end].to_lowercase();
-        TAGS.iter().find(|tag| **tag == name).map(|tag| (at, at + 1 + end, *tag))
+        names.contains(&name).then_some((at, at + 1 + end, name))
     })
 }
 
@@ -118,10 +162,10 @@ fn address(text: &str, starts: &[&str]) -> Option<String> {
 }
 
 /// The item's words: the tags, the markdown links to addresses and the bare addresses left out.
-fn clean(text: &str) -> String {
+fn clean(text: &str, names: &[String]) -> String {
     let mut text = text.to_string();
     // Back to front, so the places stay right.
-    let found: Vec<_> = tags(&text).map(|(from, to, _)| (from, to)).collect();
+    let found: Vec<_> = tags(&text, names).map(|(from, to, _)| (from, to)).collect();
     for (from, to) in found.into_iter().rev() {
         text.replace_range(from..to, "");
     }
@@ -452,6 +496,22 @@ mod tests {
         let doc = "- [ ] a #investigate\n- [ ] b #waiting\n- [ ] c #replied\n- [ ] d #todo\n- [ ] e no tag\n";
         let tags: Vec<_> = open_items(doc).into_iter().map(|i| i.tag).collect();
         assert_eq!(tags, ["investigate", "waiting", "replied"]);
+    }
+
+    #[test]
+    fn a_set_counts_the_tags_it_lists() {
+        let doc = "- [ ] a #Blocked\n- [ ] b #waiting\n- [ ] c #todo\n- [ ] see issue#blocked\n";
+        let names = vec!["blocked".to_string()];
+        let items = open_items_with(doc, &names);
+        assert_eq!(items.iter().map(|i| (i.tag.as_str(), i.text.as_str())).collect::<Vec<_>>(), [("blocked", "a")]);
+        assert_eq!(open_items(doc).len(), 1);
+    }
+
+    #[test]
+    fn a_tag_written_by_hand_gets_a_label_and_a_known_colour() {
+        let tag: OpenTag = serde_json::from_str(r#"{"name":"blocked","color":"teal"}"#).unwrap();
+        assert_eq!(tag.resolved(), OpenTag { name: "blocked".into(), label: "Blocked".into(), color: "gray".into() });
+        assert_eq!(default_tags().iter().map(|t| t.color.as_str()).collect::<Vec<_>>(), ["green", "orange", "gray"]);
     }
 
     #[test]

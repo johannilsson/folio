@@ -85,3 +85,22 @@ import Testing
         #expect(rows.map(\.aboutAnnotation) == [false, true])
     }
 }
+
+@Suite struct OpenListOwnTagTests {
+    private func entry(_ tag: String) -> OpenEntry {
+        OpenEntry(pageID: "a", page: "a.md", item: OpenItem(line: 1, tag: tag, text: tag))
+    }
+
+    @Test func groupsFollowTheSetsTagsInTheirOrderWithTheirLabels() {
+        let tags = [OpenTag(name: "decision", label: "To decide", colorName: "blue"), OpenTag(name: "blocked", colorName: "red")]
+        let groups = OpenList.byTag([entry("blocked"), entry("decision"), entry("blocked")], tags: tags)
+        #expect(groups.map(\.title) == ["To decide", "Blocked"])
+        #expect(groups[1].entries.count == 2)
+    }
+
+    @Test func aTagTheSetDoesNotListIsStillShownAfterTheOthers() {
+        #expect(OpenList.byTag([entry("gone"), entry("waiting")]).map(\.title) == ["Waiting", "Gone"])
+        #expect(OpenTag.find("waiting", in: OpenTag.defaults).color == .systemOrange)
+        #expect(OpenTag.find("gone", in: OpenTag.defaults).color == .systemGray)
+    }
+}

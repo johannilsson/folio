@@ -203,6 +203,10 @@ final class OpenListView: NSView {
     var entries: [OpenEntry] = [] {
         didSet { if entries != oldValue { rebuild() } }
     }
+    /// The set's tags: the order of the groups, what they are called and their colours.
+    var tags = OpenTag.defaults {
+        didSet { if tags != oldValue { rebuild() } }
+    }
     var grouping: Grouping = .tag {
         didSet {
             guard grouping != oldValue else { return }
@@ -275,7 +279,7 @@ final class OpenListView: NSView {
         rows = []
         groupSizes = []
         empty.isHidden = !entries.isEmpty
-        for group in grouping == .tag ? OpenList.byTag(entries) : OpenList.byFile(entries) {
+        for group in grouping == .tag ? OpenList.byTag(entries, tags: tags) : OpenList.byFile(entries) {
             let title = PassthroughLabel(NSAttributedString(string: group.title, attributes: [
                 .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor,
             ]))
@@ -420,6 +424,10 @@ final class OpenPaneView: NSView {
     var rows: [OpenList.PaneRow] = [] {
         didSet { if rows != oldValue { rebuild() } }
     }
+    /// The set's tags: the order of the groups, what they are called and their colours.
+    var tags = OpenTag.defaults {
+        didSet { if tags != oldValue { rebuild() } }
+    }
     var scope: OpenList.Scope = .set {
         didSet {
             styleFilter()
@@ -556,14 +564,6 @@ final class OpenPaneView: NSView {
 
     // MARK: content
 
-    private static func color(of tag: String) -> NSColor {
-        switch tag {
-        case "replied": return .systemGreen
-        case "waiting": return .systemOrange
-        default: return .systemGray
-        }
-    }
-
     private func rebuild() {
         headings.forEach { $0.removeFromSuperview() }
         rowViews.forEach { $0.removeFromSuperview() }
@@ -587,11 +587,11 @@ final class OpenPaneView: NSView {
             attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
         empty.isHidden = !rows.isEmpty
         let entries = rows.map(\.entry)
-        for group in OpenList.byTag(entries) {
+        for group in OpenList.byTag(entries, tags: tags) {
             // One font on the line: a dot in the tag's colour, then its name.
             let tag = group.entries.first?.item.tag ?? ""
             let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-            let title = NSMutableAttributedString(string: "● ", attributes: [.font: font, .foregroundColor: Self.color(of: tag)])
+            let title = NSMutableAttributedString(string: "● ", attributes: [.font: font, .foregroundColor: OpenTag.find(tag, in: tags).color])
             title.append(NSAttributedString(string: group.title.uppercased(), attributes: [
                 .font: font, .foregroundColor: NSColor.secondaryLabelColor, .kern: 0.3,
             ]))

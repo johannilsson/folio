@@ -1,9 +1,10 @@
+import AppKit
 import Foundation
 
 /// A task item of a markdown file that is open work: `- [ ] … #waiting`. The file is the record; the list only reads it.
 public struct OpenItem: Equatable {
     public let line: Int
-    /// "investigate", "waiting" or "replied".
+    /// A tag the set lists (`OpenTag.name`).
     public let tag: String
     public let text: String
     /// The pull or merge request the question was asked in.
@@ -37,6 +38,42 @@ public struct OpenEntry: Equatable {
     }
 }
 
+/// A tag that makes a task item open, as its set lists it: how it is written, what the list calls it and its colour.
+public struct OpenTag: Equatable {
+    public let name: String
+    public let label: String
+    /// The system colour's name (red, orange, yellow, green, blue, purple, pink, gray).
+    public let colorName: String
+
+    public init(name: String, label: String? = nil, colorName: String = "gray") {
+        self.name = name
+        self.label = label ?? name.prefix(1).uppercased() + name.dropFirst()
+        self.colorName = colorName
+    }
+
+    public var color: NSColor {
+        switch colorName {
+        case "red": return .systemRed
+        case "orange": return .systemOrange
+        case "yellow": return .systemYellow
+        case "green": return .systemGreen
+        case "blue": return .systemBlue
+        case "purple": return .systemPurple
+        case "pink": return .systemPink
+        default: return .systemGray
+        }
+    }
+
+    /// What a set that lists none of its own has (src/wiki.rs `default_tags`): an answer to read first, then
+    /// what is waited for, then what is still to look into.
+    public static let defaults = [OpenTag(name: "replied", colorName: "green"), OpenTag(name: "waiting", colorName: "orange"), OpenTag(name: "investigate")]
+
+    /// The tag called `name` among `tags`; one that is not listed is plain.
+    public static func find(_ name: String, in tags: [OpenTag]) -> OpenTag {
+        tags.first { $0.name == name } ?? OpenTag(name: name)
+    }
+}
+
 /// How the Open list is grouped.
 public enum OpenList {
     public struct Group: Equatable {
@@ -44,15 +81,14 @@ public enum OpenList {
         public let entries: [OpenEntry]
     }
 
-    /// What a tag is called, and the order they are listed in: an answer to read first, then what is waited
-    /// for, then what is still to look into.
-    public static let tags: [(tag: String, title: String)] = [("replied", "Replied"), ("waiting", "Waiting"), ("investigate", "Investigate")]
-
-    /// By tag, in the order of `tags`; a tag with nothing is left out. Entries keep the order given.
-    public static func byTag(_ entries: [OpenEntry]) -> [Group] {
-        tags.compactMap { tag, title in
-            let some = entries.filter { $0.item.tag == tag }
-            return some.isEmpty ? nil : Group(title: title, entries: some)
+    /// By tag, in the order of `tags` and then any other in the order they first appear; a tag with nothing
+    /// is left out. Entries keep the order given.
+    public static func byTag(_ entries: [OpenEntry], tags: [OpenTag] = OpenTag.defaults) -> [Group] {
+        var order = tags
+        for entry in entries where !order.contains(where: { $0.name == entry.item.tag }) { order.append(OpenTag(name: entry.item.tag)) }
+        return order.compactMap { tag in
+            let some = entries.filter { $0.item.tag == tag.name }
+            return some.isEmpty ? nil : Group(title: tag.label, entries: some)
         }
     }
 

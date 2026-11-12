@@ -152,7 +152,7 @@ fn set_load_json(name: &str) -> Result<String, String> {
             })
         })
         .collect();
-    Ok(json!({ "name": name, "manifest": manifest, "files": files, "folders": folders }).to_string())
+    Ok(json!({ "name": name, "manifest": manifest, "files": files, "folders": folders, "tags": loaded.open_tags() }).to_string())
 }
 
 fn set_add_json(name: &str, files_json: &str, root: Option<&str>) -> Result<String, String> {
@@ -171,9 +171,10 @@ fn set_delete_json(name: &str) -> Result<String, String> {
     Ok("{}".to_string())
 }
 
-/// The open items of a markdown file: `{"items": [{line, tag, text, url?, folio?, note?}]}`.
-fn open_items_json(doc: &str) -> Result<String, String> {
-    Ok(json!({ "items": wiki::open_items(doc) }).to_string())
+/// The open items of a markdown file: `{"items": [{line, tag, text, url?, folio?, note?}]}`. `tags` are the names the set
+/// lists.
+fn open_items_json(doc: &str, tags: &[String]) -> Result<String, String> {
+    Ok(json!({ "items": wiki::open_items_with(doc, tags) }).to_string())
 }
 
 /// `{"doc": <markdown with the item on `line` ticked>}`.
@@ -242,13 +243,16 @@ pub unsafe extern "C" fn folio_edit(sidecar_json: *const c_char, edit_json_arg: 
 }
 
 /// Returns `{"items": [...]}`, the task items of the markdown `doc` tagged #investigate, #waiting or
-/// #replied, or `{"error": ...}`. Free with `folio_free`.
+/// #replied, or `{"error": ...}`. `tags_json` is an array of the names the set lists; null is the default three. Free with `folio_free`.
 ///
 /// # Safety
-/// `doc` must be a valid NUL-terminated UTF-8 string.
+/// `doc` must be a valid NUL-terminated UTF-8 string; `tags_json` null or the same.
 #[no_mangle]
-pub unsafe extern "C" fn folio_open_items(doc: *const c_char) -> *mut c_char {
-    finish((|| open_items_json(arg(doc)?))())
+pub unsafe extern "C" fn folio_open_items(doc: *const c_char, tags_json: *const c_char) -> *mut c_char {
+    finish((|| {
+        let tags: Vec<String> = if tags_json.is_null() { wiki::TAGS.map(String::from).to_vec() } else { serde_json::from_str(arg(tags_json)?).map_err(|e| e.to_string())? };
+        open_items_json(arg(doc)?, &tags)
+    })())
 }
 
 /// Returns `{"doc": <markdown>}` with the task item on `line` (1-based) ticked, or `{"error": ...}` when
@@ -522,7 +526,7 @@ mod tests {
     #[test]
     fn open_items_and_ticking_go_through_the_json_api() {
         let doc = "# Notes\n\n- [ ] Asked about rotation #waiting https://x.test/mr/1\n  - Sam: revoked by the gateway\n";
-        let out: Value = serde_json::from_str(&open_items_json(doc).unwrap()).unwrap();
+        let out: Value = serde_json::from_str(&open_items_json(doc, &wiki::TAGS.map(String::from)).unwrap()).unwrap();
         let item = &out["items"][0];
         assert_eq!((item["line"].as_u64(), item["tag"].as_str()), (Some(3), Some("waiting")));
         assert_eq!(item["text"], "Asked about rotation");

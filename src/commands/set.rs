@@ -56,3 +56,12 @@ pub fn list(name: Option<&str>) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// The tags that make a set's task items open ones, with colours, after adding and removing some.
+pub fn tags(name: &str, add: &[String], remove: &[String]) -> anyhow::Result<()> {
+    let tags = if add.is_empty() && remove.is_empty() { set::load(name)?.open_tags() } else { set::change_tags(name, add, remove)? };
+    for tag in tags {
+        println!("#{}  {}  ({})", tag.name, tag.label, tag.color);
+    }
+    Ok(())
+}
