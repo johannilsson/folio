@@ -285,6 +285,11 @@ final class PreviewView: NSView, AnnotationSurface {
         pictures.first { $0.key.hasPrefix(kind) }?.value
     }
 
+    /// Every picture of a kind that has loaded, for the self-test.
+    func pictures(_ kind: String) -> [NSImage] {
+        pictures.filter { $0.key.hasPrefix(kind) }.map(\.value)
+    }
+
     private var isDark: Bool {
         effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }

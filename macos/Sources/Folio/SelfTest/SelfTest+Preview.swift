@@ -361,6 +361,23 @@ extension SelfTest {
             controller.scrollHost.reflectScrolledClipView(controller.scrollHost.contentView)
             await snapshot("\(base)-blocks.png")
         }
+        // Mermaid sizes a diagram as 100% of a box that shrinks to fit it: a wide one came out a fraction of its size.
+        replaceFile("""
+            ```mermaid
+            sequenceDiagram
+                participant Client as Mobile client application
+                participant Gateway as API gateway service
+                participant Auth as Authentication service
+                participant Tokens as Token store database
+                participant Billing as Billing service backend
+                Client->>Gateway: POST /v1/session/refresh with the refresh token
+                Gateway->>Auth: Validate the refresh token and the device
+                Auth->>Billing: Check that the account is in good standing
+            ```
+
+            """)
+        report("a wide diagram is drawn at its own size, not a fraction of it",
+               await until(seconds: 40) { self.previewView.pictures("mermaid:").contains { $0.size.width > 900 } })
     }
 
     /// Tables and pictures may be wider than the text column, up to the right side of a wide window;
