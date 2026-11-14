@@ -1,5 +1,9 @@
 # Wiki mode
 
+**Status: built** (steps 1–8), except the items marked "Not yet" and the open questions at the end.
+This page is the design and the reference for how wiki mode behaves; the code map is in
+[the macOS app](../architecture/macos-app.md#wiki-mode).
+
 While reviewing, people keep a wiki next to the documents: notes on requirements, threat models
 and documentation, things to investigate, and questions they asked in a pull or merge request and
 are waiting on. Today that lives in Obsidian, whose file tree and pages miss changes made outside
@@ -197,7 +201,7 @@ Code and over MCP.
 
 ## How it is built
 
-Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.rs`, `accept.rs`,
+Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sidecar.rs`, `edit.rs`, `accept.rs`,
 `location.rs`) gains only the repo-and-branch lookup; links and items are desktop code.
 
 ### Rust
@@ -218,7 +222,7 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
 ### App
 
 - **The folder tree** belongs to the window controller beside the set's files (one owner, see
-  `CLAUDE.md` 3). It is rescanned on a timer (polling, like `Document`; a folder of a few hundred
+  [rule 3](../architecture/app-layers.md)). It is rescanned on a timer (polling, like `Document`; a folder of a few hundred
   files is cheap to list), and the sidebar redraws from it. Changed and new files are worked out by
   comparing scans (a function in FolioKit with unit tests); "changed since the reader looked" by
   modification times against when the file was last shown.
@@ -282,7 +286,7 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
    - Items on the cards of the annotations they link to (`AnnotationCardView.items`,
      `SetWindowController.computeCardItems`). Self-test: `cardItemsScenario`.
 6. The skill's convention for waiting items: done (`.claude/skills/folio/SKILL.md`, "Open items").
-7. `CLAUDE.md` and the README: done.
+7. `CLAUDE.md`, the README and the docs: done.
 8. Between a document and the wiki:
    - Done: `folio://document` links (`folio link <file>`, `document_url` in `link.rs`), parsing
      Folio links and the pages' references in Rust (`wiki::FolioLink`, `wiki::references`,
@@ -300,14 +304,10 @@ Follows "How the app is built" in `CLAUDE.md`. The engine (`sidecar.rs`, `edit.r
 
 ## Open questions
 
-- When the agent last checked the waiting items ("checked by Claude 10 min ago" in mockup 3): it
-  needs to be written somewhere that is not the wiki's text. Left out until there is a place.
-- Should the review groups also list, unasked, every file in the repo with open annotations (the
-  sidecars are all under `<root>/.folio/`)? It would make "where is there something to answer"
-  one look.
-- Carrying a worktree's unresolved annotations to main before it is removed
-  (`folio carry --from <worktree> --to main`, re-anchored by the engine).
-- Registering `folio:` as a URL scheme, so a Folio link clicked in Obsidian opens Folio.
+- [ ] Where to record when the agent last checked the waiting items ("checked by Claude 10 min ago" in mockup 3). It needs a place that is not the wiki's text; left out until there is one. #investigate
+- [ ] Should the review groups also list, unasked, every file in the repo with open annotations (the sidecars are all under `<root>/.folio/`)? It would make "where is there something to answer" one look. #investigate
+- [ ] Carrying a worktree's unresolved annotations to main before it is removed (`folio carry --from <worktree> --to main`, re-anchored by the engine). #investigate
+- [ ] Registering `folio:` as a URL scheme, so a Folio link clicked in Obsidian opens Folio. #investigate
 
 ## Not in this change
 

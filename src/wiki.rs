@@ -1,5 +1,5 @@
 //! Open items: the task items in a markdown file that carry one of the tags `#investigate`,
-//! `#waiting` or `#replied`, which a set collects into its Open list (docs/wiki-mode.md).
+//! `#waiting` or `#replied`, which a set collects into its Open list (docs/features/wiki-mode.md).
 //!
 //! ```text
 //! - [ ] Key rotation: asked in review #waiting https://github.com/t/s/pull/42#issuecomment-981
