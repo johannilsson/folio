@@ -147,7 +147,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         let sets = ((try? Rust.setNames()) ?? []).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         if !sets.isEmpty {
             next.append(.header("Sets"))
-            next += sets.map { .set(name: $0, files: (try? Rust.setLoad($0).files.count) ?? 0) }
+            next += sets.map { .set(name: $0, files: (try? Rust.setLoad($0).allFiles.count) ?? 0) }
         }
         let recents = RecentFiles.list()
         if !recents.isEmpty {

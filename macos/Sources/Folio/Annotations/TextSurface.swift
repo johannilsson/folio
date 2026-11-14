@@ -31,6 +31,18 @@ enum TextSurface {
         return found
     }
 
+    /// Where a passage is in the markdown `text`, found the way an annotation's target is: `before` is the
+    /// rendered words just ahead of it, for a passage that appears more than once.
+    static func anchorPassage(text target: String, before: String, in text: String) -> NSRange? {
+        let item: [String: Any] = ["id": "passage", "context_before": before, "target": target]
+        guard let data = try? JSONSerialization.data(withJSONObject: [item]),
+              let answer = try? Rust.anchor(doc: text, itemsJSON: String(decoding: data, as: UTF8.self), raw: true),
+              let entry = (try? JSONSerialization.jsonObject(with: Data(answer.utf8)) as? [[String: Any]])?.first,
+              let from = (entry["char_from"] as? NSNumber)?.intValue, let to = (entry["char_to"] as? NSNumber)?.intValue
+        else { return nil }
+        return NSRange(location: from, length: max(0, to - from))
+    }
+
     /// Draws each annotation over its text without touching the text: temporary attributes. `ranges` are
     /// where the annotations are in the text on screen, `pendingRange` the text being commented on.
     /// Returns where suggestions would insert text (zero-width annotations), which the source marks.

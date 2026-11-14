@@ -50,6 +50,16 @@ window.__folioMermaid = async (code, dark) => {
   const { svg } = await mermaid.render(`diagram-${++counter}`, code)
   document.body.style.cssText = `margin:0;background:${(dark ? darkTokens : lightTokens).background}`
   document.body.innerHTML = `<div id="drawn" style="display:inline-block;padding:8px">${svg}</div>`
+  // Mermaid sizes a diagram as width="100%" up to a max-width, which inside a box that shrinks to fit its
+  // content has no width to be a part of: a wide diagram came out a fraction of its size. Its own size
+  // is the viewBox's.
+  const drawn = document.querySelector<SVGSVGElement>('#drawn svg')
+  const view = drawn?.viewBox.baseVal
+  if (drawn && view && view.width > 0 && view.height > 0) {
+    drawn.setAttribute('width', String(view.width))
+    drawn.setAttribute('height', String(view.height))
+    drawn.style.maxWidth = 'none'
+  }
   const box = document.getElementById('drawn')!.getBoundingClientRect()
   return [Math.ceil(box.width), Math.ceil(box.height)]
 }

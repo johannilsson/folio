@@ -59,6 +59,8 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
 
     /// Toolbar items before the toggles, which sit at the trailing edge.
     var leadingToolbarItems: [NSToolbarItem.Identifier] { [] }
+    /// Toolbar items after Find, at the trailing edge: a set window's Open pane, past its tracking separator.
+    var trailingToolbarItems: [NSToolbarItem.Identifier] { [] }
 
     /// `fullHeightSidebar`: the window gets a sidebar that runs to its top edge; the subclass
     /// installs the toolbar once it has built the split view the toolbar has to follow.
@@ -112,10 +114,17 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
             item.isBordered = true
         }
         syncButtons()
+        scrollHost.preview.linkState = { [weak self] url in self?.linkState(url) ?? .live }
+        scrollHost.preview.onLink = { [weak self] url in self?.follow(url) }
+        scrollHost.preview.onFileLink = { [weak self] url in self?.follow(file: url) }
         scrollHost.preview.load(currentDocument)
         annotations = AnnotationController(owner: self, host: scrollHost, store: currentStore,
                                            source: scrollHost.source, preview: scrollHost.preview)
-        annotations.onPendingChange = { [weak self] in self?.syncButtons() }
+        annotations.onPendingChange = { [weak self] in
+            self?.syncButtons()
+            // Resolved or put back here (our own writes are not reported by the poller): links to it follow.
+            AppServer.refreshLinks()
+        }
         let keys: (NSEvent) -> Bool = { [weak self] event in self?.annotations.handleKey(event) ?? false }
         scrollHost.source.textView.keyHandler = keys
         scrollHost.preview.textView.keyHandler = keys
@@ -126,6 +135,45 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    // MARK: links into Folio
+
+    /// How a link in the preview stands: a link to an annotation or a passage by what the windows have open,
+    /// a wiki link by the window's wiki, which a set window with a folder has (`SetWindowController`).
+    func linkState(_ url: URL) -> PreviewBuilder.LinkState {
+        if url.host == "wiki" { return .dead("This window has no wiki folder") }
+        guard let link = FolioLink(url) else { return .live }
+        return AppServer.deadReason(of: link).map { .dead($0) } ?? .live
+    }
+
+    /// The wiki pages that link to an annotation of the file on screen; a set window with a wiki folder has some.
+    func references(for annotation: String) -> [Backlink] { [] }
+
+    /// A click on one of them in a card.
+    func openReference(_ backlink: Backlink) {}
+
+    /// The open items (`- [ ] … #waiting`) that link to an annotation of the file on screen.
+    func openItems(for annotation: String) -> [OpenEntry] { [] }
+
+    /// The tags that make a task item open: a set lists its own.
+    var openTags: [OpenTag] { OpenTag.defaults }
+
+    /// A box ticked on a card.
+    func tickOpenItem(_ entry: OpenEntry) {}
+
+    /// A click on a link to another file: a markdown file opens (in the set window that has it), anything
+    /// else in the app the system picks.
+    func follow(file link: URL) {
+        guard let url = WikiLinks.file(for: link, relativeTo: currentDocument.file) else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return AppServer.tell("That file isn't here") }
+        if WelcomeDropView.isMarkdown(url) { _ = AppServer.reveal(url, annotation: nil) } else { NSWorkspace.shared.open(url) }
+    }
+
+    /// A click on a live link in the preview.
+    func follow(_ url: URL) {
+        guard url.host != "wiki", let link = FolioLink(url) else { return }
+        AppServer.open(link)
+    }
 
     func installToolbar() {
         let toolbar = NSToolbar(identifier: "FolioToolbar")
@@ -156,6 +204,8 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
         // The source follows the file it is showing, unless typing is waiting to be saved.
         if type == "md:changed", mode == .source, workspace.document(id: id) === currentDocument { scrollHost.source.reloadFromDisk() }
         if type == "md:changed", workspace.document(id: id) === currentDocument { scrollHost.preview.reloadFromDisk() }
+        // An annotation or a passage a link points at may have gone, or come back.
+        if type == "md:changed" || type == "folio:changed" { AppServer.refreshLinks() }
     }
 
     func stopWatching() {
@@ -338,7 +388,7 @@ class EditorWindowController: NSWindowController, NSToolbarDelegate, NSSearchFie
     // MARK: NSToolbarDelegate
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        leadingToolbarItems + [.flexibleSpace, Self.sourceID, .space, Self.commentsID, .space, Self.findID]
+        leadingToolbarItems + [.flexibleSpace, Self.sourceID, .space, Self.commentsID, .space, Self.findID] + trailingToolbarItems
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {

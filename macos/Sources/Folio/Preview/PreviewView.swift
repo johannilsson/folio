@@ -20,6 +20,15 @@ final class PreviewView: NSView, AnnotationSurface {
     var onAnchors: (([AnchorRect]) -> Void)?
     var onSelection: ((SelectionInfo?) -> Void)?
     var onFocus: ((String?) -> Void)?
+    /// How a link into Folio (to an annotation, a passage, a wiki page) stands, asked when the text is built
+    /// and again on a click: the window knows what is open.
+    var linkState: (URL) -> PreviewBuilder.LinkState = { _ in .live }
+    /// A click on a live link into Folio.
+    var onLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// A click on a link to another file, written relative to this one.
+    var onFileLink: (URL) -> Void = { _ in }
+    /// What `linkState` said of each link in the text, to see when one has changed.
+    private var linkSignature: [String] = []
     var onHover: ((String?) -> Void)?
     var emphasized: Set<String> = [] {
         didSet { if emphasized != oldValue { applyMarks() } }
@@ -95,7 +104,9 @@ final class PreviewView: NSView, AnnotationSurface {
 
     private func setMarkdown(_ text: String) {
         markdown = text
-        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent(), plantUML: AppConfig.renderPlantUML)
+        base = PreviewBuilder.build(text, base: document?.file.deletingLastPathComponent(), plantUML: AppConfig.renderPlantUML,
+                                    linkState: linkState)
+        linkSignature = currentLinkSignature()
         ghosts = []
         model = base
         rebuilding = true
@@ -272,6 +283,11 @@ final class PreviewView: NSView, AnnotationSurface {
     /// The picture of a kind that has loaded (`"mermaid:"`), for the self-test.
     func picture(_ kind: String) -> NSImage? {
         pictures.first { $0.key.hasPrefix(kind) }?.value
+    }
+
+    /// Every picture of a kind that has loaded, for the self-test.
+    func pictures(_ kind: String) -> [NSImage] {
+        pictures.filter { $0.key.hasPrefix(kind) }.map(\.value)
     }
 
     private var isDark: Bool {
@@ -452,8 +468,34 @@ final class PreviewView: NSView, AnnotationSurface {
         onSelection?(TextSurface.selection(in: textView, displayRange: range, fileRange: inFile, document: markdown))
     }
 
+    /// The links into Folio in the text, each with how it stands now.
+    private func currentLinkSignature() -> [String] {
+        var found: [String] = []
+        base.text.enumerateAttribute(.folioLink, in: NSRange(location: 0, length: base.text.length)) { value, range, _ in
+            guard let url = value as? URL else { return }
+            found.append("\(range.location):\(url.absoluteString):\(linkState(url))")
+        }
+        return found
+    }
+
+    /// Draws the links again when one went live or dead: a file came or went in the wiki, a branch was
+    /// checked out. The text is rebuilt only then.
+    func refreshLinks() {
+        guard currentLinkSignature() != linkSignature else { return }
+        let selection = textView.selectedRange()
+        setMarkdown(markdown)
+        rebuild()
+        textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: textView.textStorage?.length ?? 0)))
+    }
+
     /// A click on a character: the annotation there (or its suggested text) takes the focus, or none.
     private func clicked(at index: Int?) {
+        // A link into Folio opens when it is live; a dead one says why when the mouse rests on it.
+        if let index, let storage = textView.textStorage, index < storage.length,
+           let url = storage.attribute(.folioLink, at: index, effectiveRange: nil) as? URL {
+            if case .live = linkState(url) { onLink(url) }
+            return
+        }
         guard let index else { onFocus?(nil); return }
         let suggested = pending.first { annotation in
             guard let ghost = ghostRanges[annotation.id] else { return false }
@@ -502,6 +544,15 @@ final class PreviewView: NSView, AnnotationSurface {
         guard let range = ranges[id] else { return }
         window?.makeFirstResponder(textView)
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
+    }
+
+    func select(passage text: String, before: String) -> (top: Double, bottom: Double)? {
+        guard let inFile = TextSurface.anchorPassage(text: text, before: before, in: markdown),
+              let shown = model.displayRange(forSource: inFile),
+              let spot = TextSurface.position(of: shown.location, in: textView) else { return nil }
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(shown)
+        return (spot.top, spot.bottom)
     }
 
     func flush() async {}
@@ -569,5 +620,16 @@ extension PreviewView {
 extension PreviewView: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         reportSelection()
+    }
+}
+
+extension PreviewView {
+    /// A click on a link the text view would hand to the system: web addresses and mail go on, a link to
+    /// another file (no scheme, so macOS answers -50) is the window's to follow.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        let url = (link as? URL) ?? (link as? String).flatMap { URL(string: $0) }
+        guard let url, url.scheme == nil || url.isFileURL else { return false }
+        onFileLink(url)
+        return true
     }
 }

@@ -8,3 +8,4 @@ pub mod location;
 pub mod mcp;
 pub mod set;
 pub mod sidecar;
+pub mod wiki;
