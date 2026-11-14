@@ -16,6 +16,11 @@ fn pending<'a>(
         .collect()
 }
 
+/// The file's name for the heading, or the path as given when it has none (`..`, `/`).
+fn display_name(file: &Path) -> String {
+    file.file_name().unwrap_or(file.as_os_str()).to_string_lossy().into_owned()
+}
+
 pub fn run(
     file: &Path,
     kind_filter: Option<&str>,
@@ -32,7 +37,7 @@ pub fn run(
         return Ok(());
     }
 
-    let name = file.file_name().unwrap().to_string_lossy();
+    let name = display_name(file);
     println!("{name}  ·  {} pending annotations\n", pending.len());
 
     for ann in &pending {
@@ -109,5 +114,12 @@ mod tests {
         assert_eq!(pending(&s, None, Some("local")).len(), 1);
         assert!(pending(&s, Some("delete"), Some("local")).is_empty());
         assert!(pending(&s, Some("bogus"), None).is_empty());
+    }
+
+    #[test]
+    fn a_path_without_a_file_name_is_shown_as_given() {
+        assert_eq!(display_name(Path::new("docs/a.md")), "a.md");
+        assert_eq!(display_name(Path::new("..")), "..");
+        assert_eq!(display_name(Path::new("/")), "/");
     }
 }
