@@ -69,6 +69,27 @@ Tools only take absolute paths to markdown files.
 
 ## The app socket
 
+```mermaid
+sequenceDiagram
+    participant Client as MCP client
+    participant Server as Folio --mcp<br/>mcp.rs
+    participant Lib as Engine
+    participant Disk
+    participant App as Folio.app<br/>AppServer.swift
+
+    Client->>Server: tools/call annotate
+    Server->>Server: is access allowed? (mcp.json)
+    Server->>Lib: anchor, check, build
+    Lib->>Disk: write the sidecar
+    Server-->>Client: result
+    Note over App: sees the new sidecar on its next poll
+
+    Client->>Server: tools/call focused_annotation
+    Server->>App: {"op": "state"} over app.sock
+    App-->>Server: {"ok": {"windows": […]}}
+    Server-->>Client: the annotation and its thread
+```
+
 The tools that ask the running app use a socket: `<config>/app.sock`, mode 0600, served by libfolio (`src/live.rs`) and answered on the main thread by `AppServer.swift`.
 
 The link is one line of JSON each way:

@@ -2,6 +2,34 @@
 
 How a piece of Swift is placed in the app, and so how it is tested. Most of the app already works this way. Apply these rules to the code you touch rather than refactoring ahead of a change.
 
+```mermaid
+flowchart TB
+    subgraph ui["UI · AppKit, macos/Sources/Folio · applies decisions · tested by the self-test"]
+        direction LR
+        windows["Window controllers<br/>EditorWindowController,<br/>SetWindowController"]
+        surfaces["Text surfaces<br/>PreviewView,<br/>SourceEditorView"]
+        cards["AnnotationController,<br/>cards, sidebar, Open pane"]
+    end
+
+    subgraph logic["Logic · FolioKit · values in, values out · tested by swift test"]
+        direction LR
+        builders["PreviewBuilder, PreviewText,<br/>MarkdownHighlighter"]
+        layout["CardLayout, SidebarTree,<br/>OpenList, FolioLink, WikiLinks"]
+        bridge["Rust.swift<br/>the bridge"]
+    end
+
+    subgraph engine["Engine · Rust, libfolio · decides about text and annotations · tested by cargo test"]
+        direction LR
+        ffi["ffi.rs"] --> rules["anchoring, accept,<br/>edits, sets"]
+    end
+
+    disk[("Markdown and sidecars on disk")]
+
+    ui --> logic
+    logic -->|"only through Rust.swift"| engine
+    engine <--> disk
+```
+
 1. **Three layers, each calling only the one below.**
    - The *engine* (Rust, through `Rust.swift`) decides about text and annotations: anchoring, accept, edits, sets.
    - The *logic* is plain Swift in FolioKit, values in and values out, no views: `PreviewBuilder`, `PreviewText`, `AnnotationModel`, `MarkdownHighlighter`, layout math.

@@ -4,11 +4,65 @@ Folio is a local markdown editor and annotation review tool for macOS. The app (
 
 **Core constraint:** the markdown source file is always clean. Annotations live only in the `.folio` sidecar ([format](../reference/sidecar-format.md)), never in the `.md` file.
 
+## The pieces
+
+Everything that reads or writes annotations goes through the one Rust library. The markdown file and its sidecar on disk are the only shared state: the app polls them, so it sees an agent's writes within a third of a second.
+
+```mermaid
+flowchart LR
+    agent["Agent with the skill"] -->|"folio annotate, accept, …"| cli["folio CLI<br/>main.rs, commands/"]
+    client["MCP client<br/>Claude Desktop, Codex, …"] <-->|"MCP over stdio"| mcp["Folio --mcp<br/>mcp.rs"]
+    app["Folio.app<br/>macos/"]
+
+    subgraph lib["folio library: libfolio.a for the app"]
+        engine["Engine<br/>sidecar · edit · accept · changes · location"]
+    end
+
+    cli --> engine
+    mcp --> engine
+    app -->|"C API, ffi.rs"| engine
+    engine <-->|"read, write"| files[("doc.md<br/>.folio/doc.md.folio")]
+    app -.->|"polls every 0.3 s"| files
+    mcp <-->|"app.sock: state, reveal"| app
+    app -->|"hidden web view"| page["Diagram page<br/>frontend/dist"]
+```
+
 The app's side is on its own pages: [the macOS app](macos-app.md), [where Swift code goes](app-layers.md), [the preview](preview.md), [the annotation UI](annotation-ui.md).
 
 ## Rust (`src/`)
 
 `main.rs` is the CLI entry point (clap). The modules below live in the `folio` library (`lib.rs`), which the binary and the macOS app both use. `cargo build` does not touch the frontend.
+
+Who uses whom (from the `use crate::…` lines). Arrows only point into the engine, never out of it:
+
+```mermaid
+flowchart TB
+    subgraph desktop["Desktop"]
+        ffi["ffi.rs<br/>C API for the app"]
+        mcp["mcp.rs"]
+        live["live.rs<br/>app socket"]
+        commands["commands/<br/>CLI subcommands"]
+        set["set.rs"]
+        wiki["wiki.rs"]
+    end
+
+    subgraph engine["Engine: uses only itself"]
+        accept["accept.rs"]
+        edit["edit.rs"]
+        changes["changes.rs"]
+        sidecar["sidecar.rs<br/>types, anchoring"]
+        location["location.rs<br/>sidecar paths, repo identity"]
+    end
+
+    ffi --> mcp & live & set & wiki
+    mcp --> commands & live & set
+    live --> set
+    commands --> set & wiki
+    set --> wiki
+    wiki --> commands
+    desktop --> engine
+    accept & edit & changes --> sidecar
+```
 
 ### The engine
 

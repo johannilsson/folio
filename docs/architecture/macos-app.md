@@ -6,6 +6,39 @@ Where a new piece of Swift goes, and how it is tested: [where Swift code goes](a
 
 ## Windows and documents
 
+What a window owns. A single-file window and a set window share everything in `EditorWindowController`; the set window adds the sidebar and the Open pane.
+
+```mermaid
+classDiagram
+    direction LR
+    EditorWindowController <|-- FolioWindowController : one file
+    EditorWindowController <|-- SetWindowController : a set
+    EditorWindowController *-- Workspace
+    EditorWindowController *-- EditorScrollView
+    EditorWindowController *-- AnnotationController
+    EditorWindowController *-- AnnotationStore : one per file
+    Workspace *-- "1..*" Document
+    FolioDocument --> Document : files
+    AnnotationStore --> Document
+    EditorScrollView *-- PreviewView
+    EditorScrollView *-- SourceEditorView
+    AnnotationController --> AnnotationSurface : the mode on screen
+    PreviewView ..|> AnnotationSurface
+    SourceEditorView ..|> AnnotationSurface
+    SetWindowController *-- SidebarViewController
+    SetWindowController *-- OpenListView
+    SetWindowController *-- OpenPaneView
+
+    class EditorWindowController {
+        mode: preview or source
+        commentsOn
+    }
+    class Document {
+        file, sidecar
+        polls both
+    }
+```
+
 - `FolioDocument` is one `NSDocument` per file.
 - `SetWindowController` is a window for a [set](../guides/sets.md): a sidebar and the editor. The sidebar switches files by loading them into the preview.
 - Both build on `EditorWindowController`: the toolbar, the two modes, Find.

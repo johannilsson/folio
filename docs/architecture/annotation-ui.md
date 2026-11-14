@@ -9,6 +9,51 @@
 - `AnnotationCardView` and friends are the views, laid out by hand (heights are measured, not Auto Layout).
 - The cards live in `EditorScrollView`'s canvas beside the text, so an anchor's `top` is the card's `y`.
 - Both modes use it through the `AnnotationSurface` protocol: `PreviewView` for the preview, `SourceEditorView` for the source.
+- **An action** goes through libfolio against the sidecar on disk, never through a copy in memory. The cards are drawn again from what was written:
+
+  ```mermaid
+  sequenceDiagram
+      actor Reader
+      participant Card as AnnotationCardView
+      participant Store as AnnotationStore
+      participant Lib as libfolio
+      participant Disk
+      participant Ctl as AnnotationController
+      participant Surface as Preview or source
+
+      Reader->>Card: Resolve, reply, edit…
+      Card->>Store: the action
+      Store->>Disk: read the sidecar
+      Store->>Lib: Rust.edit(sidecar, edit)
+      Lib-->>Store: the new sidecar
+      Store->>Disk: write it
+      Store->>Ctl: onChange
+      Ctl->>Surface: annotationsChanged(pending)
+      Surface->>Lib: Rust.anchor(raw: true)
+      Surface-->>Ctl: onAnchors: an AnchorRect each
+      Ctl->>Card: frames from CardLayout
+  ```
+
+  Accept is the same, through `Document.accept` (`Rust.accept`), which also writes the patched markdown.
+- **An agent's write** comes in through the poller. It drops the undo history, which no longer matches:
+
+  ```mermaid
+  sequenceDiagram
+      participant Agent
+      participant Disk
+      participant Doc as Document
+      participant Win as EditorWindowController
+      participant Store as AnnotationStore
+      participant Ctl as AnnotationController
+
+      Agent->>Disk: writes the sidecar
+      Doc->>Disk: poll, every 0.3 s
+      Doc->>Win: "folio:changed"
+      Win->>Store: reload()
+      Store->>Store: forget the undo history
+      Store->>Ctl: onChange
+      Note over Ctl: then as above: anchors, then cards
+  ```
 - **Undo.** The document has no undo manager on purpose ([decisions](../decisions.md#the-document-has-no-undo-manager)).
   - In the preview, ⌘Z and Edit ▸ Undo go to the annotation actions (`AppDelegate.undoEdit`).
   - In the source, typing and annotation actions share the text view's one history.
