@@ -40,6 +40,18 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     /// The files of the set's folders when last looked, by id, to tell what came and went.
     private var folderNames: [String: String] = [:]
 
+    /// What the window can show in place: a file of the set, or the Open list.
+    enum Place: Equatable {
+        case file(String)
+        case openList
+    }
+    /// Where the window has been, for Go ▸ Back and Forward and the toolbar's arrows.
+    private(set) var history = NavigationHistory<Place>()
+    private static let backID = NSToolbarItem.Identifier("back")
+    private static let forwardID = NSToolbarItem.Identifier("forward")
+    private let backItem = NSToolbarItem(itemIdentifier: SetWindowController.backID)
+    private let forwardItem = NSToolbarItem(itemIdentifier: SetWindowController.forwardID)
+
     /// Shows the sidebar if the user (or the saved layout) had collapsed it.
     func showSidebar() {
         sidebarSplitItem?.isCollapsed = false
@@ -57,7 +69,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     // The sidebar runs to the top of the window, as in Finder, Notes and Preview: the
     // sidebar button sits in its top strip, and the toolbar after the tracking separator
     // belongs to the editor.
-    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [.toggleSidebar, .sidebarTrackingSeparator] }
+    // Back and forward come first over the editor, as in Finder.
+    override var leadingToolbarItems: [NSToolbarItem.Identifier] { [.toggleSidebar, .sidebarTrackingSeparator, Self.backID, Self.forwardID] }
     // The Open pane is an inspector, as in Xcode: a second tracking separator follows its divider, so the
     // editor's buttons stay over the editor and the pane's button sits at the trailing edge, over the pane
     // while it is open.
@@ -72,6 +85,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             return NSTrackingSeparatorToolbarItem(identifier: id, splitView: split.splitView, dividerIndex: 1)
         }
         if id == Self.openPaneID { return openPaneItem }
+        if id == Self.backID { return backItem }
+        if id == Self.forwardID { return forwardItem }
         return super.toolbar(toolbar, itemForItemIdentifier: id, willBeInsertedIntoToolbar: flag)
     }
 
@@ -80,6 +95,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         let workspace = Workspace(set: info)
         sidebar = SidebarViewController(workspace: workspace)
         currentID = workspace.entries[0].document.id
+        history = NavigationHistory(.file(currentID))
         super.init(workspace: workspace, fullHeightSidebar: true)
 
         // The editor goes in the content pane of a split view, with the sidebar beside it.
@@ -158,6 +174,19 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         openPaneItem.target = self
         openPaneItem.action = #selector(toggleOpenPane(_:))
         openPaneItem.isBordered = true
+        for (item, label, symbol, action) in [
+            (backItem, "Back", "chevron.left", #selector(goBack(_:))),
+            (forwardItem, "Forward", "chevron.right", #selector(goForward(_:))),
+        ] {
+            item.label = label
+            item.toolTip = label
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            item.target = self
+            item.action = action
+            item.isBordered = true
+            item.autovalidates = false
+        }
+        syncHistoryButtons()
         // Opened or closed by the button, the menu or dragging its divider: the button and the list follow.
         openPaneObservation = paneItem.observe(\.isCollapsed) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.openPaneChanged() }
@@ -196,7 +225,12 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     }
 
     /// Opens a file of the set in the editor, in place. `completion` runs once the new file is shown.
-    func openFile(_ id: String, completion: (() -> Void)? = nil) {
+    /// `recording`: false when Back or Forward goes there, so the history is not changed.
+    func openFile(_ id: String, recording: Bool = true, completion: (() -> Void)? = nil) {
+        if recording, workspace.document(id: id) != nil {
+            history.visit(.file(id))
+            syncHistoryButtons()
+        }
         hideOpenList()
         guard id != currentID, let entry = workspace.entries.first(where: { $0.document.id == id }) else {
             completion?()
@@ -245,6 +279,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         scrollHost.preview.refreshLinks()
         for id in pageReferences.keys where now[id] == nil { pageReferences[id] = nil }
         for id in pageItems.keys where workspace.document(id: id) == nil { pageItems[id] = nil }
+        pruneHistory()
         updateOpenItems()
         updateBacklinks()
         if !workspace.entries.contains(where: { $0.document.id == currentID }), let first = workspace.entries.first {
@@ -252,6 +287,47 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         } else if let entry = workspace.entries.first(where: { $0.document.id == currentID }) {
             window?.subtitle = subtitle(of: entry)
         }
+    }
+
+    // MARK: back and forward
+
+    /// Go ▸ Back (⌘[) and the toolbar's arrow: the file or the Open list shown before.
+    @objc func goBack(_ sender: Any?) {
+        guard let place = history.goBack() else { return }
+        show(place)
+    }
+
+    /// Go ▸ Forward (⌘]).
+    @objc func goForward(_ sender: Any?) {
+        guard let place = history.goForward() else { return }
+        show(place)
+    }
+
+    private func show(_ place: Place) {
+        switch place {
+        case .file(let id): openFile(id, recording: false)
+        case .openList:
+            showOpenList(recording: false)
+            // Emptied since: the file stays, and is where the window is.
+            if !openListShown { history.visit(.file(currentID)) }
+        }
+        syncHistoryButtons()
+    }
+
+    /// Files taken out of the set, and the Open list once it is empty, cannot be gone back to.
+    private func pruneHistory() {
+        history.remove { place in
+            switch place {
+            case .file(let id): return workspace.document(id: id) == nil
+            case .openList: return openEntries.isEmpty
+            }
+        }
+        syncHistoryButtons()
+    }
+
+    private func syncHistoryButtons() {
+        backItem.isEnabled = history.canGoBack
+        forwardItem.isEnabled = history.canGoForward
     }
 
     // MARK: the Open list
@@ -274,7 +350,13 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         openList.entries = entries
         sidebar.openCount = entries.count
         updateOpenPane()
-        if openListShown, entries.isEmpty { hideOpenList() }
+        // With no items left the list cannot be gone back to; when it is on screen it gives way to the file.
+        if entries.isEmpty { pruneHistory() }
+        if openListShown, entries.isEmpty {
+            hideOpenList()
+            history.visit(.file(currentID))
+            syncHistoryButtons()
+        }
         // The cards list the items that are about their annotation.
         let onCards = computeCardItems()
         if onCards != cardItems {
@@ -354,12 +436,16 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         return image
     }
 
-    /// Shows the list in place of the editor.
-    func showOpenList() {
+    /// Shows the list in place of the editor. `recording`: as for `openFile`.
+    func showOpenList(recording: Bool = true) {
         // What was typed in a file is on disk by now: read every file again.
         pageItems = [:]
         updateOpenItems()
         guard !openEntries.isEmpty else { return }
+        if recording {
+            history.visit(.openList)
+            syncHistoryButtons()
+        }
         openListShown = true
         openList.isHidden = false
         scrollHost.isHidden = true
@@ -678,6 +764,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             guard let id = sidebar.selectedID else { return false }
             return workspace.entries.count > 1 && workspace.entries.first { $0.document.id == id }?.inFolder == false
         }
+        if item.action == #selector(goBack(_:)) { return history.canGoBack }
+        if item.action == #selector(goForward(_:)) { return history.canGoForward }
         return super.validateMenuItem(item)
     }
 

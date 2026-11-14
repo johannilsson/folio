@@ -95,6 +95,7 @@ extension SelfTest {
         await check("clicking a live link opens the page in the window") {
             await self.until { win.currentID != indexID && win.window?.subtitle == "research/oauth.md" }
         }
+        let oauthID = win.currentID
         await check("a page opened in a folded folder unfolds it and is highlighted") {
             sidebar.collapsedTitles.isEmpty && sidebar.selectedID == win.currentID
         }
@@ -106,6 +107,30 @@ extension SelfTest {
         await check("unfolding it highlights the page again") { sidebar.selectedID == win.currentID }
         sidebar.choose(indexID)
         await check("and back") { await self.until { win.currentID == indexID && preview.textView.string.contains("WIKI INDEX") } }
+
+        // Back and forward retrace the pages shown, whether a link or the sidebar opened them.
+        func toolbarItem(_ id: String) -> NSToolbarItem? { win.window?.toolbar?.items.first { $0.itemIdentifier.rawValue == id } }
+        await check("the toolbar has Back and Forward after the sidebar's separator, Back on and Forward off") {
+            let ids = win.window?.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
+            guard let separator = ids.firstIndex(of: NSToolbarItem.Identifier.sidebarTrackingSeparator.rawValue),
+                  let back = ids.firstIndex(of: "back"), let forward = ids.firstIndex(of: "forward") else { return false }
+            return separator < back && back + 1 == forward && toolbarItem("back")?.isEnabled == true && toolbarItem("forward")?.isEnabled == false
+        }
+        win.goBack(nil)
+        await check("Back shows the page the link opened") {
+            await self.until { win.currentID == oauthID && win.window?.subtitle == "research/oauth.md" && sidebar.selectedID == oauthID }
+        }
+        win.goBack(nil)
+        await check("and Back again the page with the link, with nothing further back") {
+            await self.until { win.currentID == indexID && preview.textView.string.contains("WIKI INDEX") }
+                && !win.history.canGoBack && toolbarItem("back")?.isEnabled == false && toolbarItem("forward")?.isEnabled == true
+        }
+        win.goForward(nil)
+        await check("Forward shows the linked page again") { await self.until { win.currentID == oauthID } }
+        sidebar.choose(indexID)
+        await check("going somewhere new drops what was ahead") {
+            await self.until { win.currentID == indexID } && !win.history.canGoForward && toolbarItem("forward")?.isEnabled == false
+        }
         click("oauth › Second part")
         await check("a link with a heading opens the page with the heading selected") {
             await self.until {
@@ -574,6 +599,14 @@ extension SelfTest {
             await self.until { !win.openListShown && !win.scrollHost.isHidden && win.window?.subtitle == "other.md" }
         }
         await check("the Open row stays, with its count") { sidebar.openRowCount == 5 && !sidebar.openRowSelected }
+        win.goBack(nil)
+        await check("Back from the item's file shows the Open list again") {
+            await self.until { win.openListShown && win.scrollHost.isHidden && sidebar.openRowSelected && win.window?.subtitle == "Open items" }
+        }
+        win.goForward(nil)
+        await check("and Forward the item's file") {
+            await self.until { !win.openListShown && !win.scrollHost.isHidden && win.window?.subtitle == "other.md" }
+        }
         sidebar.chooseOpenList()
         _ = await until { win.openListShown }
         let otherID = win.workspace.entries.first { $0.name == "other.md" }?.document.id ?? ""

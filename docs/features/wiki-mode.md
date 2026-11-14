@@ -89,6 +89,19 @@ Two kinds, both plain markdown links, so the files read the same outside Folio:
     anchors). Checked again when any open file or sidecar changes.
   Not yet: "Add to Set" on a repo that is not open.
 
+### Back and forward
+
+- A set window keeps where it has been: each file shown, and the Open list. Go ▸ Back (⌘[) and
+  Forward (⌘]), and the arrows in the toolbar after the sidebar (as in Finder), step through it,
+  so a link followed, a reference or an open item clicked, or a file picked in the sidebar can be
+  gone back from. Going somewhere new drops what was ahead. Each file comes back scrolled where it
+  was left.
+- A file taken out of the set is dropped from the history, as is the Open list once it has no
+  items. The history is the window's, not saved. A single-file window has none: its links open
+  other windows.
+- Rule and tests: `NavigationHistory` in FolioKit; in the window `SetWindowController.history`,
+  `goBack`, `goForward`. Self-tests in `wikiScenario` and `openItemsScenario`.
+
 ### Backlinks
 
 - An annotation's card gets a **Referenced in** section: each wiki page that links to it, with the
