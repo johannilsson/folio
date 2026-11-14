@@ -2,7 +2,7 @@
 
 ## Overview
 
-A Folio sidecar is a local JSON file that stores all annotations for a markdown document. It lives alongside the source file and is never committed or shared — it is a personal review workspace.
+A Folio sidecar is a local JSON file that stores all annotations for a markdown document. It lives under `.folio/` at the root of the file's repository (see File Convention) and is never committed or shared — it is a personal review workspace.
 
 The markdown source stays clean at all times. Suggestions, comments, highlights, and flags are held exclusively in the sidecar. When a suggestion is accepted, the change is written back to the source file and the sidecar entry is marked resolved.
 
@@ -17,7 +17,7 @@ docs/spec.md  →  <repo root>/.folio/docs/spec.md.folio
 report.md     →  <repo root>/.folio/report.md.folio
 ```
 
-The CLI, the server and the macOS app all use this rule, wherever they are run from. The `.folio` extension is reserved for this format. The sidecars are excluded from version control — add `.folio/` to `.gitignore`.
+The CLI, the MCP server and the macOS app all use this rule (`location.rs`), wherever they are run from. The `.folio` extension is reserved for this format. The sidecars are excluded from version control — add `.folio/` to `.gitignore`.
 
 ---
 
@@ -227,14 +227,14 @@ Annotations are anchored to their position in the source using `context_before` 
 
 ## Sources
 
-The `source` field identifies where an annotation came from. This determines visual treatment in the UI and is the extension point for external integrations.
+The `source` field identifies where an annotation came from. It is the extension point for external integrations. (A colour per source is planned; the app does not colour by source yet.)
 
-| Source    | Colour | Description |
-|-----------|--------|-------------|
-| `local`   | blue   | Written by the user via the Folio UI |
-| `agent`   | green  | Written by an AI agent via the sidecar API |
-| `github`  | amber  | Imported from a GitHub pull request review |
-| `gitlab`  | amber  | Imported from a GitLab merge request |
+| Source    | Description |
+|-----------|-------------|
+| `local`   | Written by the user via the Folio UI |
+| `agent`   | Written by an AI agent via the sidecar API |
+| `github`  | Imported from a GitHub pull request review |
+| `gitlab`  | Imported from a GitLab merge request |
 
 External source annotations (`github`, `gitlab`) are read-only in the current version — they can be resolved or deleted but not edited.
 

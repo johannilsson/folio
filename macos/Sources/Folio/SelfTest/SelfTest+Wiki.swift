@@ -1,7 +1,7 @@
 import AppKit
 import FolioKit
 
-/// A set with a folder in it (docs/wiki-mode.md, step 1): its markdown files are listed as a
+/// A set with a folder in it (docs/features/wiki-mode.md, step 1): its markdown files are listed as a
 /// tree and the list follows files added, renamed, changed and removed underneath.
 extension SelfTest {
     func wikiScenario() async {
@@ -226,7 +226,7 @@ extension SelfTest {
     }
 }
 
-/// The same file in a checkout and in its worktree (docs/wiki-mode.md, "Files under review, by repo
+/// The same file in a checkout and in its worktree (docs/features/wiki-mode.md, "Files under review, by repo
 /// and branch"): one group per checkout, headed by repo and branch, each with its own annotations.
 extension SelfTest {
     func worktreeScenario() async {
@@ -345,7 +345,7 @@ extension SelfTest {
     }
 }
 
-/// Wiki pages that link to an annotation are listed on its card (docs/wiki-mode.md, "Backlinks").
+/// Wiki pages that link to an annotation are listed on its card (docs/features/wiki-mode.md, "Backlinks").
 extension SelfTest {
     func backlinkScenario() async {
         let config = FileManager.default.temporaryDirectory
@@ -476,7 +476,7 @@ extension SelfTest {
     }
 }
 
-/// The Open list: the open items of every file of a set (docs/wiki-mode.md, "Open items").
+/// The Open list: the open items of every file of a set (docs/features/wiki-mode.md, "Open items").
 extension SelfTest {
     func openItemsScenario() async {
         let config = FileManager.default.temporaryDirectory

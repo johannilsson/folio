@@ -9,28 +9,31 @@
 Folio is a local markdown editor built for review. An agent reads a document and leaves its feedback as annotations: replacements, deletions, insertions, highlights and comments. You see them beside the text as they arrive, reply to them, and accept or reject each one. Accepting patches the markdown; nothing else ever changes it.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
-  <img src="docs/screenshot.png" alt="The macOS app showing the natural-wine set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-dark.png">
+  <img src="docs/images/screenshot.png" alt="The macOS app showing the natural-wine set: a sidebar of three files with pending-annotation counts, and an agent's replacement, a highlight and a comment beside the text">
 </picture>
 
 ## Ways to use it
 
-- **macOS app.** A native window for each document, or for a whole set of files with a sidebar. It opens in a WYSIWYG preview, with a source view one click away. `folio open <file>` launches it from the terminal. See [macos/README.md](macos/README.md).
-- **MCP.** The app is also an MCP server: **Folio ▸ Connect to MCP Clients…** shows what Claude Desktop, Codex, Claude Code, Cursor and other MCP clients need (for Claude Desktop and Codex, **Add for Me** writes it into their config); restart the tool and ask it to review a markdown file. It can see which annotation you are on. See [macos/README.md](macos/README.md#mcp).
-- **Command line.** `folio review`, `accept`, `reject` and `annotate` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
-- **Sets.** Group files from different folders or repositories under a name (`folio set`) and review them together, with a pending count per file. The same file in a checkout and its worktree is two entries, each with its own annotations.
-- **Notes next to the review.** Add a folder of markdown to a set (`folio set add <set> --folder <dir>`) and it is listed in the sidebar and kept current as files change. `[[Wiki links]]` open its pages; `folio link` writes links to an annotation or a passage that a page can hold, and a card lists the pages that link to it. Task items tagged `#investigate`, `#waiting` or `#replied` are collected into the set's Open list (`folio items` prints them for an agent). A set lists its own tags with a label and a colour (a new set starts with those three; `folio set tags <name> --add blocked:red`). See [docs/wiki-mode.md](docs/wiki-mode.md).
+- **macOS app.** A native window for each document, or for a whole set of files with a sidebar. It opens in a rendered preview, with the markdown source one click away for editing. Mermaid blocks are drawn as diagrams, and PlantUML ones too [with a setting](docs/guides/plantuml.md). `folio open <file>` launches it from the terminal.
+- **MCP.** The app is also an MCP server for Claude Desktop, Codex, Claude Code, Cursor and other clients: **Folio ▸ Connect to MCP Clients…** sets them up. It can see which annotation you are on. See [MCP](docs/mcp.md).
+- **Command line.** `folio review`, `accept`, `reject`, `annotate` and more work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
+- **Sets.** Group files from different folders or repositories under a name and review them together, with a pending count per file. See [sets](docs/guides/sets.md).
+- **Notes next to the review.** Add a folder of markdown to a set and it becomes a wiki beside the files under review:
+  - links to annotations and passages;
+  - backlinks on the cards;
+  - an Open list of the task items tagged `#investigate`, `#waiting` or `#replied`.
 
-Fenced `mermaid` blocks render as diagrams, and tables are editable.
+  See [wiki mode](docs/features/wiki-mode.md).
 
 ## Using it with an agent
 
-1. **Ask your agent to review a file.** For example: *"Review docs/spec.md for clarity and annotate it with Folio."* The agent reads the markdown and writes annotations to its sidecar. It never edits the `.md` itself.
-2. **Open the document** in the app. Annotations appear as highlights in the text and as cards in the comments pane, and update live while the agent works.
-3. **Triage.** Accept a replacement, deletion or insertion to apply it to the file, reject it to discard it, or dismiss a comment. You can reply on any card to start a thread.
-4. **Hand it back.** Replies and resolved annotations are stored in the same sidecar, so the agent can read your answers and continue where you left off.
+1. **Ask your agent to review a file.** For example: *"Review docs/spec.md for clarity and annotate it with Folio."* The agent writes annotations to the file's sidecar. It never edits the `.md` itself.
+2. **Open the document** in the app. Annotations appear in the text and as cards beside it, and update live while the agent works.
+3. **Triage.** Accept or reject each suggestion, dismiss comments, and reply on any card.
+4. **Hand it back.** Your replies and decisions are in the same sidecar, so the agent can continue where you left off.
 
-This repository ships a Claude Code skill, [`.claude/skills/folio`](.claude/skills/folio/SKILL.md), that teaches an agent the whole workflow: how to find the sidecar, how to anchor annotations to the right text, and how to check its own work. Copy it into `~/.claude/skills/` to use it in any project. Any other agent can follow the [sidecar specification](folio-sidecar-spec.md) directly, since it is plain JSON.
+This repository ships a Claude Code skill, [`.claude/skills/folio`](.claude/skills/folio/SKILL.md), that teaches an agent the whole workflow. Copy it into `~/.claude/skills/` to use it in any project. Any other agent can follow the [sidecar format](docs/reference/sidecar-format.md) directly, since it is plain JSON. More in [reviewing with an agent](docs/guides/agent-review.md).
 
 ## How it works
 
@@ -44,8 +47,12 @@ Annotations live in a JSON sidecar, one per markdown file, under `.folio/` at th
 | `highlight` | Draw attention to a passage | Resolves it |
 | `comment` | Discuss a passage | Dismisses it |
 
-Every annotation records who wrote it (`local`, `agent`, or an imported review source) and can carry a thread of replies. The full format is in [folio-sidecar-spec.md](folio-sidecar-spec.md).
+Every annotation records who wrote it (`local`, `agent`, or an imported review source) and can carry a thread of replies. The full format is in the [sidecar format](docs/reference/sidecar-format.md).
 
 ## Build
 
-Folio needs Rust, and Node with pnpm for the app's editor. `cargo build` builds the `folio` command-line tool. The macOS app is a Swift package built on top of that and of the frontend; [macos/README.md](macos/README.md) has the steps. `scripts/verify.sh` builds everything and runs all the tests.
+`cargo build` builds the `folio` command-line tool; it needs Rust. The macOS app is a Swift package on top of the Rust library and a small frontend page that draws diagrams (Node with pnpm). `scripts/verify.sh` builds everything and runs all the tests. The steps are in [development](docs/development.md).
+
+## Documentation
+
+The [docs](docs/README.md) are the project's wiki: guides, reference, how it is built, the decisions behind it, and what is still open.

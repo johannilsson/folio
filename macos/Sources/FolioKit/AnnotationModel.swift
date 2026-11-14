@@ -38,7 +38,7 @@ public enum AnnotationKind: Codable, Equatable {
     }
 }
 
-/// A reply on an annotation's thread. The shapes mirror the sidecar (folio-sidecar-spec.md,
+/// A reply on an annotation's thread. The shapes mirror the sidecar (docs/reference/sidecar-format.md,
 /// src/sidecar.rs); `source` stays a string so a value this app does not know still loads.
 public struct ThreadReply: Codable, Equatable {
     public var id: String

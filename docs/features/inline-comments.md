@@ -1,5 +1,8 @@
 # Inline comments
 
+**Status: built** (View ▸ Comments Inline), with a few self-test checks still to write (step 8).
+How the cards behave in general is in [the annotation UI](../architecture/annotation-ui.md).
+
 When the comments pane is closed, a card today floats next to the text only while its annotation
 has focus. This adds a second way to show cards with the pane closed: every card sits in the text,
 under the row its annotation ends on, the way a comment sits under a line in a code review. It
@@ -98,7 +101,7 @@ Mockups (option A was chosen): https://claude.ai/artifact/VgWe6RKLH4vdDF1xzrgtLu
 
 ## How it is built
 
-Follows "How the app is built" in `CLAUDE.md`. No Rust or sidecar changes.
+Follows [where Swift code goes](../architecture/app-layers.md). No Rust or sidecar changes.
 
 ### State
 
@@ -153,8 +156,10 @@ lays out and reports again → the cards are placed from there. The room does no
 row is, only on its own text and cards, so the second pass gives the same room, `InlineRoom.set`
 finds nothing changed, and it stops.
 
-Still to look at: a quote's bar runs past a card under one of its paragraphs (the bar spans the
-quote), and a selection that ends on a row paints over the room.
+Still to look at:
+
+- [ ] A quote's bar runs past a card under one of its paragraphs (the bar spans the quote). #investigate
+- [ ] A selection that ends on a row paints over the room. #investigate
 
 ### UI
 
@@ -207,9 +212,12 @@ Done in the first pass (built and checked by CI only, on the pull request):
 
 Still to do:
 
-8. Self-test checks still missing from the list above: two windows following the preference,
-   collapse surviving a file switch in a set, the form under its row, `reveal` over MCP.
-9. `CLAUDE.md`'s "Annotation UI patterns" gets the inline layout once it settles.
+8. Self-test checks still missing from the list above:
+   - [ ] Two windows following the preference. #investigate
+   - [ ] Collapse surviving a file switch in a set. #investigate
+   - [ ] The form under its row. #investigate
+   - [ ] `reveal` over MCP. #investigate
+9. [The annotation UI](../architecture/annotation-ui.md) links here; it gets the inline layout in full once it settles.
 
 ## Not in this change
 
