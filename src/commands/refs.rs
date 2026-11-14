@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 
 /// A link to the file, and the page it is in.
 #[derive(Serialize)]
-struct Found {
-    page: PathBuf,
+pub struct Found {
+    pub page: PathBuf,
     #[serde(flatten)]
-    reference: Reference,
+    pub reference: Reference,
 }
 
 /// Every markdown file of the set: its files and the markdown of its folders, each once.
@@ -32,7 +32,7 @@ fn pages(set_name: &str, file: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 /// The links in the set's pages to `file`, its passages or its annotations, by page and line.
-fn find(file: &Path, set_name: &str) -> anyhow::Result<Vec<Found>> {
+pub fn find(file: &Path, set_name: &str) -> anyhow::Result<Vec<Found>> {
     if !file.is_file() {
         anyhow::bail!("cannot read {}", file.display());
     }
@@ -53,15 +53,15 @@ fn find(file: &Path, set_name: &str) -> anyhow::Result<Vec<Found>> {
 
 /// A link that cannot be followed, the page it is in and why.
 #[derive(Serialize)]
-struct Dead {
-    page: PathBuf,
+pub struct Dead {
+    pub page: PathBuf,
     #[serde(flatten)]
-    reference: Reference,
-    reason: String,
+    pub reference: Reference,
+    pub reason: String,
 }
 
 /// The links of the set's pages that cannot be followed among the set's files.
-fn find_dead(set_name: &str) -> anyhow::Result<Vec<Dead>> {
+pub fn find_dead(set_name: &str) -> anyhow::Result<Vec<Dead>> {
     let files = set_files(set_name)?;
     let open: Vec<Here> = files.iter().map(|f| Here::of(f)).collect();
     let mut dead = Vec::new();
@@ -138,35 +138,55 @@ fn write(page: &Path, text: &str) -> anyhow::Result<()> {
     })
 }
 
+/// A link `relink` repaired, or would.
+#[derive(Serialize)]
+pub struct Relinked {
+    pub page: PathBuf,
+    pub line: usize,
+    pub from: String,
+    pub to: String,
+}
+
 /// Repairs the links whose branch is gone when one checkout in the set has the file: the link names
 /// that branch (and file) instead. Everything else is the reader's or the agent's call (`refs --dead`).
-pub fn relink(set_name: &str, dry_run: bool) -> anyhow::Result<()> {
+/// With `dry_run` nothing is written.
+pub fn repair(set_name: &str, dry_run: bool) -> anyhow::Result<Vec<Relinked>> {
     let files = set_files(set_name)?;
     let open: Vec<Here> = files.iter().map(|f| Here::of(f)).collect();
-    let mut changed = 0;
+    let mut changed = Vec::new();
     for page in &files {
         let Ok(mut text) = std::fs::read_to_string(page) else { continue };
-        let mut fixed = 0;
+        let mut fixed = false;
         for reference in references(&text.clone()) {
             let Some(index) = moved_to(&reference.link, &open) else { continue };
             let new = moved(&reference.url, &open[index]);
-            println!("{}:{}  {} → {}", page.display(), reference.line, reference.link.branch.as_deref().unwrap_or(""), open[index].branch.as_deref().unwrap_or(""));
+            changed.push(Relinked {
+                page: page.clone(),
+                line: reference.line,
+                from: reference.link.branch.clone().unwrap_or_default(),
+                to: open[index].branch.clone().unwrap_or_default(),
+            });
             text = text.replace(&reference.url, &new);
-            fixed += 1;
+            fixed = true;
         }
-        if fixed > 0 {
-            changed += fixed;
-            if !dry_run {
-                write(page, &text)?;
-            }
+        if fixed && !dry_run {
+            write(page, &text)?;
         }
     }
-    if changed == 0 {
+    Ok(changed)
+}
+
+pub fn relink(set_name: &str, dry_run: bool) -> anyhow::Result<()> {
+    let changed = repair(set_name, dry_run)?;
+    for c in &changed {
+        println!("{}:{}  {} → {}", c.page.display(), c.line, c.from, c.to);
+    }
+    if changed.is_empty() {
         println!("No links to repair");
     } else if dry_run {
-        println!("{} link(s) would change", changed);
+        println!("{} link(s) would change", changed.len());
     } else {
-        println!("{} link(s) repaired", changed);
+        println!("{} link(s) repaired", changed.len());
     }
     Ok(())
 }

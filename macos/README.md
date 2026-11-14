@@ -74,7 +74,7 @@ everything else in it, and says what it did; restart the tool afterwards. Do it 
 app: it updates the path.
 
 The tools: `render`, `list_annotations`, `annotations_since` (what is new since the `cursor` of the last call: annotations, replies, resolutions; `exclude_author` is optional), `annotate` (all or nothing, checked against the text before
-anything is written), `reply`, `verify`, `set_list`, `set_add`, `set_remove` and `open` work on files
+anything is written), `reply`, `verify`, `set_list`, `set_add` (files, and wiki folders with `folders`), `set_remove`, `items` (the open `#investigate`/`#waiting`/`#replied` items of a set), `refs` (the pages that link to a file, or with `dead` the links that cannot be followed), `relink` (repairs links whose branch is gone; `dry_run`), `link` (the `folio://` link to an annotation, a passage or the document) and `open` work on files
 and need no running app. `current_document`, `focused_annotation` and `reveal` ask the running app,
 over a socket (`<config>/app.sock`, mode 0600, `AppServer.swift`): `focused_annotation` is the
 annotation (and its thread) the reader has open, by clicking its card or text or stepping to it, so
