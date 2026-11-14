@@ -246,7 +246,8 @@ fn anchor_raw_bytes_once(doc: &str, context_before: &str, target: Option<&str>) 
                     } else {
                         raw_end_from(from_ci)
                     };
-                    return Some((raw_start, raw_end_from(to_ci)));
+                    // A target that is only markup strips to nothing: an empty range, not a reversed one.
+                    return Some((raw_start, raw_end_from(to_ci).max(raw_start)));
                 }
 
                 // Pass 4: normalized fuzzy — strip stray markers and collapse whitespace,
@@ -276,7 +277,7 @@ fn anchor_raw_bytes_once(doc: &str, context_before: &str, target: Option<&str>) 
                                 "warning: strict anchor failed, matched via normalization at offset {}",
                                 raw_start
                             );
-                            return Some((raw_start, raw_end));
+                            return Some((raw_start, raw_end.max(raw_start)));
                         }
                     }
                 }
@@ -1347,6 +1348,13 @@ mod tests {
         let (from, to) = anchor_chars(doc, "see ", Some("[REF-001](docs/other.md) for details")).unwrap();
         assert_eq!(from, 4);
         assert_eq!(to, 23);
+    }
+
+    #[test]
+    fn a_target_that_is_only_markup_anchors_to_an_empty_range_without_panicking() {
+        let doc = "()```x] ```_(<*\n-<a)^```>]>|[";
+        let (from, to) = anchor_raw_chars(doc, "()`", Some("```")).unwrap();
+        assert_eq!(from, to);
     }
 
     #[test]
