@@ -88,6 +88,7 @@ final class PreviewView: NSView, AnnotationSurface {
         markdown = ""
         pending = []
         pendingRange = nil
+        room.reset()
         setMarkdown((try? document.readFile()) ?? "")
         annotationsChanged([])
     }
@@ -108,9 +109,10 @@ final class PreviewView: NSView, AnnotationSurface {
                                     linkState: linkState)
         linkSignature = currentLinkSignature()
         ghosts = []
+        ghostRanges = [:]
         model = base
         rebuilding = true
-        room.reset()
+        // The room for inline cards stays (see `reloadFromDisk`): the controller lays it out again.
         textView.textStorage?.setAttributedString(base.text)
         rebuilding = false
         appliedSide = 0
@@ -386,7 +388,19 @@ final class PreviewView: NSView, AnnotationSurface {
             model = built
             let selection = textView.selectedRange()
             rebuilding = true
-            room.reset()
+            // The previews moved the rows: the room moves with them rather than going, which would move
+            // the text being read by the cards above it.
+            let old = ghostRanges.values.sorted { $0.location < $1.location }
+            room.shift { key in
+                var removed = 0
+                for range in old {
+                    if key >= range.upperBound { removed += range.length; continue }
+                    if key >= range.location { removed += key - range.location + 1 }
+                    break
+                }
+                let source = key - removed
+                return source + inserts.filter { $0.location <= source }.reduce(0) { $0 + $1.text.length }
+            }
             textView.textStorage?.setAttributedString(model.text)
             textView.setSelectedRange(NSIntersectionRange(selection, NSRange(location: 0, length: model.text.length)))
             rebuilding = false
