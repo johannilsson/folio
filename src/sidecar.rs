@@ -1123,9 +1123,15 @@ impl Sidecar {
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let json = serde_json::to_string_pretty(self)?;
         // Write a temp file next to the target and rename it over, so the
-        // macOS app never reads a half-written sidecar.
+        // macOS app never reads a half-written sidecar. The name is unique to
+        // this save, so two writers (the CLI and the app) never share a temp file.
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let mut tmp = path.as_os_str().to_owned();
-        tmp.push(".tmp");
+        tmp.push(format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let tmp = std::path::PathBuf::from(tmp);
         std::fs::write(&tmp, json)?;
         if let Err(e) = std::fs::rename(&tmp, path) {
@@ -1238,6 +1244,30 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn concurrent_saves_to_one_path_each_succeed_and_leave_a_valid_file() {
+        let dir = std::env::temp_dir().join(format!("folio-save-race-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.md.folio");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..50 {
+                        Sidecar::empty().save(&path).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(Sidecar::load(&path).unwrap().annotations.len(), 0);
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("a.md.folio")]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn days_to_ymd_handles_epoch_leap_days_and_year_ends() {
