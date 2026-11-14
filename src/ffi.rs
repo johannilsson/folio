@@ -5,6 +5,7 @@
 use crate::accept::{apply_ops, compute_ops, mark_accepted};
 use crate::location::{detect_root, folio_path_in};
 use crate::set;
+use crate::wiki;
 use crate::sidecar::{anchor_raw_utf16, anchor_text, rendered_selection, Sidecar};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -116,10 +117,42 @@ fn set_load_json(name: &str) -> Result<String, String> {
                 "group": described.group,
                 "path": entry.path,
                 "folio_path": described.folio_path,
+                "root": described.root,
+                "branch": described.branch,
+                "worktree": described.worktree,
             })
         })
         .collect();
-    Ok(json!({ "name": name, "manifest": manifest, "files": files }).to_string())
+    // Each folder's markdown files as they are on disk now: the app loads the set again to
+    // follow files added, renamed and removed underneath.
+    let folders: Vec<_> = loaded
+        .folders
+        .iter()
+        .map(|folder| {
+            let files: Vec<_> = set::folder_files(folder)
+                .into_iter()
+                .map(|file| {
+                    json!({
+                        "id": file.id,
+                        "name": file.described.name,
+                        "group": file.described.group,
+                        "path": file.path,
+                        "folio_path": file.described.folio_path,
+                        "root": file.described.root,
+                        "branch": file.described.branch,
+                        "worktree": file.described.worktree,
+                    })
+                })
+                .collect();
+            json!({
+                "id": folder.id,
+                "name": folder.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                "path": folder.path,
+                "files": files,
+            })
+        })
+        .collect();
+    Ok(json!({ "name": name, "manifest": manifest, "files": files, "folders": folders, "tags": loaded.open_tags() }).to_string())
 }
 
 fn set_add_json(name: &str, files_json: &str, root: Option<&str>) -> Result<String, String> {
@@ -141,6 +174,18 @@ fn set_move_group_json(name: &str, group: &str, to: usize) -> Result<String, Str
 fn set_delete_json(name: &str) -> Result<String, String> {
     set::delete(name).map_err(|e| e.to_string())?;
     Ok("{}".to_string())
+}
+
+/// The open items of a markdown file: `{"items": [{line, tag, text, url?, folio?, note?}]}`. `tags` are the names the set
+/// lists.
+fn open_items_json(doc: &str, tags: &[String]) -> Result<String, String> {
+    Ok(json!({ "items": wiki::open_items_with(doc, tags) }).to_string())
+}
+
+/// `{"doc": <markdown with the item on `line` ticked>}`.
+fn tick_item_json(doc: &str, line: usize) -> Result<String, String> {
+    let ticked = wiki::tick(doc, line).ok_or_else(|| format!("line {line} is not an open task item"))?;
+    Ok(json!({ "doc": ticked }).to_string())
 }
 
 fn finish(result: Result<String, String>) -> *mut c_char {
@@ -200,6 +245,29 @@ pub unsafe extern "C" fn folio_accept(doc: *const c_char, sidecar_json: *const c
 #[no_mangle]
 pub unsafe extern "C" fn folio_edit(sidecar_json: *const c_char, edit_json_arg: *const c_char) -> *mut c_char {
     finish((|| edit_json(arg(sidecar_json)?, arg(edit_json_arg)?))())
+}
+
+/// Returns `{"items": [...]}`, the task items of the markdown `doc` tagged #investigate, #waiting or
+/// #replied, or `{"error": ...}`. `tags_json` is an array of the names the set lists; null is the default three. Free with `folio_free`.
+///
+/// # Safety
+/// `doc` must be a valid NUL-terminated UTF-8 string; `tags_json` null or the same.
+#[no_mangle]
+pub unsafe extern "C" fn folio_open_items(doc: *const c_char, tags_json: *const c_char) -> *mut c_char {
+    finish((|| {
+        let tags: Vec<String> = if tags_json.is_null() { wiki::TAGS.map(String::from).to_vec() } else { serde_json::from_str(arg(tags_json)?).map_err(|e| e.to_string())? };
+        open_items_json(arg(doc)?, &tags)
+    })())
+}
+
+/// Returns `{"doc": <markdown>}` with the task item on `line` (1-based) ticked, or `{"error": ...}` when
+/// that line is not an open task item. Free with `folio_free`.
+///
+/// # Safety
+/// `doc` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_tick_item(doc: *const c_char, line: usize) -> *mut c_char {
+    finish((|| tick_item_json(arg(doc)?, line))())
 }
 
 /// Returns the sidecar path as a plain string, or `{"error": ...}`. Free with `folio_free`.
@@ -471,6 +539,22 @@ mod tests {
     }
 
     #[test]
+    fn open_items_and_ticking_go_through_the_json_api() {
+        let doc = "# Notes\n\n- [ ] Asked about rotation #waiting https://x.test/mr/1\n  - Sam: revoked by the gateway\n";
+        let out: Value = serde_json::from_str(&open_items_json(doc, &wiki::TAGS.map(String::from)).unwrap()).unwrap();
+        let item = &out["items"][0];
+        assert_eq!((item["line"].as_u64(), item["tag"].as_str()), (Some(3), Some("waiting")));
+        assert_eq!(item["text"], "Asked about rotation");
+        assert_eq!(item["url"], "https://x.test/mr/1");
+        assert_eq!(item["note"], "Sam: revoked by the gateway");
+        assert!(item.get("folio").is_none());
+
+        let ticked: Value = serde_json::from_str(&tick_item_json(doc, 3).unwrap()).unwrap();
+        assert!(ticked["doc"].as_str().unwrap().contains("- [x] Asked about rotation #waiting"));
+        assert!(tick_item_json(doc, 1).unwrap_err().contains("not an open task item"));
+    }
+
+    #[test]
     fn sets_round_trip_through_the_json_api() {
         let _guard = crate::set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("folio-ffi-sets-{}", std::process::id()));
@@ -503,6 +587,59 @@ mod tests {
         assert_eq!(files[0]["group"], "a");
         assert!(std::path::Path::new(files[0]["folio_path"].as_str().unwrap()).ends_with("a/.folio/alpha.md.folio"));
         assert!(std::path::Path::new(loaded["manifest"].as_str().unwrap()).ends_with("cfg/sets/demo.json"));
+        assert_eq!(loaded["folders"], json!([]));
+        // An empty `.git` folder: the repo is named after the folder, and there is no branch.
+        assert_eq!(files[0]["branch"], Value::Null);
+        assert_eq!(files[0]["worktree"], false);
+        assert!(std::path::Path::new(files[0]["root"].as_str().unwrap()).ends_with("a"));
+
+        // The same file in a checkout and in its worktree: one repo, two roots, each its branch.
+        let main = tmp.join("main/payments-svc");
+        let linked = tmp.join("main/payments-svc-logout");
+        let write = |path: std::path::PathBuf, text: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(main.join(".git/HEAD"), "ref: refs/heads/main\n");
+        write(main.join(".git/config"), "[remote \"origin\"]\n\turl = git@host:team/payments-svc.git\n");
+        write(main.join(".git/worktrees/logout/HEAD"), "ref: refs/heads/fix/logout\n");
+        write(main.join(".git/worktrees/logout/commondir"), "../..\n");
+        write(linked.join(".git"), &format!("gitdir: {}\n", main.join(".git/worktrees/logout").display()));
+        let (m, l) = (main.join("docs/t.md"), linked.join("docs/t.md"));
+        write(m.clone(), "# t\n");
+        write(l.clone(), "# t\n");
+        let pair = serde_json::to_string(&[m.to_string_lossy(), l.to_string_lossy()]).unwrap();
+        set_add_json("wt", &pair, None).unwrap();
+        let wt: Value = serde_json::from_str(&set_load_json("wt").unwrap()).unwrap();
+        let wt = wt["files"].as_array().unwrap();
+        assert_eq!((wt[0]["group"].as_str(), wt[0]["branch"].as_str(), wt[0]["worktree"].as_bool()), (Some("payments-svc"), Some("main"), Some(false)));
+        assert_eq!((wt[1]["group"].as_str(), wt[1]["branch"].as_str(), wt[1]["worktree"].as_bool()), (Some("payments-svc"), Some("fix/logout"), Some(true)));
+        assert_eq!(wt[0]["name"], wt[1]["name"]);
+        assert_ne!(wt[0]["root"], wt[1]["root"]);
+        assert_ne!(wt[0]["folio_path"], wt[1]["folio_path"]);
+        set_delete_json("wt").unwrap();
+
+        // A folder's files are listed as they are on disk, each time the set is loaded.
+        let wiki = tmp.join("b/wiki");
+        std::fs::create_dir_all(&wiki).unwrap();
+        std::fs::write(wiki.join("one.md"), "").unwrap();
+        crate::set::add_folders("demo", &[wiki.clone()]).unwrap();
+        let folder_names = || -> Vec<Value> {
+            let loaded: Value = serde_json::from_str(&set_load_json("demo").unwrap()).unwrap();
+            let folder = &loaded["folders"][0];
+            assert_eq!(folder["name"], "wiki");
+            folder["files"].as_array().unwrap().iter().map(|f| f["name"].clone()).collect()
+        };
+        assert_eq!(folder_names(), vec![json!("one.md")]);
+        std::fs::write(wiki.join("two.md"), "").unwrap();
+        std::fs::remove_file(wiki.join("one.md")).unwrap();
+        assert_eq!(folder_names(), vec![json!("two.md")]);
+        let loaded: Value = serde_json::from_str(&set_load_json("demo").unwrap()).unwrap();
+        let file = &loaded["folders"][0]["files"][0];
+        assert_eq!(file["group"], "wiki");
+        // Inside repo b, so its sidecar is under b/.folio, as `folio annotate` would write it.
+        assert!(std::path::Path::new(file["folio_path"].as_str().unwrap()).ends_with("b/.folio/wiki/two.md.folio"));
+        crate::set::remove_files("demo", &[wiki]).unwrap();
 
         let removed: Value = serde_json::from_str(&set_remove_json("demo", &a_json).unwrap()).unwrap();
         assert_eq!(removed["removed"].as_array().unwrap().len(), 1);

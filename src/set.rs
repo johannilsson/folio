@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use crate::location::{detect_root, folio_path_in};
+use crate::wiki::{default_tags, OpenTag, COLORS};
+use crate::location::{detect_root, folio_path_in, repo_identity};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,15 +11,33 @@ pub struct SetFile {
     pub root: Option<PathBuf>,
 }
 
+/// A folder in the set: its markdown files are part of the set, as they are on disk now.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetFolder {
+    pub id: String,
+    pub path: PathBuf,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Set {
     pub version: u32,
     pub files: Vec<SetFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<SetFolder>,
+    /// The tags that make a task item an open one, with their labels and colours. A new set starts with the
+    /// defaults to be seen and changed; a set file without the list (older ones) has the defaults too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<OpenTag>>,
 }
 
 impl Set {
     pub fn empty() -> Self {
-        Self { version: 1, files: Vec::new() }
+        Self { version: 1, files: Vec::new(), folders: Vec::new(), tags: Some(default_tags()) }
+    }
+
+    /// The tags that make a task item open, resolved: the set's own list, else the defaults.
+    pub fn open_tags(&self) -> Vec<OpenTag> {
+        self.tags.clone().unwrap_or_else(default_tags).iter().map(OpenTag::resolved).collect()
     }
 
     /// Add `path` (already canonical) unless present. Returns false for duplicates.
@@ -32,6 +51,26 @@ impl Set {
         }
         self.files.push(SetFile { id, path, root });
         true
+    }
+
+    /// Add the folder `path` (already canonical) unless present. Returns false for duplicates.
+    pub fn add_folder(&mut self, path: PathBuf) -> bool {
+        if self.folders.iter().any(|f| f.path == path) {
+            return false;
+        }
+        let mut id = path_id(&path);
+        while self.folders.iter().any(|f| f.id == id) {
+            id.push('x');
+        }
+        self.folders.push(SetFolder { id, path });
+        true
+    }
+
+    /// Remove the folder `path`. Returns false if it was not in the set.
+    pub fn remove_folder(&mut self, path: &Path) -> bool {
+        let before = self.folders.len();
+        self.folders.retain(|f| f.path != path);
+        self.folders.len() != before
     }
 
     /// Remove `path`. Returns false if it was not in the set.
@@ -97,8 +136,8 @@ pub fn load(name: &str) -> anyhow::Result<Set> {
         .map_err(|e| anyhow::anyhow!("cannot read set '{}' ({}): {}", name, path.display(), e))?;
     let set: Set = serde_json::from_str(&content)
         .map_err(|e| anyhow::anyhow!("invalid set file {}: {}", path.display(), e))?;
-    if set.version != 1 {
-        anyhow::bail!("unsupported set version {} (expected 1)", set.version);
+    if set.version != 1 && set.version != 2 {
+        anyhow::bail!("unsupported set version {} (expected 1 or 2)", set.version);
     }
     Ok(set)
 }
@@ -108,7 +147,19 @@ pub fn save(name: &str, set: &Set) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, serde_json::to_string_pretty(set)?)?;
+    // A set with folders is version 2, so an older Folio refuses it instead of saving it
+    // again without them.
+    let mut set = set.clone();
+    set.version = if set.folders.is_empty() { 1 } else { 2 };
+    // Through a temp file and a rename, so a failed write leaves the old set and the app never
+    // reads a half-written one (sidecars are saved the same way).
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, serde_json::to_string_pretty(&set)?)?;
+    std::fs::rename(&tmp, &path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
     Ok(())
 }
 
@@ -146,18 +197,164 @@ pub fn resolve_root(entry: &SetFile) -> PathBuf {
 pub struct Described {
     /// Path relative to the root.
     pub name: String,
-    /// Root directory name, used to group files.
+    /// The repo's name, used to group files (the root's folder when it is not a checkout).
     pub group: String,
     pub folio_path: PathBuf,
+    /// Where the sidecars live. Worktrees of one repo share `group` but not `root`.
+    pub root: PathBuf,
+    /// The branch the root has checked out; none when it is not a checkout.
+    pub branch: Option<String>,
+    /// The root is a linked worktree, not the repo's main checkout.
+    pub worktree: bool,
+}
+
+fn folder_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
 }
 
 pub fn describe(entry: &SetFile) -> Described {
     let root = resolve_root(entry);
+    let identity = repo_identity(&root);
     Described {
         name: entry.path.strip_prefix(&root).unwrap_or(&entry.path).to_string_lossy().to_string(),
-        group: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        group: identity.as_ref().map(|i| i.repo.clone()).unwrap_or_else(|| folder_name(&root)),
         folio_path: folio_path_in(&root, &entry.path),
+        branch: identity.as_ref().and_then(|i| i.branch.clone()),
+        worktree: identity.is_some_and(|i| i.worktree),
+        root,
     }
+}
+
+/// The markdown files in a set's folder, in the order the sidebar lists them: in each folder its
+/// files by name, then its subfolders by name. Hidden files and folders (`.git`, `.obsidian`,
+/// `.folio`) and `node_modules` are skipped, and links to folders are not followed.
+pub fn scan_folder(folder: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    scan_into(folder, &mut found);
+    found
+}
+
+fn scan_into(dir: &Path, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "node_modules" {
+            continue;
+        }
+        let Ok(kind) = entry.file_type() else { continue };
+        let path = entry.path();
+        if kind.is_dir() {
+            dirs.push((name.to_lowercase(), path));
+        } else if (kind.is_file() || (kind.is_symlink() && path.is_file())) && is_markdown(&path) {
+            files.push((name.to_lowercase(), path));
+        }
+    }
+    files.sort();
+    dirs.sort();
+    found.extend(files.into_iter().map(|(_, p)| p));
+    for (_, sub) in dirs {
+        scan_into(&sub, found);
+    }
+}
+
+fn is_markdown(path: &Path) -> bool {
+    path.extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .is_some_and(|e| e == "md" || e == "markdown")
+}
+
+/// A file found in a set's folder: shown by its path in the folder, under the folder's name.
+/// Its sidecar follows the same rule as everywhere else (`detect_root`), so the CLI run on the
+/// file writes where the app reads.
+pub struct FolderFile {
+    /// Distinct from the ids of the set's files, so a file that is both is two entries.
+    pub id: String,
+    pub path: PathBuf,
+    pub described: Described,
+}
+
+pub fn folder_files(folder: &SetFolder) -> Vec<FolderFile> {
+    let group = folder_name(&folder.path);
+    scan_folder(&folder.path)
+        .into_iter()
+        .map(|path| {
+            let root = detect_root(&path);
+            FolderFile {
+                id: format!("w{}", path_id(&path)),
+                described: Described {
+                    name: path.strip_prefix(&folder.path).unwrap_or(&path).to_string_lossy().to_string(),
+                    group: group.clone(),
+                    folio_path: folio_path_in(&root, &path),
+                    root,
+                    // A wiki is listed under its folder's name, not by repo and branch.
+                    branch: None,
+                    worktree: false,
+                },
+                path,
+            }
+        })
+        .collect()
+}
+
+/// Add and remove open-item tags of the set `name`. An added tag is `blocked` or `blocked:red` (a `#` and case
+/// are ignored; one already there only changes colour, when one is given). Returns the tags it has now. A
+/// name with a character other than a letter, digit, `-` or `_`, or a colour not in `COLORS`, fails before
+/// anything is saved.
+pub fn change_tags(name: &str, add: &[String], remove: &[String]) -> anyhow::Result<Vec<OpenTag>> {
+    fn clean(tag: &str) -> anyhow::Result<String> {
+        let tag = tag.trim().trim_start_matches('#').to_lowercase();
+        if tag.is_empty() || !tag.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            anyhow::bail!("invalid tag '{}': use letters, digits, '-' and '_'", tag);
+        }
+        Ok(tag)
+    }
+    let mut current = load(name)?;
+    let mut tags = current.open_tags();
+    let remove = remove.iter().map(|t| clean(t)).collect::<anyhow::Result<Vec<_>>>()?;
+    let mut added = Vec::new();
+    for tag in add {
+        let (tag, color) = match tag.split_once(':') {
+            Some((tag, color)) => (tag, Some(color.trim().to_lowercase())),
+            None => (tag.as_str(), None),
+        };
+        if let Some(color) = color.as_deref().filter(|c| !COLORS.contains(c)) {
+            anyhow::bail!("unknown colour '{}': use one of {}", color, COLORS.join(", "));
+        }
+        added.push((clean(tag)?, color));
+    }
+    tags.retain(|t| !remove.contains(&t.name));
+    for (tag, color) in added {
+        match tags.iter_mut().find(|t| t.name == tag) {
+            Some(existing) => existing.color = color.unwrap_or_else(|| existing.color.clone()),
+            None => tags.push(OpenTag::new(&tag, color.as_deref().unwrap_or("gray"))),
+        }
+    }
+    current.tags = Some(tags.clone());
+    save(name, &current)?;
+    Ok(tags)
+}
+
+/// Add folders to the set `name`, creating it if needed. A missing path or one that is not a
+/// folder fails before anything is saved.
+pub fn add_folders(name: &str, folders: &[PathBuf]) -> anyhow::Result<AddOutcome> {
+    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
+    for folder in folders {
+        let canonical = dunce::canonicalize(folder)
+            .map_err(|e| anyhow::anyhow!("cannot read {}: {}", folder.display(), e))?;
+        if !canonical.is_dir() {
+            anyhow::bail!("{} is not a folder", folder.display());
+        }
+        if current.add_folder(canonical.clone()) {
+            outcome.added.push(canonical);
+        } else {
+            outcome.already.push(canonical);
+        }
+    }
+    save(name, &current)?;
+    Ok(outcome)
 }
 
 /// What `add_files` did with each path.
@@ -176,7 +373,9 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
         ),
         None => None,
     };
-    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    // Only a set that does not exist yet starts empty: a malformed or newer-version file must not
+    // be overwritten with an empty set.
+    let mut current = if set_path(name)?.exists() { load(name)? } else { Set::empty() };
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for file in files {
         let canonical = dunce::canonicalize(file)
@@ -194,14 +393,14 @@ pub fn add_files(name: &str, files: &[PathBuf], root: Option<&Path>) -> anyhow::
     Ok(outcome)
 }
 
-/// Remove files from the set `name`; a file that is not in it is an error.
+/// Remove files or folders from the set `name`; a path that is not in it is an error.
 pub fn remove_files(name: &str, files: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
     let mut current = load(name)?;
     let mut removed = Vec::new();
     for file in files {
         // The file may no longer exist, so fall back to the path as given.
         let path = dunce::canonicalize(file).unwrap_or_else(|_| file.clone());
-        if !current.remove(&path) {
+        if !current.remove(&path) && !current.remove_folder(&path) {
             anyhow::bail!("{} is not in set {}", path.display(), name);
         }
         removed.push(path);
@@ -311,6 +510,48 @@ mod tests {
     }
 
     #[test]
+    fn a_new_set_lists_the_default_tags_and_they_can_be_changed() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("tags");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        save("demo", &Set::empty()).unwrap();
+        let names = |tags: &[OpenTag]| tags.iter().map(|t| format!("{}:{}", t.name, t.color)).collect::<Vec<_>>();
+        assert_eq!(names(&load("demo").unwrap().open_tags()), ["replied:green", "waiting:orange", "investigate:gray"]);
+
+        let add = ["#Blocked:red".to_string(), "decision".to_string(), "waiting:blue".to_string()];
+        let tags = change_tags("demo", &add, &["investigate".to_string()]).unwrap();
+        assert_eq!(names(&tags), ["replied:green", "waiting:blue", "blocked:red", "decision:gray"]);
+        assert_eq!(names(&load("demo").unwrap().open_tags()), names(&tags));
+        assert!(change_tags("demo", &["bad tag".to_string()], &[]).is_err());
+        assert!(change_tags("demo", &["x:teal".to_string()], &[]).is_err());
+        assert_eq!(load("demo").unwrap().open_tags().len(), 4);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn a_set_file_without_tags_has_the_defaults() {
+        let set: Set = serde_json::from_str(r#"{"version":1,"files":[]}"#).unwrap();
+        assert_eq!(set.open_tags().len(), 3);
+    }
+
+    #[test]
+    fn save_replaces_the_set_and_leaves_no_temp_file() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("saveatomic");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        let mut set = Set::empty();
+        set.add(PathBuf::from("/a/x.md"), None);
+        save("demo", &set).unwrap();
+        set.add(PathBuf::from("/b/y.md"), None);
+        save("demo", &set).unwrap();
+
+        assert_eq!(load("demo").unwrap().files.len(), 2);
+        let names: Vec<_> = std::fs::read_dir(tmp.join("sets")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("demo.json")]);
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
     fn add_files_reports_duplicates_and_saves_nothing_on_a_bad_path() {
         let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir("addfiles");
@@ -372,13 +613,78 @@ mod tests {
     }
 
     #[test]
+    fn folders_are_kept_once_and_make_the_set_version_2() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("folders");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let wiki = tmp.join("wiki");
+        std::fs::create_dir_all(&wiki).unwrap();
+        let note = wiki.join("a.md");
+        std::fs::write(&note, "# A").unwrap();
+
+        save("s", &Set::empty()).unwrap();
+        let raw = std::fs::read_to_string(set_path("s").unwrap()).unwrap();
+        assert!(raw.contains("\"version\": 1") && !raw.contains("folders"), "{raw}");
+
+        let outcome = add_folders("s", &[wiki.clone()]).unwrap();
+        assert_eq!(outcome.added, vec![wiki.clone()]);
+        assert_eq!(add_folders("s", &[wiki.clone()]).unwrap().already, vec![wiki.clone()]);
+        let raw = std::fs::read_to_string(set_path("s").unwrap()).unwrap();
+        assert!(raw.contains("\"version\": 2"), "{raw}");
+        assert_eq!(load("s").unwrap().folders.len(), 1);
+
+        assert!(add_folders("s", &[note.clone()]).err().unwrap().to_string().contains("is not a folder"));
+        assert_eq!(remove_files("s", &[wiki.clone()]).unwrap(), vec![wiki]);
+        let raw = std::fs::read_to_string(set_path("s").unwrap()).unwrap();
+        assert!(raw.contains("\"version\": 1"), "{raw}");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn a_folder_lists_its_markdown_files_then_its_subfolders() {
+        let tmp = temp_dir("scan");
+        for (path, body) in [
+            ("b.md", ""), ("A.md", ""), ("notes.txt", ""), (".hidden.md", ""), ("c.markdown", ""),
+            ("research/z.md", ""), ("research/deep/y.md", ""), ("archive/x.md", ""),
+            (".obsidian/w.md", ""), (".folio/a.md.folio", ""), ("node_modules/pkg/readme.md", ""),
+        ] {
+            let file = tmp.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, body).unwrap();
+        }
+        let names: Vec<String> = scan_folder(&tmp)
+            .iter()
+            .map(|p| p.strip_prefix(&tmp).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert_eq!(names, ["A.md", "b.md", "c.markdown", "archive/x.md", "research/z.md", "research/deep/y.md"]);
+    }
+
+    #[test]
+    fn folder_files_are_named_in_their_folder_with_ids_of_their_own() {
+        let tmp = temp_dir("folderfiles");
+        std::fs::create_dir_all(tmp.join("wiki/research")).unwrap();
+        std::fs::write(tmp.join("wiki/research/r.md"), "").unwrap();
+        let folder = SetFolder { id: "f".into(), path: tmp.join("wiki") };
+        let files = folder_files(&folder);
+        assert_eq!(files.len(), 1);
+        let file = &files[0];
+        assert_eq!(file.described.name, Path::new("research").join("r.md").to_string_lossy());
+        assert_eq!(file.described.group, "wiki");
+        assert!(file.id.starts_with('w'));
+        assert_ne!(file.id, path_id(&file.path));
+        // The same rule as the CLI: no repo here, so the sidecar is beside the file.
+        assert_eq!(file.described.folio_path, folio_path_in(&detect_root(&file.path), &file.path));
+    }
+
+    #[test]
     fn load_rejects_an_unsupported_version() {
         let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = temp_dir("version");
         std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
-        save("v2", &Set { version: 2, files: Vec::new() }).unwrap();
-        let err = load("v2").unwrap_err().to_string();
-        assert!(err.contains("unsupported set version 2"), "{err}");
+        std::fs::create_dir_all(tmp.join("sets")).unwrap();
+        std::fs::write(tmp.join("sets/v3.json"), r#"{"version":3,"files":[]}"#).unwrap();
+        let err = load("v3").unwrap_err().to_string();
+        assert!(err.contains("unsupported set version 3"), "{err}");
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
@@ -432,6 +738,22 @@ mod tests {
         let files: Vec<PathBuf> = load("s").unwrap().files.into_iter().map(|f| f.path).collect();
         assert_eq!(files, vec![b, a]);
         assert!(move_group("s", "missing", 0).is_err());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn add_files_does_not_overwrite_a_set_file_it_cannot_read() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("keepbad");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let sets = tmp.join("cfg").join("sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        let bad = sets.join("s.json");
+        std::fs::write(&bad, "{ not json").unwrap();
+        let a = tmp.join("a.md");
+        std::fs::write(&a, "# a\n").unwrap();
+        assert!(add_files("s", &[a], None).is_err());
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{ not json");
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 

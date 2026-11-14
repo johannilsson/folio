@@ -195,6 +195,10 @@ struct AnnotationCardHandlers {
     var keepOpen: (String) -> Void = { _ in }
     /// Something changed the card's height.
     var relayout: () -> Void = {}
+    /// A wiki page that links to the annotation was clicked in the card.
+    var openReference: (Backlink) -> Void = { _ in }
+    /// The box of an open item of the card was ticked.
+    var tickItem: (OpenEntry) -> Void = { _ in }
 }
 
 /// One annotation with its thread: the card in the comments pane, the one that opens next to the
@@ -250,6 +254,47 @@ final class AnnotationCardView: NSView {
             handlers.relayout()
         }
     }
+
+    /// The wiki pages that link to this annotation. The card says how many while it is not in focus, and lists
+    /// them (a click opens the page at the link) while it is.
+    var references: [Backlink] = [] {
+        didSet {
+            guard references != oldValue else { return }
+            rebuild()
+            handlers.relayout()
+        }
+    }
+    /// The open items that link to this annotation (`- [ ] … #waiting [Priya](folio://…)` in a page of the set),
+    /// each with a box to tick. Like the references, only counted while the card is not in focus.
+    var items: [OpenEntry] = [] {
+        didSet {
+            guard items != oldValue else { return }
+            rebuild()
+            handlers.relayout()
+        }
+    }
+    /// The set's tags, for the colour and name an item's tag is shown with.
+    var tags = OpenTag.defaults {
+        didSet {
+            guard tags != oldValue else { return }
+            rebuild()
+            handlers.relayout()
+        }
+    }
+    private var itemHeading: PassthroughLabel?
+    /// An item: its box, its words, and the answer under them when it has one.
+    private var itemRows: [(box: NSButton, label: PassthroughLabel, note: PassthroughLabel?)] = []
+    /// The open items section, an item and its answer to a line, for the self-test.
+    var itemTexts: [String] { itemRows.map { $0.label.stringValue + ($0.note.map { "\n" + $0.stringValue } ?? "") } }
+    /// What the references section shows, top to bottom, and the room after each: the count, or its heading
+    /// and for each page its name and where in it. (One label with a line break in it drew only its first line.)
+    private var referenceViews: [(view: PassthroughLabel, gap: CGFloat)] = []
+    private var referenceRows: [(page: PassthroughLabel, context: PassthroughLabel, backlink: Backlink)] = []
+    /// The lines of the references section, for the self-test.
+    var referenceTexts: [String] { referenceViews.map { $0.view.stringValue } }
+    var referenceFrames: [NSRect] { referenceViews.map { $0.view.frame } }
+    /// The count beside a collapsed card's header, for the self-test.
+    var collapsedCountText: String? { replyCount?.stringValue }
 
     let replyBox = ReplyBoxView(placeholder: "Reply…")
     private var editor: EditBoxView?
@@ -352,6 +397,17 @@ final class AnnotationCardView: NSView {
             for view in [entry.avatar, entry.name, entry.time] + entry.bodies { view.removeFromSuperview() }
         }
         [badge, accept, more, collapseButton, gist, replyCount].forEach { $0?.removeFromSuperview() }
+        referenceViews.forEach { $0.view.removeFromSuperview() }
+        referenceViews = []
+        referenceRows = []
+        itemHeading?.removeFromSuperview()
+        itemHeading = nil
+        for row in itemRows {
+            row.box.removeFromSuperview()
+            row.label.removeFromSuperview()
+            row.note?.removeFromSuperview()
+        }
+        itemRows = []
         entries = []
         collapseButton = nil
         gist = nil
@@ -393,12 +449,13 @@ final class AnnotationCardView: NSView {
             gist.cell?.wraps = false
             addSubview(gist)
             self.gist = gist
-            let replies = annotation.replies?.count ?? 0
-            if replies > 0 {
-                let count = label(NSAttributedString(string: "·  \(replies) \(replies == 1 ? "reply" : "replies")", attributes: [
+            // How many replies, and the references and open items an open card would list.
+            if let counts = CardCounts.line(replies: annotation.replies?.count ?? 0, references: references.count, open: items.count) {
+                let count = label(NSAttributedString(string: "·  \(counts)", attributes: [
                     .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.tertiaryLabelColor,
                 ]))
                 count.maximumNumberOfLines = 1
+                count.lineBreakMode = .byTruncatingTail
                 addSubview(count)
                 replyCount = count
             }
@@ -410,12 +467,93 @@ final class AnnotationCardView: NSView {
         for entry in entries {
             for view in [entry.avatar, entry.name, entry.time] + entry.bodies { addSubview(view) }
         }
+        buildReferences()
         buildActions()
 
         if isFocused { addSubview(replyBox) } else { replyBox.removeFromSuperview() }
         if let editor { addSubview(editor) }
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Below the thread: how many wiki pages link here, or, in focus, which, each as its page and where in it.
+    private func buildReferences() {
+        guard !references.isEmpty || !items.isEmpty else { return }
+        if !isFocused {
+            let count = label(NSAttributedString(string: CardCounts.line(references: references.count, open: items.count) ?? "", attributes: [
+                .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.tertiaryLabelColor,
+            ]))
+            count.maximumNumberOfLines = 1
+            addSubview(count)
+            referenceViews = [(count, 4)]
+            return
+        }
+        func heading(_ title: String) -> PassthroughLabel {
+            let heading = label(NSAttributedString(string: title, attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: NSColor.tertiaryLabelColor, .kern: 0.4,
+            ]))
+            heading.maximumNumberOfLines = 1
+            addSubview(heading)
+            return heading
+        }
+        buildItems(heading: heading)
+        guard !references.isEmpty else { return }
+        referenceViews = [(heading("REFERENCED IN"), 4)]
+        for backlink in references {
+            let page = label(NSAttributedString(string: backlink.page, attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.controlAccentColor,
+            ]))
+            page.maximumNumberOfLines = 1
+            page.lineBreakMode = .byTruncatingTail
+            let context = label(NSAttributedString(string: backlink.context, attributes: [
+                .font: AnnotationStyle.timeFont, .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+            for view in [page, context] { addSubview(view) }
+            referenceViews.append((page, 1))
+            referenceViews.append((context, 6))
+            referenceRows.append((page, context, backlink))
+        }
+    }
+
+    /// The open items, under the references: a box, the tag, the words, and the answer if there is one.
+    private func buildItems(heading: (String) -> PassthroughLabel) {
+        guard !items.isEmpty else { return }
+        itemHeading = heading("OPEN")
+        for (index, entry) in items.enumerated() {
+            let box = NSButton(checkboxWithTitle: "", target: self, action: #selector(itemTicked(_:)))
+            box.tag = index
+            addSubview(box)
+            let tag = OpenTag.find(entry.item.tag, in: tags)
+            let text = NSMutableAttributedString(string: tag.label.uppercased() + "  ", attributes: [
+                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold), .foregroundColor: tag.color,
+            ])
+            text.append(NSAttributedString(string: entry.item.text, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor]))
+            let row = label(text)
+            addSubview(row)
+            let note = entry.item.note.map {
+                label(NSAttributedString(string: $0, attributes: [.font: AnnotationStyle.timeFont, .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+            if let note { addSubview(note) }
+            itemRows.append((box, row, note))
+        }
+    }
+
+    @objc private func itemTicked(_ sender: NSButton) {
+        guard items.indices.contains(sender.tag) else { return }
+        handlers.tickItem(items[sender.tag])
+    }
+
+    /// Ticks the open item at `index` (what its box does).
+    func tickItem(at index: Int) {
+        guard itemRows.indices.contains(index) else { return }
+        itemRows[index].box.state = .on
+        handlers.tickItem(items[index])
+    }
+
+    /// Opens the wiki page of the reference at `index` (what a click on its row does).
+    func openReference(at index: Int) {
+        guard referenceRows.indices.contains(index) else { return }
+        handlers.openReference(referenceRows[index].backlink)
     }
 
     private func bodyAttributes(_ color: NSColor) -> [NSAttributedString.Key: Any] {
@@ -601,9 +739,43 @@ final class AnnotationCardView: NSView {
             if !isLast {
                 lines.append((pad + 13, top + 34, bottom + 12 - 4))
             } else if isFocused {
-                lines.append((pad + 13, top + 34, bottom + 12 + 6))
+                // On to the reply field, or only to the references, which start at the card's edge.
+                lines.append((pad + 13, top + 34, bottom + 12 + (referenceViews.isEmpty && itemRows.isEmpty ? 6 : -4)))
             }
             y = bottom + (isLast && !isFocused ? 0 : 12)
+        }
+
+        if !referenceViews.isEmpty || !itemRows.isEmpty {
+            // A rule, then the count, or the pages that link here and the open items.
+            let top = y + (isFocused ? 0 : 10)
+            rules.append(CGRect(x: pad, y: top, width: width - 2 * pad, height: 1))
+            var below = top + 9
+            for (view, gap) in referenceViews {
+                let h = AnnotationStyle.height(of: view.attributedStringValue, width: width - 2 * pad)
+                view.frame = NSRect(x: pad, y: below, width: width - 2 * pad, height: h)
+                below += h + gap
+            }
+            // The last row's room is the card's, below.
+            if let last = referenceViews.last { below -= last.gap - 4 }
+            if let itemHeading {
+                let h = AnnotationStyle.height(of: itemHeading.attributedStringValue, width: width - 2 * pad)
+                itemHeading.frame = NSRect(x: pad, y: below + (referenceViews.isEmpty ? 0 : 6), width: width - 2 * pad, height: h)
+                below = itemHeading.frame.maxY + 4
+            }
+            for row in itemRows {
+                let labelW = width - 2 * pad - 22
+                let h = AnnotationStyle.height(of: row.label.attributedStringValue, width: labelW)
+                row.box.frame = NSRect(x: pad, y: below, width: 16, height: 16)
+                row.label.frame = NSRect(x: pad + 22, y: below, width: labelW, height: h)
+                var bottom = below + max(h, 16)
+                if let note = row.note {
+                    let noteH = AnnotationStyle.height(of: note.attributedStringValue, width: labelW)
+                    note.frame = NSRect(x: pad + 22, y: row.label.frame.maxY + 1, width: labelW, height: noteH)
+                    bottom = max(bottom, note.frame.maxY)
+                }
+                below = bottom + 4
+            }
+            y = below - 4 + (isFocused ? 12 : 0)
         }
 
         if let accept, let more {
@@ -640,7 +812,8 @@ final class AnnotationCardView: NSView {
         first.time.frame = NSRect(x: first.name.frame.maxX + 6, y: pad + 2, width: first.time.frame.width, height: first.time.frame.height)
         if let replyCount {
             replyCount.sizeToFit()
-            replyCount.frame.origin = NSPoint(x: first.time.frame.maxX + 6, y: pad + 2)
+            let x = first.time.frame.maxX + 6
+            replyCount.frame = NSRect(x: x, y: pad + 2, width: max(20, min(replyCount.frame.width, width - pad - x)), height: replyCount.frame.height)
         }
         gist.frame = NSRect(x: Self.mainX, y: pad + 20, width: mainW, height: 18)
         lines = []
@@ -681,17 +854,21 @@ final class AnnotationCardView: NSView {
     /// What opens a link clicked in a card; the self-test swaps it.
     static var openLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    /// Only these schemes open: an agent wrote the text. Of folio:// only the link to an annotation,
-    /// which shows a file and focuses the annotation and nothing else.
+    /// Only these schemes open: an agent wrote the text. Of folio:// only the links to an annotation or a
+    /// passage, which show a file and focus the annotation or select the text and nothing else.
     private static let linkSchemes: Set<String> = ["http", "https", "mailto"]
 
     private static func opens(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
-        return linkSchemes.contains(scheme) || (scheme == "folio" && url.host == "annotation")
+        return linkSchemes.contains(scheme) || (scheme == "folio" && (url.host == "annotation" || url.host == "passage"))
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if let row = referenceRows.firstIndex(where: { $0.page.frame.union($0.context.frame).contains(point) }) {
+            openReference(at: row)
+            return
+        }
         let bodies = entries.flatMap(\.bodies)
         if let url = bodies.lazy.compactMap({ $0.link(at: point, in: self) }).first {
             if Self.opens(url) { Self.openLink(url) }

@@ -12,6 +12,10 @@ public extension NSAttributedString.Key {
     /// Marks the preview of a suggestion (the text a `replace` or `insert` would put in). The value is
     /// the annotation's id. The text is in the view but not in the file.
     static let folioGhost = NSAttributedString.Key("folioGhost")
+
+    /// On a link into Folio (to an annotation, a passage, or a wiki page): the URL it names. A click is
+    /// handled by the view, which asks whether it is live; the text view's own link handling stays out.
+    static let folioLink = NSAttributedString.Key("folioLink")
 }
 
 /// A table of the text. Its width and its place are the view's to set once it knows how wide the window is

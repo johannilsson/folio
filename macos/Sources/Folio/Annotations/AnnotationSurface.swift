@@ -65,6 +65,9 @@ protocol AnnotationSurface: AnyObject {
     func setPending(_ range: (from: Int, to: Int)?)
     /// Puts the caret at the start of an annotation.
     func select(annotation id: String)
+    /// Selects a passage of the text (a `folio://passage` link) and says where it is, or nil when the
+    /// text no longer has it.
+    func select(passage text: String, before: String) -> (top: Double, bottom: Double)?
     /// Saves pending edits, so accepting patches the text as it is on screen.
     func flush() async
     /// The text changes only once the reloaded document arrives; flash it then.

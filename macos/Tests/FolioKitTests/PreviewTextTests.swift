@@ -73,8 +73,9 @@ import Testing
 
     @Test func readsKeysAndValues() throws {
         let front = try #require(PreviewFrontmatter.split(file))
-        #expect(front.entries.map(\.key) == ["title", "tags"])
-        #expect(front.entries.map(\.value) == ["Hello", "a, b"])
+        // `tags` has only a list under it, so it is not shown.
+        #expect(front.entries.map(\.key) == ["title"])
+        #expect(front.entries.map(\.value) == ["Hello"])
         #expect(front.range == NSRange(location: 0, length: (file as NSString).range(of: "# Heading").location))
     }
 
@@ -83,18 +84,15 @@ import Testing
         let all = file as NSString
         #expect(front.entries[0].keyRange == all.range(of: "title"))
         #expect(front.entries[0].valueRange == all.range(of: "Hello"))
-        // A list joined onto its key is not written that way in the file.
-        #expect(front.entries[1].valueRange == nil)
     }
 
     @Test func aFileWithCRLFLineEndingsHasItsFrontmatterToo() throws {
         let crlf = file.replacingOccurrences(of: "\n", with: "\r\n")
         let front = try #require(PreviewFrontmatter.split(crlf))
         let all = crlf as NSString
-        #expect(front.entries.map(\.key) == ["title", "tags"])
-        #expect(front.entries.map(\.value) == ["Hello", "a, b"])
+        #expect(front.entries.map(\.key) == ["title"])
+        #expect(front.entries.map(\.value) == ["Hello"])
         #expect(front.entries[0].valueRange == all.range(of: "Hello"))
-        #expect(front.entries[1].keyRange == all.range(of: "tags"))
         #expect(front.range == NSRange(location: 0, length: all.range(of: "# Heading").location))
     }
 

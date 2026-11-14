@@ -23,6 +23,13 @@ char *folio_accept(const char *doc, const char *sidecar_json, const char *id);
    {"sidecar": <sidecar JSON as the CLI writes it>, "id": <id of the new annotation or reply, or null>} */
 char *folio_edit(const char *sidecar_json, const char *edit_json);
 
+/* {"items": [{"line", "tag", "text", "url"?, "folio"?, "note"?}]}: the task items of the markdown tagged
+   #investigate, #waiting or #replied, or the tags a set lists (tags_json: a JSON array of names, or NULL for those). */
+char *folio_open_items(const char *doc, const char *tags_json);
+
+/* {"doc": <the markdown with the task item on line (1-based) ticked>}, or an error when that line is not one. */
+char *folio_tick_item(const char *doc, size_t line);
+
 /* <git root or file's folder>/.folio/<relative path>.folio, as a plain string. */
 char *folio_sidecar_path(const char *file);
 

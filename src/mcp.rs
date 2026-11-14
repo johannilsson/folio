@@ -186,6 +186,22 @@ fn tools() -> Value {
             &["file"],
         ),
         tool(
+            "annotations_since",
+            "What changed on a markdown file's annotations since a time: new annotations, new replies and resolutions \
+             (accepted, rejected, dismissed), oldest first. Call it again from time to time with the `cursor` it last \
+             returned as `since` to see only what is new, for instance to find the person's comments and replies. \
+             Without `since` it gives everything. `since` is inclusive, so a change can come twice: recognise it by \
+             `change`, `id` and `reply_id`. A resolution does not say who resolved.",
+            true,
+            json!({
+                "file": file,
+                "since": { "type": "string", "description": "The `cursor` of the last call, or a time like 2026-01-01T10:00:00Z." },
+                "exclude_author": { "type": "string", "description": "Leave out new annotations and replies written by this author, \
+                                    usually your own `author`. Optional; resolutions are always given." },
+            }),
+            &["file"],
+        ),
+        tool(
             "annotate",
             "Add annotations to a markdown file for the person to review in Folio. Kinds: `replace` (needs target and \
              replacement), `delete` (target), `insert` (replacement, placed right after context_before), `highlight` \
@@ -246,13 +262,15 @@ fn tools() -> Value {
         ),
         tool(
             "set_add",
-            "Add markdown files to a set, creating the set if needed.",
+            "Add markdown files, and wiki folders, to a set, creating the set if needed. A folder's markdown files \
+             are all in the set, and follow the folder as it changes.",
             false,
             json!({
                 "name": { "type": "string", "description": "Letters, digits, \"-\", \"_\" and \".\"." },
                 "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths." },
+                "folders": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths of folders of markdown, such as a wiki." },
             }),
-            &["name", "files"],
+            &["name"],
         ),
         tool(
             "set_remove",
@@ -263,6 +281,59 @@ fn tools() -> Value {
                 "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths." },
             }),
             &["name", "files"],
+        ),
+        tool(
+            "items",
+            "The open items (`- [ ] … #investigate`, `#waiting` or `#replied`) in the markdown files of a set, \
+             including its wiki folders, and in any files named: file, line, tag, text, and the pull or merge \
+             request or Folio link an item points at. Use it to see what is open or waiting.",
+            true,
+            json!({
+                "set": { "type": "string", "description": "A set's name." },
+                "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute paths, besides the set." },
+                "tag": { "type": "string", "enum": ["investigate", "waiting", "replied"] },
+            }),
+            &[],
+        ),
+        tool(
+            "refs",
+            "The wiki pages of a set that link to a file, to one of its passages or to one of its annotations, with \
+             the heading or line each link is under. With `dead`, instead the links in the set's pages that cannot \
+             be followed, with the reason (branch not checked out, file missing, annotation resolved, text edited away).",
+            true,
+            json!({
+                "set": { "type": "string", "description": "A set's name." },
+                "file": { "type": "string", "description": "Absolute path of the markdown file; not needed with `dead`." },
+                "dead": { "type": "boolean", "description": "List the links that cannot be followed instead." },
+            }),
+            &["set"],
+        ),
+        tool(
+            "relink",
+            "Repair the links in a set's pages whose branch is gone when exactly one checkout in the set has the file: \
+             the link names that branch instead. Other dead links (a moved file, edited-away text, two candidates) are \
+             left for you to fix; find them with `refs` and `dead`. Pages are rewritten in place; use `dry_run` to see first.",
+            false,
+            json!({
+                "set": { "type": "string", "description": "A set's name." },
+                "dry_run": { "type": "boolean", "description": "Report what would change and write nothing." },
+            }),
+            &["set"],
+        ),
+        tool(
+            "link",
+            "The Folio link to an annotation (`id`), a passage (`passage`, with `before` when it appears more than once) \
+             or, with neither, the document, for pasting into a wiki page or a note. With `markdown` a whole markdown \
+             link. The link names repo, branch and path, so it finds the right copy of a file in a worktree.",
+            true,
+            json!({
+                "file": file,
+                "id": { "type": "string", "description": "An annotation's id, from list_annotations." },
+                "passage": { "type": "string", "description": "Rendered text in the document to link to." },
+                "before": { "type": "string", "description": "The rendered text just before the passage." },
+                "markdown": { "type": "boolean" },
+            }),
+            &["file"],
         ),
         tool(
             "open",
@@ -301,12 +372,17 @@ fn call(name: &str, args: &Value, app: &dyn App) -> Result<String, String> {
     let result = match name {
         "render" => render(args),
         "list_annotations" => list_annotations(args),
+        "annotations_since" => annotations_since(args),
         "annotate" => annotate(args),
         "reply" => reply(args),
         "verify" => verify(args),
         "set_list" => set_list(args),
         "set_add" => set_add(args),
         "set_remove" => set_remove(args),
+        "items" => items(args),
+        "refs" => refs(args),
+        "relink" => relink(args),
+        "link" => link(args),
         "open" => open(args),
         "current_document" => current_document(app),
         "focused_annotation" => focused_annotation(app),
@@ -354,6 +430,25 @@ fn files_arg(args: &Value) -> Result<Vec<PathBuf>, String> {
     files.iter().map(|f| path_value(f.as_str().ok_or("`files` must hold strings")?)).collect()
 }
 
+fn folders_arg(args: &Value) -> Result<Vec<PathBuf>, String> {
+    let Some(folders) = args.get("folders") else { return Ok(Vec::new()) };
+    let folders = folders.as_array().ok_or("`folders` must be an array of paths")?;
+    folders
+        .iter()
+        .map(|f| {
+            let raw = f.as_str().ok_or("`folders` must hold strings")?;
+            let path = PathBuf::from(raw);
+            if !path.is_absolute() {
+                return Err(format!("give an absolute path, not {raw}"));
+            }
+            if !path.is_dir() {
+                return Err(format!("{raw} is not a folder"));
+            }
+            Ok(path)
+        })
+        .collect()
+}
+
 fn read(file: &Path) -> Result<String, String> {
     std::fs::read_to_string(file).map_err(|e| format!("cannot read {}: {e}", file.display()))
 }
@@ -394,6 +489,14 @@ fn list_annotations(args: &Value) -> Result<Value, String> {
         })
         .collect();
     Ok(json!({ "sidecar": folio, "annotations": annotations }))
+}
+
+fn annotations_since(args: &Value) -> Result<Value, String> {
+    let file = file_arg(args)?;
+    let folio = crate::location::folio_path(&file);
+    let optional = |key: &str| args.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let report = crate::changes::report(&load_sidecar(&folio)?, optional("since"), optional("exclude_author"));
+    Ok(json!({ "sidecar": folio, "cursor": report.cursor, "changes": report.changes }))
 }
 
 fn annotate(args: &Value) -> Result<Value, String> {
@@ -489,19 +592,79 @@ fn set_list(args: &Value) -> Result<Value, String> {
                     json!({ "path": entry.path, "name": described.name, "group": described.group, "sidecar": described.folio_path })
                 })
                 .collect();
-            Ok(json!({ "name": name, "files": files }))
+            let folders: Vec<Value> = loaded
+                .folders
+                .iter()
+                .map(|folder| json!({ "path": folder.path, "files": set::folder_files(folder).len() }))
+                .collect();
+            Ok(json!({ "name": name, "files": files, "folders": folders }))
         }
     }
 }
 
 fn set_add(args: &Value) -> Result<Value, String> {
-    let outcome = set::add_files(string_arg(args, "name")?, &files_arg(args)?, None).map_err(|e| e.to_string())?;
-    Ok(json!({ "added": text_list(&outcome.added), "already_in_set": text_list(&outcome.already) }))
+    let name = string_arg(args, "name")?;
+    let folders = folders_arg(args)?;
+    let files = if args.get("files").is_some() || folders.is_empty() { files_arg(args)? } else { Vec::new() };
+    let mut result = json!({});
+    if !files.is_empty() {
+        let outcome = set::add_files(name, &files, None).map_err(|e| e.to_string())?;
+        result["added"] = json!(text_list(&outcome.added));
+        result["already_in_set"] = json!(text_list(&outcome.already));
+    }
+    if !folders.is_empty() {
+        let outcome = set::add_folders(name, &folders).map_err(|e| e.to_string())?;
+        result["folders_added"] = json!(text_list(&outcome.added));
+        result["folders_already_in_set"] = json!(text_list(&outcome.already));
+    }
+    Ok(result)
 }
 
 fn set_remove(args: &Value) -> Result<Value, String> {
     let removed = set::remove_files(string_arg(args, "name")?, &files_arg(args)?).map_err(|e| e.to_string())?;
     Ok(json!({ "removed": text_list(&removed) }))
+}
+
+// MARK: open items, links
+
+fn set_arg(args: &Value) -> Result<&str, String> {
+    string_arg(args, "set")
+}
+
+fn items(args: &Value) -> Result<Value, String> {
+    let named = if args.get("files").is_some() { files_arg(args)? } else { Vec::new() };
+    let set_name = args.get("set").and_then(Value::as_str);
+    if named.is_empty() && set_name.is_none() {
+        return Err("give a `set`, or `files`".to_string());
+    }
+    let tag = args.get("tag").and_then(Value::as_str);
+    let found = crate::commands::items::find(&named, set_name, tag).map_err(|e| e.to_string())?;
+    Ok(json!({ "items": found }))
+}
+
+fn refs(args: &Value) -> Result<Value, String> {
+    let set_name = set_arg(args)?;
+    if args.get("dead").and_then(Value::as_bool) == Some(true) {
+        let dead = crate::commands::refs::find_dead(set_name).map_err(|e| e.to_string())?;
+        return Ok(json!({ "dead": dead }));
+    }
+    let file = file_arg(args)?;
+    let found = crate::commands::refs::find(&file, set_name).map_err(|e| e.to_string())?;
+    Ok(json!({ "references": found }))
+}
+
+fn relink(args: &Value) -> Result<Value, String> {
+    let dry_run = args.get("dry_run").and_then(Value::as_bool) == Some(true);
+    let changed = crate::commands::refs::repair(set_arg(args)?, dry_run).map_err(|e| e.to_string())?;
+    Ok(json!({ "dry_run": dry_run, "relinked": changed }))
+}
+
+fn link(args: &Value) -> Result<Value, String> {
+    let file = file_arg(args)?;
+    let text = |key| args.get(key).and_then(Value::as_str);
+    let markdown = args.get("markdown").and_then(Value::as_bool) == Some(true);
+    let link = crate::commands::link::build(&file, text("id"), text("passage"), text("before"), markdown).map_err(|e| e.to_string())?;
+    Ok(Value::String(link))
 }
 
 fn open(args: &Value) -> Result<Value, String> {
@@ -901,8 +1064,8 @@ mod tests {
         let names: Vec<&str> = replies[2]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
-            ["render", "list_annotations", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "open",
-             "current_document", "focused_annotation", "reveal"]
+            ["render", "list_annotations", "annotations_since", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "items", "refs", "relink", "link",
+             "open", "current_document", "focused_annotation", "reveal"]
         );
         for tool in replies[2]["result"]["tools"].as_array().unwrap() {
             assert_eq!(tool["inputSchema"]["type"], "object");
@@ -927,6 +1090,51 @@ mod tests {
         assert_eq!(lines[1]["result"]["isError"], true);
         assert!(lines[1]["result"]["content"][0]["text"].as_str().unwrap().contains("Allow MCP Clients"));
         assert!(!crate::location::folio_path(Path::new(&file)).exists());
+    }
+
+    #[test]
+    fn a_wiki_folder_in_a_set_open_items_links_and_references() {
+        let _guard = set::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("wiki");
+        std::env::set_var("FOLIO_CONFIG_DIR", dir.join("cfg"));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("wiki")).unwrap();
+        let spec = dir.join("spec.md");
+        std::fs::write(&spec, "We rotate on every use.\n").unwrap();
+
+        // A folder goes into the set, and set_list says so.
+        let wiki = dir.join("wiki");
+        let added = ok(&NoApp, "set_add", json!({ "name": "w", "files": [spec], "folders": [wiki] }));
+        assert_eq!(added["folders_added"].as_array().unwrap().len(), 1);
+        let again = ok(&NoApp, "set_add", json!({ "name": "w", "folders": [wiki] }));
+        assert_eq!(again["folders_already_in_set"].as_array().unwrap().len(), 1);
+        assert!(err(&NoApp, "set_add", json!({ "name": "w", "folders": [dir.join("nope")] })).contains("is not a folder"));
+        assert!(err(&NoApp, "set_add", json!({ "name": "w" })).contains("`files` is required"));
+
+        // A link to a passage, as an agent writes it into a page that also has an open item.
+        let passage = ok(&NoApp, "link", json!({ "file": spec, "passage": "rotate on every use" }));
+        let passage = passage.as_str().unwrap().to_string();
+        assert!(passage.starts_with("folio://passage?"), "{passage}");
+        let document = ok(&NoApp, "link", json!({ "file": spec, "markdown": true }));
+        assert!(document.as_str().unwrap().starts_with("[spec.md](folio://document?"));
+        assert!(err(&NoApp, "link", json!({ "file": spec, "passage": "not in the text" })).contains("is not in"));
+        std::fs::write(wiki.join("requirements.md"), format!("# R4\n\n- [ ] [why]({passage}) #investigate\n- [ ] ask #waiting\n")).unwrap();
+
+        let items = ok(&NoApp, "items", json!({ "set": "w" }));
+        assert_eq!(items["items"].as_array().unwrap().len(), 2);
+        let waiting = ok(&NoApp, "items", json!({ "set": "w", "tag": "waiting" }));
+        assert_eq!(waiting["items"][0]["text"], "ask");
+        assert!(err(&NoApp, "items", json!({})).contains("give a `set`"));
+
+        let refs = ok(&NoApp, "refs", json!({ "set": "w", "file": spec }));
+        assert_eq!(refs["references"][0]["context"], "R4");
+        let dead = ok(&NoApp, "refs", json!({ "set": "w", "dead": true }));
+        assert!(dead["dead"].is_array());
+        assert!(err(&NoApp, "refs", json!({ "set": "w" })).contains("`file` is required"));
+
+        let planned = ok(&NoApp, "relink", json!({ "set": "w", "dry_run": true }));
+        assert_eq!((planned["dry_run"].clone(), planned["relinked"].is_array()), (json!(true), true));
+        std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
     #[test]
@@ -971,6 +1179,37 @@ mod tests {
         let text = ok(&NoApp, "render", json!({ "file": file }));
         assert!(text.as_str().unwrap().contains("The quick brown fox"), "{text}");
         assert!(!text.as_str().unwrap().contains("**"));
+    }
+
+    #[test]
+    fn annotations_since_gives_what_is_new_and_the_filter_is_optional() {
+        let file = document("since", DOC);
+        // No sidecar yet: nothing, and a cursor to start from.
+        let none = ok(&NoApp, "annotations_since", json!({ "file": file }));
+        assert!(none["changes"].as_array().unwrap().is_empty());
+        assert!(none["cursor"].as_str().unwrap().ends_with('Z'));
+
+        ok(&NoApp, "annotate", json!({ "file": file, "author": "reviewer", "annotations": [
+            { "kind": "comment", "context_before": "The quick brown ", "target": "fox", "comment": "why a fox?" }] }));
+        let id = ok(&NoApp, "list_annotations", json!({ "file": file }))["annotations"][0]["id"].as_str().unwrap().to_string();
+        ok(&NoApp, "reply", json!({ "file": file, "author": "me", "id": id, "body": "because" }));
+
+        let all = ok(&NoApp, "annotations_since", json!({ "file": file }));
+        let changes = all["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0]["change"], "new_annotation");
+        assert_eq!(changes[0]["text"], "why a fox?");
+        assert_eq!(changes[1]["change"], "new_reply");
+        assert_eq!(changes[1]["text"], "because");
+
+        let others = ok(&NoApp, "annotations_since", json!({ "file": file, "exclude_author": "reviewer" }));
+        assert_eq!(others["changes"].as_array().unwrap().len(), 1);
+        assert_eq!(others["changes"][0]["change"], "new_reply");
+
+        // An empty filter is no filter, and a later `since` leaves older changes out.
+        assert_eq!(ok(&NoApp, "annotations_since", json!({ "file": file, "exclude_author": "" }))["changes"].as_array().unwrap().len(), 2);
+        let later = ok(&NoApp, "annotations_since", json!({ "file": file, "since": "2999-01-01T00:00:00Z" }));
+        assert!(later["changes"].as_array().unwrap().is_empty());
     }
 
     #[test]

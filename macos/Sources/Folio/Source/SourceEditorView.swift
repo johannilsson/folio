@@ -93,7 +93,9 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
     private func replace(with text: String, keepingSelection: Bool) {
         let selection = textView.selectedRange()
         replacingText = true
-        room.reset()
+        // A reload keeps the room for the cards: dropping it would move the text being read up by the
+        // cards above it until they are laid out again. A different file starts without.
+        if !keepingSelection { room.reset() }
         textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (textView.string as NSString).length), with: text)
         textStyled()
         let length = (text as NSString).length
@@ -326,6 +328,14 @@ final class SourceEditorView: NSView, AnnotationSurface, NSTextViewDelegate, NST
         guard let range = ranges[id] else { return }
         window?.makeFirstResponder(textView)
         textView.setSelectedRange(NSRange(location: range.location, length: 0))
+    }
+
+    func select(passage text: String, before: String) -> (top: Double, bottom: Double)? {
+        guard let range = TextSurface.anchorPassage(text: text, before: before, in: textView.string),
+              let spot = TextSurface.position(of: range.location, in: textView) else { return nil }
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        return (spot.top, spot.bottom)
     }
 
     func flush() async {

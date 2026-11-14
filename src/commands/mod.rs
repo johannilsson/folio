@@ -1,9 +1,12 @@
 pub mod accept;
 pub mod annotate;
+pub mod changes;
 pub mod check;
 pub mod init;
+pub mod items;
 pub mod link;
 pub mod open;
+pub mod refs;
 pub mod reject;
 pub mod render;
 pub mod review;

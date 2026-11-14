@@ -96,6 +96,12 @@ final class SelfTest {
         await check("the first window kept its document") { self.controller.files.file == copy }
 
         await setScenario()
+        await wikiScenario()
+        await documentLinkScenario()
+        await worktreeScenario()
+        await backlinkScenario()
+        await openItemsScenario()
+        await cardItemsScenario()
 
         // Last, since it closes every window.
         await welcomeChecks()

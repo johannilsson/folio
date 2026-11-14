@@ -1,8 +1,9 @@
 import Foundation
 
 /// The YAML block at the top of a file. The preview shows it as a small box of key and value rows
-/// instead of reading it as markdown. The parsing is simple: top-level `key: value` pairs, list items
-/// joined onto their key.
+/// instead of reading it as markdown. The parsing is simple: top-level `key: value` pairs. A key with
+/// no value on its line, such as one with a list written over several lines, is left out; an inline
+/// `[a, b]` is shown as `a, b`.
 public struct PreviewFrontmatter {
     public struct Entry {
         public var key: String
@@ -43,16 +44,10 @@ public struct PreviewFrontmatter {
                 }
                 entries.append(Entry(key: key, keyRange: NSRange(location: lineStart + keyAt.location, length: keyAt.length),
                                      value: value, valueRange: valueRange))
-            } else if !entries.isEmpty {
-                var item = trimmed
-                if item.hasPrefix("-") { item = String(item.dropFirst()).trimmingCharacters(in: .whitespaces) }
-                let part = clean(item)
-                if part.isEmpty { continue }
-                entries[entries.count - 1].value = entries[entries.count - 1].value.isEmpty ? part : entries[entries.count - 1].value + ", " + part
-                entries[entries.count - 1].valueRange = nil
             }
+            // Anything else is a list item or a continuation of a value: not shown.
         }
-        return PreviewFrontmatter(range: match.range, entries: entries)
+        return PreviewFrontmatter(range: match.range, entries: entries.filter { !$0.value.isEmpty })
     }
 
     private static func clean(_ value: String) -> String {
