@@ -3,7 +3,7 @@ import FolioKit
 import Testing
 
 @Suite struct SidecarTests {
-    /// The annotation from folio-sidecar-spec.md, as an agent writes it.
+    /// The annotation from docs/reference/sidecar-format.md, as an agent writes it.
     let json = """
     {
       "version": 1,

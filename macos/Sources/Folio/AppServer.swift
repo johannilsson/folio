@@ -6,7 +6,7 @@ import FolioKit
 /// starts (`Folio --mcp`); it connects to the socket in the config folder (src/live.rs), which libfolio
 /// serves on a thread of its own and which calls `answer` once per request. A request is one line of
 /// JSON, `{"op": ..., ...}`, and the answer `{"ok": ...}` or `{"error": "..."}`. Both are described in
-/// `macos/README.md`; change them together with `src/mcp.rs`.
+/// `docs/mcp.md` ("The app socket"); change them together with `src/mcp.rs`.
 @MainActor
 enum AppServer {
     /// Whether this app owns the socket, and so has to take it away when it quits.
