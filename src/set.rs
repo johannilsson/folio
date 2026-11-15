@@ -339,7 +339,8 @@ pub fn change_tags(name: &str, add: &[String], remove: &[String]) -> anyhow::Res
 /// Add folders to the set `name`, creating it if needed. A missing path or one that is not a
 /// folder fails before anything is saved.
 pub fn add_folders(name: &str, folders: &[PathBuf]) -> anyhow::Result<AddOutcome> {
-    let mut current = load(name).unwrap_or_else(|_| Set::empty());
+    // As in `add_files`: only a set that does not exist yet starts empty.
+    let mut current = if set_path(name)?.exists() { load(name)? } else { Set::empty() };
     let mut outcome = AddOutcome { added: Vec::new(), already: Vec::new() };
     for folder in folders {
         let canonical = dunce::canonicalize(folder)
@@ -754,6 +755,24 @@ mod tests {
         std::fs::write(&a, "# a\n").unwrap();
         assert!(add_files("s", &[a], None).is_err());
         assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{ not json");
+        std::env::remove_var("FOLIO_CONFIG_DIR");
+    }
+
+    #[test]
+    fn add_folders_does_not_overwrite_a_set_file_it_cannot_read() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("keepbadfolders");
+        std::env::set_var("FOLIO_CONFIG_DIR", tmp.join("cfg"));
+        let sets = tmp.join("cfg").join("sets");
+        std::fs::create_dir_all(&sets).unwrap();
+        let wiki = tmp.join("wiki");
+        std::fs::create_dir_all(&wiki).unwrap();
+        for (name, raw) in [("bad", "{ not json"), ("newer", r#"{"version":3,"files":[]}"#)] {
+            let file = sets.join(format!("{name}.json"));
+            std::fs::write(&file, raw).unwrap();
+            assert!(add_folders(name, &[wiki.clone()]).is_err());
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), raw);
+        }
         std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
