@@ -688,6 +688,9 @@ extension SelfTest {
         await check("the menu's action opens the pane in the key set window") {
             await self.until { win.openPaneOn && !pane.isHidden && abs(pane.frame.width - OpenPaneView.width) < 0.5 }
         }
+        await check("the pane runs up behind the toolbar to the window's top edge, as Preview's inspector does") {
+            abs(inWindow(pane).maxY - (win.window?.contentView?.bounds.height ?? 0)) < 0.5 && pane.safeAreaInsets.top > 0
+        }
         if !win.commentsOn { win.toggleComments(nil) }
         await check("the editor narrows to make room, and the comments pane is open beside it") {
             await self.until {

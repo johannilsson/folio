@@ -3,6 +3,7 @@
 export const light = {
   background: '#ffffff',
   card: '#f6f6f5',
+  inspector: '#efefee',
   float: '#ffffff',
   avatarYou: '#6366f1',
   avatarCyan: '#0891b2',
@@ -19,6 +20,7 @@ export const light = {
 export const dark = {
   background: '#1a1a1a',
   card: '#252525',
+  inspector: '#212121',
   float: '#2e2e2e',
   avatarYou: '#6366f1',
   avatarCyan: '#0891b2',

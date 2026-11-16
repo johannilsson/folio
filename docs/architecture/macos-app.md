@@ -105,7 +105,7 @@ A set can hold a folder of notes next to the files under review. The design and 
   - Open.
   - References: `FileReferences` in FolioKit, the links of the wiki pages to the file on screen, whatever they point at, including `folio://document`. In the window: `SetWindowController.paneTab`, `fileReferences`.
 
-  It is a third split view item, with its own tracking separator, so its toolbar button sits over it and the editor's buttons stay over the editor. In the window: `SetWindowController.openPaneOn`, `openScope`; ⇧⌘O toggles it.
+  It is a third split view item, with its own tracking separator, so its toolbar button sits over it and the editor's buttons stay over the editor. Like Preview's inspector it is full height, running up behind the toolbar (`allowsFullHeightLayout`), on its own background a shade apart from the text (`Tokens.inspector`). In the window: `SetWindowController.openPaneOn`, `openScope`; ⇧⌘O toggles it.
 - **Ticking an item** writes the item's file through libfolio, after checking the item is still on its line.
 - **Cards** list the pages that link to them and the open items about them (`AnnotationCardView.references`, `.items`). The set window works these out: `SetWindowController.computeBacklinks`, `computeCardItems`.
 - Self-tests: `SelfTest+Wiki.swift`.

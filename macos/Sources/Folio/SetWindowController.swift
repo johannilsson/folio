@@ -125,6 +125,9 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         paneItem.minimumThickness = OpenPaneView.width
         paneItem.maximumThickness = OpenPaneView.width
         paneItem.isCollapsed = true
+        // Full height, as Preview's inspector: the pane runs up behind the toolbar, its buttons drawn over it.
+        paneItem.allowsFullHeightLayout = true
+        paneItem.titlebarSeparatorStyle = .none
         split.addSplitViewItem(paneItem)
         openPaneSplitItem = paneItem
         // Its own name: the layout saved with two panes would not fit three.

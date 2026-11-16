@@ -685,9 +685,9 @@ final class OpenPaneView: NSView {
         empty.frame.origin = NSPoint(x: inset, y: below + 6)
     }
 
-    // The split view draws the divider beside it.
+    // The split view draws the divider beside it. A shade apart from the text, up behind the toolbar.
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        Tokens.inspector.setFill()
         bounds.fill()
         // The hairline over the filter bar.
         if tab == .open {

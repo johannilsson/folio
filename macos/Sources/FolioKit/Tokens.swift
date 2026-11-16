@@ -7,6 +7,8 @@ public enum Tokens {
     public static let background = pair(0xFFFFFF, 0x1A1A1A)
     /// An annotation card, and the column of cards beside the text.
     public static let card = pair(0xF6F6F5, 0x252525)
+    /// The set window's inspector (the Open pane), a shade apart from the text, as Preview's is.
+    public static let inspector = pair(0xEFEFEE, 0x212121)
     /// Pieces floating over the text: the open card, the Comment button, the toast.
     public static let float = pair(0xFFFFFF, 0x2E2E2E)
     /// Who wrote an annotation: You, then the others by a hash of their name.
