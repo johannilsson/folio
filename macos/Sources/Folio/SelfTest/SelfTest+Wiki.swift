@@ -163,7 +163,6 @@ extension SelfTest {
         await check("the sidebar notice says it was added") { sidebar.noticeText?.contains("rotation.md added") == true }
 
         // A file changed while another is shown gets its dot; showing it clears the mark.
-        let oauthID = win.workspace.entries.first { $0.name.hasSuffix("oauth.md") }?.document.id ?? ""
         write("research/oauth.md", "# OAuth\n\nOAUTH CHANGED\n")
         await check("a file changed underneath while another is shown is marked changed") {
             await self.until(seconds: 3) { win.marks[oauthID] == .changed }
