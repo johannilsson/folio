@@ -430,6 +430,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             full.keyEquivalentModifierMask = [.command, .control]
         }
 
+        // Only set windows go back and forward, so these are dimmed in the others. Safari's and Xcode's keys.
+        _ = add("Go") { m in
+            m.addItem(withTitle: "Back", action: #selector(SetWindowController.goBack(_:)), keyEquivalent: "[")
+            m.addItem(withTitle: "Forward", action: #selector(SetWindowController.goForward(_:)), keyEquivalent: "]")
+        }
+
         let window = add("Window") { m in
             m.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
             m.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
