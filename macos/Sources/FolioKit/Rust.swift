@@ -40,6 +40,17 @@ public enum Rust {
         }
     }
 
+    /// The `folio://` links of the markdown, none in a fenced block of code (src/wiki.rs, as `folio refs` finds them).
+    public static func references(in doc: String) throws -> [WikiReferences.Reference] {
+        let out = try object(folio_references(doc))
+        return (out["references"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let line = (item["line"] as? NSNumber)?.intValue, let context = item["context"] as? String,
+                  let label = item["label"] as? String, let text = item["url"] as? String,
+                  let url = URL(string: text), let link = FolioLink(url) else { return nil }
+            return WikiReferences.Reference(link: link, line: line, context: context, label: label)
+        }
+    }
+
     /// The markdown with the task item on `line` (1-based) ticked. Throws when that line is not an open item.
     public static func tickItem(in doc: String, line: Int) throws -> String {
         guard let ticked = try object(folio_tick_item(doc, line))["doc"] as? String else {

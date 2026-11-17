@@ -182,6 +182,11 @@ fn open_items_json(doc: &str, tags: &[String]) -> Result<String, String> {
     Ok(json!({ "items": wiki::open_items_with(doc, tags) }).to_string())
 }
 
+/// The `folio://` links of a markdown page: `{"references": [{line, context, label, url, …}]}`, none in a fenced block.
+fn references_json(doc: &str) -> Result<String, String> {
+    Ok(json!({ "references": wiki::references(doc) }).to_string())
+}
+
 /// `{"doc": <markdown with the item on `line` ticked>}`.
 fn tick_item_json(doc: &str, line: usize) -> Result<String, String> {
     let ticked = wiki::tick(doc, line).ok_or_else(|| format!("line {line} is not an open task item"))?;
@@ -258,6 +263,16 @@ pub unsafe extern "C" fn folio_open_items(doc: *const c_char, tags_json: *const 
         let tags: Vec<String> = if tags_json.is_null() { wiki::TAGS.map(String::from).to_vec() } else { serde_json::from_str(arg(tags_json)?).map_err(|e| e.to_string())? };
         open_items_json(arg(doc)?, &tags)
     })())
+}
+
+/// Returns `{"references": [...]}`, the `folio://` links of the markdown `doc` as `folio refs` finds them,
+/// or `{"error": ...}`. Free with `folio_free`.
+///
+/// # Safety
+/// `doc` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_references(doc: *const c_char) -> *mut c_char {
+    finish((|| references_json(arg(doc)?))())
 }
 
 /// Returns `{"doc": <markdown>}` with the task item on `line` (1-based) ticked, or `{"error": ...}` when
@@ -552,6 +567,17 @@ mod tests {
         let ticked: Value = serde_json::from_str(&tick_item_json(doc, 3).unwrap()).unwrap();
         assert!(ticked["doc"].as_str().unwrap().contains("- [x] Asked about rotation #waiting"));
         assert!(tick_item_json(doc, 1).unwrap_err().contains("not an open task item"));
+    }
+
+    #[test]
+    fn references_go_through_the_json_api_and_skip_fenced_blocks() {
+        let link = "folio://annotation/c3d4?repo=svc&path=docs/t.md";
+        let doc = format!("# Threat model\n\nAsked [Priya]({link}).\n\n```\n[shown]({link})\n```\n");
+        let out: Value = serde_json::from_str(&references_json(&doc).unwrap()).unwrap();
+        let refs = out["references"].as_array().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!((refs[0]["line"].as_u64(), refs[0]["context"].as_str()), (Some(3), Some("Threat model")));
+        assert_eq!((refs[0]["label"].as_str(), refs[0]["url"].as_str()), (Some("Priya"), Some(link)));
     }
 
     #[test]
