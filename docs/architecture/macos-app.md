@@ -26,7 +26,6 @@ classDiagram
     PreviewView ..|> AnnotationSurface
     SourceEditorView ..|> AnnotationSurface
     SetWindowController *-- SidebarViewController
-    SetWindowController *-- OpenListView
     SetWindowController *-- OpenPaneView
 
     class EditorWindowController {
@@ -100,13 +99,12 @@ A set can hold a folder of notes next to the files under review. The design and 
   - `PreviewBuilder` draws links live, or grey with the reason. The reason comes from `linkState`, which asks the window, since the window knows what is open. `PreviewView.refreshLinks` redraws when that changes.
 - **The Open list.**
   - `OpenList` handles the grouping, and which items are about the file on screen (`about`, `paneRows`).
-  - `OpenListView` shows the list in place of the editor while the sidebar's Open row is chosen.
 - **The Open pane** (`OpenPaneView`) is the set window's inspector, with two tabs:
   - Open.
   - References: `FileReferences` in FolioKit, the links of the wiki pages to the file on screen, whatever they point at, including `folio://document`. In the window: `SetWindowController.paneTab`, `fileReferences`.
 
   It is a third split view item, with its own tracking separator, so its toolbar button sits over it and the editor's buttons stay over the editor. In the window: `SetWindowController.openPaneOn`, `openScope`; ⇧⌘O toggles it.
-- **Back and forward.** `NavigationHistory` in FolioKit is the rule (going somewhere new drops what was ahead; places that go away are dropped). `SetWindowController.history` holds a `Place`, a file or the Open list; `openFile` and `showOpenList` record a visit unless Back or Forward called them (`recording: false`).
+- **Back and forward.** `NavigationHistory` in FolioKit is the rule (going somewhere new drops what was ahead; places that go away are dropped). `SetWindowController.history` holds a `Place`, a file; `openFile` records a visit unless Back or Forward called them (`recording: false`).
 - **Ticking an item** writes the item's file through libfolio, after checking the item is still on its line.
 - **Cards** list the pages that link to them and the open items about them (`AnnotationCardView.references`, `.items`). The set window works these out: `SetWindowController.computeBacklinks`, `computeCardItems`.
 - Self-tests: `SelfTest+Wiki.swift`.

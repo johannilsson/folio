@@ -15,7 +15,7 @@ open items collected from it into one list. Folio does not become a wiki editor:
 plain markdown that Obsidian or GitHub read as before, and writing happens in the source editor.
 
 Mockups: https://claude.ai/artifact/G6LuZR84WQLPiBDDrY5tyV (1: the wiki in the set, 2: links and
-backlinks on a card, 3: the Open list).
+backlinks on a card, 3: the Open list, since moved to the pane).
 
 ## Behaviour
 
@@ -91,13 +91,12 @@ Two kinds, both plain markdown links, so the files read the same outside Folio:
 
 ### Back and forward
 
-- A set window keeps where it has been: each file shown, and the Open list. Go ▸ Back (⌘[) and
+- A set window keeps where it has been: each file shown. Go ▸ Back (⌘[) and
   Forward (⌘]), and the arrows in the toolbar after the sidebar (as in Finder), step through it,
   so a link followed, a reference or an open item clicked, or a file picked in the sidebar can be
   gone back from. Going somewhere new drops what was ahead. Each file comes back scrolled where it
   was left.
-- A file taken out of the set is dropped from the history, as is the Open list once it has no
-  items. The history is the window's, not saved. A single-file window has none: its links open
+- A file taken out of the set is dropped from the history. The history is the window's, not saved. A single-file window has none: its links open
   other windows.
 - Rule and tests: `NavigationHistory` in FolioKit; in the window `SetWindowController.history`,
   `goBack`, `goForward`. Self-tests in `wikiScenario` and `openItemsScenario`.
@@ -173,15 +172,8 @@ every wiki page about it, and from a wiki page to the document, without an annot
     - Sam: the family is revoked by the gateway since v3 (https://github.com/…#issuecomment-990)
   ```
   Other task items are not collected; ticked ones (`- [x]`) are done and not shown.
-- **Open** is a row above the files in the sidebar, with the count, while the set has any open items.
-  Choosing it shows the list in place of the editor (the subtitle says "Open items"); choosing a
-  file goes back. The list is grouped by tag (Replied, Waiting, Investigate) or by file. Each row
-  shows its text, the first nested line under it (an answer's summary), the file and line it is in,
-  a short form of its address ("github.com · pull/42") and, when it has one, a
-  chip for the annotation or passage it is about. Clicking the file and line opens the file with the
-  start of the item's words selected; clicking the address or the chip follows it. Only web
-  addresses and links into Folio open.
-- **The Open pane** (mockup board 5) is the same items in the window's inspector, at the right beside the
+- The sidebar lists files only: there is no Open row. The items are in the Open pane.
+- **The Open pane** (mockup board 5) lists the items in the window's inspector, at the right beside the
   editor and its comments pane, so both can be open at once. As in Xcode, the toolbar is divided over it:
   its button, with the set's count, is at the trailing edge, and the editor's buttons stay over the editor.
   View ▸ Toggle Open Items (⇧⌘O) opens it too. It is 272 points wide and can be dragged shut. It lists the whole set by tag
@@ -245,7 +237,7 @@ Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sid
   attribute key for a link's target.
 - **Open items** are parsed the same way from every file of the set; ticking writes through
   `Document.writeFile` against what is on disk.
-- **The sidebar** gets the Open row and the Wiki section; `SidebarViewController` keeps drawing
+- **The sidebar** gets the Wiki section; `SidebarViewController` keeps drawing
   from the window controller's state.
 
 ## Tests
@@ -257,7 +249,7 @@ Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sid
   the sidebar within a second; the open file reloads; clicking a Folio link opens the file and
   focuses the annotation; a card lists the wiki file that links to it; an item ticked in the Open
   list is `[x]` on disk; a link to a branch no worktree is on is greyed out.
-- **Pictures** (`FOLIO_SNAPSHOT`): the sidebar with a wiki, a card with references, the Open list,
+- **Pictures** (`FOLIO_SNAPSHOT`): the sidebar with a wiki, a card with references, the Open pane,
   light and dark. The PR gets the `pictures` label.
 
 ## Steps
@@ -291,7 +283,7 @@ Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sid
    (`AnnotationCardView.references`). Self-test: `backlinkScenario`.
 5. Open items:
    - Done: `wiki.rs` (parsing and ticking, with `folio_open_items` / `folio_tick_item` for the app),
-     `folio items`, `OpenList` (grouping) in FolioKit, the Open row, `OpenListView`, ticking.
+     `folio items`, `OpenList` (grouping) in FolioKit, ticking.
      Self-test: `openItemsScenario`.
    - The Open pane (`OpenPaneView`, the split view's inspector, `SetWindowController.openPaneOn` and `openScope`;
      which items are about the file on screen is `OpenList.about` / `paneRows` in FolioKit). Self-test:

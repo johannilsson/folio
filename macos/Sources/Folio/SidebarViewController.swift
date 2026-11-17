@@ -6,8 +6,6 @@ import FolioKit
 /// The repo headings can be dragged to reorder the groups.
 final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     private enum Row {
-        /// The open items of the whole set, above its files, when there are any.
-        case openList(count: Int)
         /// A checkout's heading, or a set folder's (`folded` non-nil: clicking it folds or
         /// unfolds the whole folder; its title is the folder's group).
         case header(String, folded: Bool?)
@@ -38,14 +36,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     private static let groupType = NSPasteboard.PasteboardType("com.folio.sidebar-group")
     /// A file's mark (new, changed underneath), from the window controller, which keeps them.
     var mark: (String) -> SidebarTree.Mark? = { _ in nil }
-    /// The user picked the Open row.
-    var onOpenList: (() -> Void)?
-    /// How many open items the set has: the Open row is there while it has any.
-    var openCount = 0 {
-        didSet { if openCount != oldValue, isViewLoaded { reload() } }
-    }
-    /// The Open row is the selected one: the window shows the list, not a file.
-    private var openSelected = false
 
     /// The subfolders folded away, by the set folder they are in: a reader's choice for this
     /// window, kept across reloads.
@@ -84,15 +74,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     var selectedID: String? {
         guard table.selectedRow >= 0 else { return nil }
         return rows[table.selectedRow].fileID
-    }
-    /// The count on the Open row, nil when there is none.
-    var openRowCount: Int? {
-        for case .openList(let count) in rows { return count }
-        return nil
-    }
-    var openRowSelected: Bool {
-        guard table.selectedRow >= 0, case .openList = rows[table.selectedRow] else { return false }
-        return true
     }
     func badge(for id: String) -> Int? {
         for case .file(let rowID, _, let pending, _) in rows where rowID == id { return pending }
@@ -194,7 +175,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     /// Rebuilds the rows, keeping the selection where the file still exists.
     func reload() {
         let keep = shownID
-        let keepOpen = openRowSelected || (openSelected && selectedID == nil)
         let picked = workspace.entries.filter { !$0.inFolder }
         let inFolders = workspace.entries.filter(\.inFolder)
         // Checkout headings (repo and branch) only earn their space when the set spans several
@@ -202,7 +182,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         let headings = SidebarTree.headings(picked.compactMap(\.checkout))
         let multiRoot = Set(picked.map(\.root)).count > 1 || (!picked.isEmpty && !inFolders.isEmpty)
         var next: [Row] = []
-        if openCount > 0 { next.append(.openList(count: openCount)) }
         var root: URL?
         for entry in picked {
             if multiRoot && entry.root != root {
@@ -235,7 +214,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         selecting = true
         table.reloadData()
         selecting = false
-        if keepOpen, openCount > 0 { selectOpenList() } else if let keep { highlight(keep) } else if let first = fileIDs.first { highlight(first) }
+        if let keep { highlight(keep) } else if let first = fileIDs.first { highlight(first) }
     }
 
     /// Folds a subfolder of a set folder away, or unfolds it; `path` "" is the set folder itself.
@@ -264,22 +243,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         }
     }
 
-    /// Highlights the Open row without announcing it, for when the window shows the list on its own.
-    func selectOpenList() {
-        openSelected = true
-        shownID = nil
-        guard let index = rows.firstIndex(where: { if case .openList = $0 { return true } else { return false } }) else { return }
-        selecting = true
-        table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-        selecting = false
-    }
-
-    /// What clicking the Open row does: highlight it and show the list.
-    func chooseOpenList() {
-        selectOpenList()
-        onOpenList?()
-    }
-
     /// Highlights a file without announcing it, for when the page moved on its own. A folded
     /// folder the file is in unfolds, so it shows.
     func select(_ id: String) {
@@ -287,7 +250,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
             let folders = SidebarTree.folders(containing: entry.name)
             if !collapsed[entry.group, default: []].isDisjoint(with: folders) {
                 collapsed[entry.group]?.subtract(folders)
-                openSelected = false
                 shownID = id
                 selecting = true
                 table.deselectAll(nil)
@@ -301,7 +263,6 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
 
     /// Highlights the file's row, or none while a folded folder hides it.
     private func highlight(_ id: String) {
-        openSelected = false
         shownID = id
         selecting = true
         if let index = rows.firstIndex(where: { $0.fileID == id }) {
@@ -388,7 +349,7 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         switch rows[row] {
         case .header: return 36
         case .folder: return 26
-        case .file, .openList: return tableView.rowHeight
+        case .file: return tableView.rowHeight
         }
     }
 
@@ -402,38 +363,11 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        if case .openList = rows[row] { return true }
         return rows[row].fileID != nil
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch rows[row] {
-        case .openList(let count):
-            let icon = NSImageView(image: NSImage(systemSymbolName: "checklist", accessibilityDescription: nil) ?? NSImage())
-            icon.contentTintColor = .secondaryLabelColor
-            icon.setContentHuggingPriority(.required, for: .horizontal)
-            let label = NSTextField(labelWithString: "Open")
-            label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            let badge = NSTextField(labelWithString: String(count))
-            badge.font = .systemFont(ofSize: 11, weight: .medium)
-            badge.textColor = .secondaryLabelColor
-            badge.setContentHuggingPriority(.required, for: .horizontal)
-            let stack = NSStackView(views: [icon, label, badge])
-            stack.orientation = .horizontal
-            stack.spacing = 6
-            stack.alignment = .centerY
-            let cell = NSTableCellView()
-            cell.textField = label
-            cell.imageView = icon
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(stack)
-            NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
-                stack.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
-                stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            ])
-            return cell
-
         case .header(let title, let folded):
             let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -558,14 +492,10 @@ final class SidebarViewController: NSViewController, NSTableViewDataSource, NSTa
         guard !selecting else { return }
         // A click on empty space clears the selection: the shown file stays highlighted.
         if table.selectedRow < 0 {
-            if let shownID, !openSelected { highlight(shownID) } else if openSelected { selectOpenList() }
+            if let shownID { highlight(shownID) }
             return
         }
-        if openRowSelected {
-            openSelected = true
-            onOpenList?()
-        } else if let id = selectedID {
-            openSelected = false
+        if let id = selectedID {
             shownID = id
             onSelect?(id)
         }

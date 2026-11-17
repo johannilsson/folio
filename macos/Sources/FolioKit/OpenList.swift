@@ -92,17 +92,6 @@ public enum OpenList {
         }
     }
 
-    /// By file, in the order the files first appear.
-    public static func byFile(_ entries: [OpenEntry]) -> [Group] {
-        var order: [String] = []
-        var groups: [String: [OpenEntry]] = [:]
-        for entry in entries {
-            if groups[entry.pageID] == nil { order.append(entry.pageID) }
-            groups[entry.pageID, default: []].append(entry)
-        }
-        return order.map { Group(title: groups[$0]?.first?.page ?? "", entries: groups[$0] ?? []) }
-    }
-
     /// What an item is about in the file on screen: one of its annotations, a passage of it, or all of it.
     public enum About: Equatable {
         case annotation(String)
