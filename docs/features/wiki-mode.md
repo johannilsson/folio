@@ -285,7 +285,8 @@ Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sid
      (`FolioLink.targetFound`, asked by `AppServer.deadReason`; `AppServer.refreshLinks` when a file or
      sidecar changes). Self-test in `backlinkScenario`.
 4. Backlinks on cards: `WikiReferences` (the `folio://` links in a page, with the heading or line
-   they are under and their words) and `FolioLink.points(to:)` in FolioKit; the set window reads
+   they are under and their words, found by `wiki::references` through `folio_references`, so a link
+   in a fenced block counts for neither the app nor `folio refs`) and `FolioLink.points(to:)` in FolioKit; the set window reads
    each page (again when it changes), works out which annotations of the file on screen each link
    is to (`SetWindowController.computeBacklinks`), and the card draws the count or the list
    (`AnnotationCardView.references`). Self-test: `backlinkScenario`.

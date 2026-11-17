@@ -39,6 +39,14 @@ import Testing
         #expect(WikiReferences.find(in: page).first?.context == "Real")
     }
 
+    @Test func aLinkInAFencedBlockIsNotAReference() {
+        // As `folio refs` has it: a link shown in a block of code is not a backlink.
+        let page = "# Real\n\n```\n[shown](\(annotation))\n```\n\n[x](\(passage))\n"
+        let found = WikiReferences.find(in: page)
+        #expect(found.map(\.label) == ["x"])
+        #expect(found.map(\.line) == [7])
+    }
+
     @Test func severalLinksEachWithTheirOwnLine() {
         let page = "# A\n[one](\(annotation))\n# B\n[two](\(passage))\n"
         let found = WikiReferences.find(in: page)
