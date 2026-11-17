@@ -80,13 +80,9 @@ pub fn open_items(markdown: &str) -> Vec<OpenItem> {
 pub fn open_items_with(markdown: &str, names: &[String]) -> Vec<OpenItem> {
     let lines: Vec<&str> = markdown.lines().collect();
     let mut items = Vec::new();
-    let mut fenced = false;
+    let mut fence = None;
     for (index, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
+        if in_code(&mut fence, line) {
             continue;
         }
         let Some((indent, rest)) = unticked(line) else { continue };
@@ -101,6 +97,31 @@ pub fn open_items_with(markdown: &str, names: &[String]) -> Vec<OpenItem> {
         });
     }
     items
+}
+
+/// Whether `line` is a fence or inside a fenced block of code, given `fence`, the open fence so far
+/// (its character and length), which it updates. A fence is three or more backticks or tildes; it
+/// closes on a line of only the same character, at least as many, as the engine reads it.
+fn in_code(fence: &mut Option<(char, usize)>, line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let run = |c: char| trimmed.len() - trimmed.trim_start_matches(c).len();
+    match *fence {
+        Some((c, len)) => {
+            if run(c) >= len && trimmed.trim_start_matches(c).trim().is_empty() {
+                *fence = None;
+            }
+            true
+        }
+        None => {
+            for c in ['`', '~'] {
+                if run(c) >= 3 {
+                    *fence = Some((c, run(c)));
+                    return true;
+                }
+            }
+            false
+        }
+    }
 }
 
 /// Ticks the item on `line` (1-based): its `[ ]` becomes `[x]`. None when that line is not an unticked
@@ -418,13 +439,9 @@ pub struct Reference {
 pub fn references(markdown: &str) -> Vec<Reference> {
     let mut found = Vec::new();
     let mut heading: Option<String> = None;
-    let mut fenced = false;
+    let mut fence = None;
     for (index, line) in markdown.lines().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
+        if in_code(&mut fence, line) {
             continue;
         }
         let hashes = line.len() - line.trim_start_matches('#').len();
@@ -586,6 +603,22 @@ mod tests {
     fn code_blocks_have_no_items() {
         assert!(open_items("```\n- [ ] in code #waiting\n```\n").is_empty());
         assert_eq!(open_items("```\nx\n```\n- [ ] after #waiting\n").len(), 1);
+    }
+
+    #[test]
+    fn tilde_fences_and_longer_fences_are_code_too() {
+        // A tilde fence, as the engine reads one.
+        assert!(open_items("~~~\n- [ ] in code #waiting\n~~~\n").is_empty());
+        // A four-backtick block that shows a three-backtick one stays open until its own fence.
+        let doc = "````md\n```\n- [ ] in code #waiting\n```\n````\n- [ ] after #waiting\n";
+        let items = open_items(doc);
+        assert_eq!(items.iter().map(|i| i.line).collect::<Vec<_>>(), [6]);
+        // A backtick line does not close a tilde block, and an info string does not close one.
+        assert!(open_items("~~~\n```\n- [ ] a #waiting\n~~~\n").is_empty());
+        assert!(open_items("```\n```js\n- [ ] a #waiting\n```\n").is_empty());
+        // Links in such a block are not references either.
+        let refs = references("~~~\nfolio://document?path=t.md\n~~~\n[spec](folio://document?path=t.md)\n");
+        assert_eq!(refs.iter().map(|r| r.line).collect::<Vec<_>>(), [4]);
     }
 
     #[test]
