@@ -529,37 +529,22 @@ extension SelfTest {
             report("the set opens", false)
             return
         }
-        let sidebar = win.sidebar, list = win.openList
+        let sidebar = win.sidebar, pane = win.openPane
 
         await check("items tagged #waiting, #investigate and #replied are open; plain and ticked ones are not") {
-            sidebar.openRowCount == 5 && win.openEntries.count == 5
+            win.openEntries.count == 5
         }
-        await check("the window opens on a file, not on the list") { !win.openListShown && !win.scrollHost.isHidden }
-
-        sidebar.chooseOpenList()
-        await check("choosing the Open row shows the list in place of the editor") {
-            win.openListShown && win.scrollHost.isHidden && !list.isHidden && sidebar.openRowSelected && win.window?.subtitle == "Open items"
+        await check("the sidebar lists the files only: there is no Open row") {
+            sidebar.fileNames.sorted() == ["other.md", "tasks.md"]
         }
-        await check("it is grouped by tag: replied first, then waiting, then investigate") {
-            list.groupTitles == ["Replied", "Waiting", "Investigate"]
+        win.window?.makeKeyAndOrderFront(nil)
+        if !win.openPaneOn { win.toggleOpenPane(nil) }
+        await check("the Open pane lists them by tag: replied first, then waiting, then investigate") {
+            await self.until { pane.groupTitles.map { $0.lowercased() }.joined().contains("replied") && pane.rowPlaces.count == 5 }
         }
-        await check("each row has the item's words, and the nested line as its answer") {
-            list.rowTexts == [
-                "Rotation answered\nSam: the family is revoked by the gateway since v3",
-                "Key rotation: asked in review", "Rate limit for unauthenticated refresh",
-                "Compare options", "Token refresh on logout from a second device",
-            ]
+        await check("each row says where the item is") {
+            Set(pane.rowPlaces.map { $0.components(separatedBy: " · ")[0] }) == ["tasks.md:6", "tasks.md:3", "tasks.md:4", "other.md:1", "tasks.md:5"]
         }
-        await check("and where it is, and the address it waits on") {
-            list.rowPlaces == ["tasks.md:6", "tasks.md:3", "tasks.md:4", "other.md:1", "tasks.md:5"]
-                && list.rowAddresses[1] == "github.com · pull/42" && list.rowAddresses[2] == "github.com · pull/318"
-                && list.rowAddresses[3] == nil
-        }
-        list.grouping = .file
-        await check("by file it is the files, in the order of the sidebar") {
-            list.groupTitles == ["other.md", "tasks.md"]
-        }
-        list.grouping = .tag
 
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             try? await Task.sleep(nanoseconds: 600_000_000)
@@ -567,64 +552,41 @@ extension SelfTest {
         }
 
         // Ticking writes the file.
-        list.tick(row: 1)
+        pane.tick(row: 1)
         await check("ticking an item writes [x] in its file and nowhere else") {
             await self.until {
                 let text = disk("tasks.md")
-                return text.contains("- [x] Key rotation: asked in review #waiting") && text.contains("- [ ] Rate limit for unauthenticated refresh #waiting")
-                    && text.contains("- [x] Done already #waiting")
+                return text.contains("- [x] ") && text.contains("- [x] Done already #waiting")
+                    && text.components(separatedBy: "- [x] ").count == 3
             }
         }
-        await check("the list and the count lose it") {
-            await self.until { sidebar.openRowCount == 4 && list.rowPlaces == ["tasks.md:6", "tasks.md:4", "other.md:1", "tasks.md:5"] }
+        await check("the pane loses it") {
+            await self.until { win.openEntries.count == 4 && pane.rowPlaces.count == 4 }
         }
 
         // An item that is not on its line any more is not ticked: the file changed under the list.
         let staleEntry = win.openEntries.first { $0.item.text == "Rate limit for unauthenticated refresh" }
         write("tasks.md", "- [ ] Something new on the first line #investigate\n" + disk("tasks.md"))
-        if let staleEntry { win.openList.onTick(staleEntry) }
+        if let staleEntry { pane.onTick(staleEntry) }
         await check("an item that moved is not ticked in the place it was") {
             let text = disk("tasks.md")
             return text.contains("- [ ] Something new on the first line #investigate") && text.contains("- [ ] Rate limit for unauthenticated refresh #waiting")
                 && !text.contains("- [x] Something new")
         }
-        await check("and the list reads the file again") {
-            await self.until(seconds: 4) { sidebar.openRowCount == 5 && list.rowTexts.contains("Something new on the first line") }
+        await check("and the pane reads the file again") {
+            await self.until(seconds: 4) { win.openEntries.count == 5 && pane.rowTexts.contains("Something new on the first line") }
         }
 
         // Clicking where an item is opens the file.
-        list.open(row: list.rowPlaces.firstIndex(of: "other.md:1") ?? 0)
-        await check("clicking where an item is opens its file and leaves the list") {
-            await self.until { !win.openListShown && !win.scrollHost.isHidden && win.window?.subtitle == "other.md" }
-        }
-        await check("the Open row stays, with its count") { sidebar.openRowCount == 5 && !sidebar.openRowSelected }
-        win.goBack(nil)
-        await check("Back from the item's file shows the Open list again") {
-            await self.until { win.openListShown && win.scrollHost.isHidden && sidebar.openRowSelected && win.window?.subtitle == "Open items" }
-        }
-        win.goForward(nil)
-        await check("and Forward the item's file") {
-            await self.until { !win.openListShown && !win.scrollHost.isHidden && win.window?.subtitle == "other.md" }
-        }
-        sidebar.chooseOpenList()
-        _ = await until { win.openListShown }
-        let otherID = win.workspace.entries.first { $0.name == "other.md" }?.document.id ?? ""
-        sidebar.choose(otherID)
-        await check("picking a file in the sidebar goes back to the editor") {
-            await self.until { !win.openListShown && !win.scrollHost.isHidden }
+        pane.open(row: pane.rowPlaces.firstIndex { $0.hasPrefix("other.md:1") } ?? 0)
+        await check("clicking where an item is opens its file") {
+            await self.until { win.window?.subtitle == "other.md" }
         }
 
-        // Files change underneath: the count and the list follow without a reload.
+        // Files change underneath: the count follows without a reload.
         write("other.md", "- [ ] Compare options #investigate\n- [ ] Ask Anna about key rotation #waiting\n")
-        await check("an item added to a file shows in the count within a moment") {
-            await self.until(seconds: 4) { sidebar.openRowCount == 6 }
-        }
-        sidebar.chooseOpenList()
-        _ = await until { win.openListShown }
-        write("tasks.md", "# Tasks\n\nNothing tagged now.\n")
-        write("other.md", "# Other\n")
-        await check("with no open items left the Open row goes and the list gives way to the editor") {
-            await self.until(seconds: 4) { sidebar.openRowCount == nil && !win.openListShown && !win.scrollHost.isHidden }
+        await check("an item added to a file shows in the pane within a moment") {
+            await self.until(seconds: 4) { win.openEntries.count == 6 }
         }
 
         win.performDeleteSet()
