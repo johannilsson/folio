@@ -545,6 +545,10 @@ fn strip_markdown_impl(doc: &str, at_block_start: bool) -> (String, Vec<usize>, 
                     // find matching closing fence
                     'fence: while j < n {
                         j += 1; // step past '\n'
+                        // The closing fence may be indented, as the opening one may (a block in a list item).
+                        while j < n && matches!(chars[j].1, ' ' | '\t') {
+                            j += 1;
+                        }
                         let mut close_len = 0usize;
                         while j < n && chars[j].1 == fence_char {
                             close_len += 1;
@@ -1532,6 +1536,15 @@ mod tests {
         // Text before and after the block is preserved.
         let (s, _, _) = strip_markdown("Before.\n\n```\ncode\n```\n\nAfter.");
         assert_eq!(s, "Before.After.");
+    }
+
+    #[test]
+    fn an_indented_fenced_block_closes_at_its_indented_fence() {
+        // A block in a list item: its fences are indented, and the text after it is still text.
+        let doc = "- Step:\n\n  ```sh\n  make\n  ```\n\nAfter the step.";
+        let (s, _, _) = strip_markdown(doc);
+        assert_eq!(s, "Step:After the step.");
+        assert!(anchor_chars(doc, "Step:", Some("After the step.")).is_some());
     }
 
     #[test]
