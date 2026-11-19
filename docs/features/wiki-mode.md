@@ -172,7 +172,8 @@ every wiki page about it, and from a wiki page to the document, without an annot
   - [ ] Key rotation: asked in review #replied https://github.com/…/pull/42#issuecomment-981
     - Sam: the family is revoked by the gateway since v3 (https://github.com/…#issuecomment-990)
   ```
-  Other task items are not collected; ticked ones (`- [x]`) are done and not shown.
+  A numbered task item (`1. [ ]`, `1) [ ]`) is one too, as are `*` and `+` ones. Other task items are
+  not collected; ticked ones (`- [x]`) are done and not shown.
 - **Open** is a row above the files in the sidebar, with the count, while the set has any open items.
   Choosing it shows the list in place of the editor (the subtitle says "Open items"); choosing a
   file goes back. The list is grouped by tag (Replied, Waiting, Investigate) or by file. Each row
