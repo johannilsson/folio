@@ -144,11 +144,18 @@ pub fn tick(markdown: &str, line: usize) -> Option<String> {
     done.then_some(out)
 }
 
-/// `- [ ] text` (or `*`, `+`): the width of the indent, and the text after the box.
+/// `- [ ] text` (or `*`, `+`, or a number: `1.`, `1)`): the width of the indent, and the text after the box.
 fn unticked(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
-    let rest = trimmed.strip_prefix(['-', '*', '+'])?.strip_prefix(' ')?.trim_start();
+    let digits = trimmed.len() - trimmed.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let marker = match digits {
+        0 => trimmed.strip_prefix(['-', '*', '+']),
+        // An ordered list item has at most nine digits, as in CommonMark.
+        1..=9 => trimmed[digits..].strip_prefix(['.', ')']),
+        _ => None,
+    };
+    let rest = marker?.strip_prefix(' ')?.trim_start();
     let rest = rest.strip_prefix("[ ]")?;
     // The box is followed by a space, or it is not a task item.
     (rest.is_empty() || rest.starts_with(' ')).then(|| (indent, rest.trim_start()))
@@ -556,6 +563,16 @@ mod tests {
     fn other_list_markers_and_indents_work() {
         let items = open_items("* [ ] star #waiting\n+ [ ] plus #waiting\n    - [ ] deep #investigate\n");
         assert_eq!(items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["star", "plus", "deep"]);
+    }
+
+    #[test]
+    fn numbered_task_items_are_open_items_and_can_be_ticked() {
+        let doc = "1. [ ] first #waiting\n2) [ ] second #investigate\n  10. [ ] nested #replied\n";
+        let items = open_items(doc);
+        assert_eq!(items.iter().map(|i| (i.line, i.text.as_str())).collect::<Vec<_>>(), [(1, "first"), (2, "second"), (3, "nested")]);
+        assert_eq!(tick(doc, 2).unwrap(), "1. [ ] first #waiting\n2) [x] second #investigate\n  10. [ ] nested #replied\n");
+        // Not list items: no marker after the number, no space after it, or too many digits.
+        assert!(open_items("1 [ ] a #waiting\n1.[ ] b #waiting\n1234567890. [ ] c #waiting\n").is_empty());
     }
 
     #[test]
