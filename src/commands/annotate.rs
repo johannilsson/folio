@@ -80,9 +80,12 @@ pub(crate) fn validate_fields(
     replacement: Option<&str>,
     comment: Option<&str>,
 ) -> anyhow::Result<()> {
+    // Empty is as good as missing: an empty target marks nothing, so a delete or highlight of it does
+    // nothing. A replace's replacement may be empty: replacing with nothing is a deletion.
+    let given = |value: Option<&str>| value.is_some_and(|v| !v.is_empty());
     match kind {
         AnnotationKind::Replace => {
-            if target.is_none() {
+            if !given(target) {
                 anyhow::bail!("--target is required for kind 'replace'");
             }
             if replacement.is_none() {
@@ -90,22 +93,22 @@ pub(crate) fn validate_fields(
             }
         }
         AnnotationKind::Delete => {
-            if target.is_none() {
+            if !given(target) {
                 anyhow::bail!("--target is required for kind 'delete'");
             }
         }
         AnnotationKind::Insert => {
-            if replacement.is_none() {
+            if !given(replacement) {
                 anyhow::bail!("--replacement is required for kind 'insert'");
             }
         }
         AnnotationKind::Comment => {
-            if comment.is_none() {
+            if !given(comment) {
                 anyhow::bail!("--comment is required for kind 'comment'");
             }
         }
         AnnotationKind::Highlight => {
-            if target.is_none() {
+            if !given(target) {
                 anyhow::bail!("--target is required for kind 'highlight'");
             }
         }
@@ -156,6 +159,18 @@ mod tests {
         assert!(validate_fields(&Comment, None, None, Some("c")).is_ok());
         assert!(validate_fields(&Highlight, None, None, None).is_err());
         assert!(validate_fields(&Highlight, Some("t"), None, None).is_ok());
+    }
+
+    #[test]
+    fn an_empty_required_field_counts_as_missing() {
+        use AnnotationKind::*;
+        assert!(validate_fields(&Delete, Some(""), None, None).is_err());
+        assert!(validate_fields(&Highlight, Some(""), None, None).is_err());
+        assert!(validate_fields(&Replace, Some(""), Some("r"), None).is_err());
+        assert!(validate_fields(&Insert, None, Some(""), None).is_err());
+        assert!(validate_fields(&Comment, None, None, Some("")).is_err());
+        // Replacing with nothing is a deletion, and stays allowed.
+        assert!(validate_fields(&Replace, Some("t"), Some(""), None).is_ok());
     }
 
     #[test]
