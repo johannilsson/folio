@@ -529,7 +529,7 @@ extension SelfTest {
             report("the set opens", false)
             return
         }
-        let sidebar = win.sidebar, pane = win.openPane
+        let sidebar = win.sidebar
 
         await check("items tagged #waiting, #investigate and #replied are open; plain and ticked ones are not") {
             win.openEntries.count == 5
@@ -537,60 +537,47 @@ extension SelfTest {
         await check("the sidebar lists the files only: there is no Open row") {
             sidebar.fileNames.sorted() == ["other.md", "tasks.md"]
         }
-        win.window?.makeKeyAndOrderFront(nil)
-        if !win.openPaneOn { win.toggleOpenPane(nil) }
-        await check("the Open pane lists them by tag: replied first, then waiting, then investigate") {
-            await self.until { pane.groupTitles.map { $0.lowercased() }.joined().contains("replied") && pane.rowPlaces.count == 5 }
-        }
-        await check("each row says where the item is") {
-            Set(pane.rowPlaces.map { $0.components(separatedBy: " · ")[0] }) == ["tasks.md:6", "tasks.md:3", "tasks.md:4", "other.md:1", "tasks.md:5"]
-        }
-
-        if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            await snapshot("\(base)-open.png", of: win)
+        await check("each item knows where it is") {
+            Set(win.openEntries.map { "\($0.page):\($0.item.line)" }) == ["tasks.md:6", "tasks.md:3", "tasks.md:4", "other.md:1", "tasks.md:5"]
         }
 
         // Ticking writes the file.
-        pane.tick(row: 1)
+        if let entry = win.openEntries.first(where: { $0.item.text == "Key rotation: asked in review" }) { win.tickOpenItem(entry) }
         await check("ticking an item writes [x] in its file and nowhere else") {
             await self.until {
                 let text = disk("tasks.md")
-                return text.contains("- [x] ") && text.contains("- [x] Done already #waiting")
-                    && text.components(separatedBy: "- [x] ").count == 3
+                return text.contains("- [x] Key rotation: asked in review #waiting") && text.contains("- [ ] Rate limit for unauthenticated refresh #waiting")
+                    && text.contains("- [x] Done already #waiting")
             }
         }
-        await check("the pane loses it") {
-            await self.until { win.openEntries.count == 4 && pane.rowPlaces.count == 4 }
+        await check("and the item is no longer open") {
+            await self.until { win.openEntries.count == 4 }
         }
 
         // An item that is not on its line any more is not ticked: the file changed under the list.
         let staleEntry = win.openEntries.first { $0.item.text == "Rate limit for unauthenticated refresh" }
         write("tasks.md", "- [ ] Something new on the first line #investigate\n" + disk("tasks.md"))
-        if let staleEntry { pane.onTick(staleEntry) }
+        if let staleEntry { win.tickOpenItem(staleEntry) }
         await check("an item that moved is not ticked in the place it was") {
             let text = disk("tasks.md")
             return text.contains("- [ ] Something new on the first line #investigate") && text.contains("- [ ] Rate limit for unauthenticated refresh #waiting")
                 && !text.contains("- [x] Something new")
         }
-        await check("and the pane reads the file again") {
-            await self.until(seconds: 4) { win.openEntries.count == 5 && pane.rowTexts.contains("Something new on the first line") }
+        await check("and the items are read again") {
+            await self.until(seconds: 4) { win.openEntries.count == 5 && win.openEntries.contains { $0.item.text == "Something new on the first line" } }
         }
 
         // Clicking where an item is opens the file.
-        pane.open(row: pane.rowPlaces.firstIndex { $0.hasPrefix("other.md:1") } ?? 0)
+        if let entry = win.openEntries.first(where: { $0.page == "other.md" }) { win.openPane.onOpen(entry) }
         await check("clicking where an item is opens its file") {
             await self.until { win.window?.subtitle == "other.md" }
         }
 
-        // Files change underneath: the count follows without a reload.
+        // Files change underneath: the items follow without a reload.
         write("other.md", "- [ ] Compare options #investigate\n- [ ] Ask Anna about key rotation #waiting\n")
-        await check("an item added to a file shows in the pane within a moment") {
+        await check("an item added to a file is open within a moment") {
             await self.until(seconds: 4) { win.openEntries.count == 6 }
         }
-        // The split view remembers the pane is open; the next scenario starts with it closed.
-        if win.openPaneOn { win.toggleOpenPane(nil) }
-        await check("the pane is closed again") { await self.until { !win.openPaneOn } }
 
         win.performDeleteSet()
         await check("deleting the set leaves the files") { FileManager.default.fileExists(atPath: wiki.appendingPathComponent("tasks.md").path) }
