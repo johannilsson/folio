@@ -18,7 +18,7 @@ This repository ships a Claude Code skill, [`.claude/skills/folio`](../../.claud
 - how to check its own work;
 - how to work with sets and open items.
 
-Copy it into `~/.claude/skills/` to use it in any project.
+The app offers to install it for you: the welcome window shows an Agent Skill card until it is installed, and **Folio ▸ Install Agent Skill…** installs, updates or reinstalls it at any time. It goes into the skills folder of each agent found (Claude Code, OpenCode, Codex), or the shared `~/.agents/skills`. Without the app, copy it into `~/.claude/skills/` to use it in any project.
 
 Any other agent can follow the [sidecar format](../reference/sidecar-format.md) directly, since it is plain JSON. Or connect it over [MCP](../mcp.md).
 

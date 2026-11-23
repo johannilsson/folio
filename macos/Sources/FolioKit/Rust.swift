@@ -137,6 +137,31 @@ public enum Rust {
         return (config, change)
     }
 
+    // MARK: agent skill
+
+    /// Whether the skill is installed for the agents found.
+    public static func skillStatus() throws -> SkillStatus {
+        try skill(folio_skill_status())
+    }
+
+    /// Installs or updates the skill this build ships, for the agents found.
+    public static func installSkill() throws -> SkillStatus {
+        try skill(folio_skill_install())
+    }
+
+    private static func skill(_ ptr: UnsafeMutablePointer<CChar>?) throws -> SkillStatus {
+        let out = try object(ptr)
+        guard let state = (out["state"] as? String).flatMap(SkillStatus.State.init(rawValue:)),
+              let list = out["places"] as? [[String: Any]] else {
+            throw RustError(description: "unexpected result from libfolio")
+        }
+        let places = list.compactMap { item -> SkillStatus.Place? in
+            guard let name = item["name"] as? String, let file = item["file"] as? String else { return nil }
+            return SkillStatus.Place(name: name, file: file)
+        }
+        return SkillStatus(state: state, places: places)
+    }
+
     // MARK: sets
 
     public struct SetFile {

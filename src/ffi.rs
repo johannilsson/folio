@@ -459,6 +459,35 @@ pub unsafe extern "C" fn folio_mcp_snippets(exe: *const c_char) -> *mut c_char {
     })())
 }
 
+fn skill_json(places: &[crate::skill::Place]) -> String {
+    let list: Vec<_> = places
+        .iter()
+        .map(|p| json!({ "name": p.name, "file": p.file, "state": p.state.id() }))
+        .collect();
+    json!({ "state": crate::skill::overall(places).id(), "places": list }).to_string()
+}
+
+/// Whether the Folio agent skill is installed for the agents found: `{"state": "missing" | "outdated" |
+/// "current", "places": [{"name", "file", "state"}]}`. Free with `folio_free`.
+#[no_mangle]
+pub extern "C" fn folio_skill_status() -> *mut c_char {
+    finish((|| {
+        let home = crate::skill::home().map_err(|e| e.to_string())?;
+        Ok(skill_json(&crate::skill::places(&home)))
+    })())
+}
+
+/// Installs (or updates) the skill this build ships for the agents found; same result as
+/// `folio_skill_status`, after. Free with `folio_free`.
+#[no_mangle]
+pub extern "C" fn folio_skill_install() -> *mut c_char {
+    finish((|| {
+        let home = crate::skill::home().map_err(|e| e.to_string())?;
+        let places = crate::skill::install(&home).map_err(|e| e.to_string())?;
+        Ok(skill_json(&places))
+    })())
+}
+
 /// Frees a string returned by any `folio_*` function.
 ///
 /// # Safety

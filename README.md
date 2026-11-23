@@ -33,7 +33,7 @@ Folio is a local markdown editor built for review. An agent reads a document and
 3. **Triage.** Accept or reject each suggestion, dismiss comments, and reply on any card.
 4. **Hand it back.** Your replies and decisions are in the same sidecar, so the agent can continue where you left off.
 
-This repository ships a Claude Code skill, [`.claude/skills/folio`](.claude/skills/folio/SKILL.md), that teaches an agent the whole workflow. Copy it into `~/.claude/skills/` to use it in any project. Any other agent can follow the [sidecar format](docs/reference/sidecar-format.md) directly, since it is plain JSON. More in [reviewing with an agent](docs/guides/agent-review.md).
+This repository ships a Claude Code skill, [`.claude/skills/folio`](.claude/skills/folio/SKILL.md), that teaches an agent the whole workflow. The app offers to install it (Claude Code, OpenCode, Codex): see the welcome window, or **Folio ▸ Install Agent Skill…**. Or copy it into `~/.claude/skills/` yourself. Any other agent can follow the [sidecar format](docs/reference/sidecar-format.md) directly, since it is plain JSON. More in [reviewing with an agent](docs/guides/agent-review.md).
 
 ## How it works
 

@@ -10,6 +10,13 @@ extension SelfTest {
         dirs.append(config)
         setenv("FOLIO_CONFIG_DIR", config.path, 1)
         defer { unsetenv("FOLIO_CONFIG_DIR") }
+        // The agent skill goes into a home of its own, with Claude Code "installed" in it.
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("folio-selftest-home-\(UUID().uuidString)").resolvingSymlinksInPath()
+        dirs.append(home)
+        try? FileManager.default.createDirectory(at: home.appendingPathComponent(".claude"), withIntermediateDirectories: true)
+        setenv("FOLIO_SKILL_HOME", home.path, 1)
+        defer { unsetenv("FOLIO_SKILL_HOME") }
 
         guard let member = try? tempCopy(named: "member.md"), let kept = try? tempCopy(named: "kept.md"),
               let dropped = try? tempCopy(named: "dropped.md"), (try? Rust.setAdd("welcome-demo", files: [member])) != nil else {
@@ -49,10 +56,35 @@ extension SelfTest {
             return button("welcome-open", in: content) != nil && button("welcome-new-set", in: content) != nil
                 && content.registeredDraggedTypes.contains(.fileURL)
         }
+        let installed = home.appendingPathComponent(".claude/skills/folio/SKILL.md")
+        await check("it offers the agent skill for the agents found, with Install and the Recommended badge") {
+            guard let content = window.contentView, let card = self.button("welcome-skill-card", in: content),
+                  let pill = self.button("welcome-skill-install", in: content) as? NSButton else { return false }
+            return !card.isHidden && pill.title == "Install" && pill.isEnabled && welcome.skill?.badge == "Recommended"
+                && welcome.skill?.agents == "Claude Code" && !FileManager.default.fileExists(atPath: installed.path)
+        }
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] {
             window.makeKeyAndOrderFront(nil)
             try? await Task.sleep(nanoseconds: 700_000_000)
             WindowPicture.write(window, to: "\(base)-welcome.png")
+        }
+        app.installSkill(welcome)
+        await check("Install writes the skill into Claude Code's folder, and the card then reads Installed") {
+            guard let content = window.contentView, let pill = self.button("welcome-skill-install", in: content) as? NSButton else { return false }
+            return pill.title == "Installed" && !pill.isEnabled && welcome.skill?.state == .current
+                && (try? String(contentsOf: installed, encoding: .utf8))?.hasPrefix("---\nname: folio") == true
+        }
+        try? "an older skill".write(to: installed, atomically: true, encoding: .utf8)
+        app.showWelcome(nil)
+        await check("an older copy brings the card back as an Update") {
+            guard let content = window.contentView, let pill = self.button("welcome-skill-install", in: content) as? NSButton else { return false }
+            return pill.title == "Update" && welcome.skill?.badge == "Update available"
+        }
+        app.installSkill(welcome)
+        app.showWelcome(nil)
+        await check("once current, the card is put away when the window is next shown") {
+            guard let content = window.contentView, let card = self.button("welcome-skill-card", in: content) else { return false }
+            return card.isHidden
         }
 
         welcome.removeFromRecents(member)

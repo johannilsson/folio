@@ -226,6 +226,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: agent skill
+
+    /// Folio ▸ Install Agent Skill… and the welcome card's pill: puts the skill this version ships into the
+    /// skills folder of each agent found, then says where. The card stays, reading Installed, until the window is next shown.
+    @MainActor @objc func installSkill(_ sender: Any?) {
+        do {
+            let status = try Rust.installSkill()
+            welcome.showSkill(status, keep: true)
+            if sender is NSMenuItem {
+                let alert = NSAlert()
+                alert.messageText = "Agent skill installed"
+                alert.informativeText = "Folio's skill is in place for \(status.agents):\n"
+                    + status.places.map { ($0.file as NSString).abbreviatingWithTildeInPath }.joined(separator: "\n")
+                    + "\n\nStart a new session in the agent to pick it up."
+                alert.runModal()
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Folio could not install the skill"
+            alert.informativeText = (error as? RustError)?.description ?? error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     // MARK: self-test
 
     private func runSelfTest() {
@@ -264,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         responder?.tryToPerform(Selector(("redo:")), with: sender)
     }
 
-    /// Undo and Redo are greyed out when there is nothing to undo; Allow MCP Clients is ticked while it is on.
+    /// Undo and Redo are greyed out when there is nothing to undo; Allow MCP Clients is ticked while it is on; Install Agent Skill reads Install, Update or Reinstall.
     @MainActor func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let responder = frontWindow?.firstResponder
         switch item.action {
@@ -274,6 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return frontEditor?.annotations.canRedo(from: responder) ?? responder?.undoManager?.canRedo ?? false
         case #selector(toggleMCP(_:)):
             item.state = Rust.mcpAllowed ? .on : .off
+            return true
+        case #selector(installSkill(_:)):
+            if let status = try? Rust.skillStatus() { item.title = status.menuTitle }
             return true
         default: return true
         }
@@ -346,6 +374,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.addItem(.separator())
             m.addItem(withTitle: "Allow MCP Clients", action: #selector(toggleMCP(_:)), keyEquivalent: "").target = self
             m.addItem(withTitle: "Connect to MCP Clients…", action: #selector(connectTools(_:)), keyEquivalent: "").target = self
+            m.addItem(withTitle: "Install Agent Skill…", action: #selector(installSkill(_:)), keyEquivalent: "").target = self
             m.addItem(.separator())
             m.addItem(withTitle: "Hide Folio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
             let others = m.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
