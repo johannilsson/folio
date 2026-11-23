@@ -31,7 +31,16 @@ cargo test                                               # Rust unit tests (anch
 swift test --package-path macos                          # FolioKit's unit tests, no desktop session needed
 macos/.build/debug/Folio --self-test macos/selftest.md   # the real app against throwaway copies and the real CLI; needs a desktop session
 ./scripts/verify.sh                                      # everything; --skip-macos leaves the app out
+./scripts/verify.sh --changed                            # only what the files changed since origin/main can affect
+macos/.build/debug/Folio --self-test --only wiki,sets macos/selftest.md   # only some areas of the self-test
 ```
+
+### Running less
+
+- **`--only <areas>`** runs the checks that open the first window, then only the named areas of the self-test: `preview`, `source`, `scrolling`, `annotations`, `inline`, `windows`, `sets`, `wiki`, `items`, `welcome`. Without it every area runs. An unknown name exits with the list.
+- **`verify.sh --changed [<base>]`** looks at `git diff` against `<base>` (default `origin/main`) and picks the steps, and the self-test areas. The map is the `case` in the script: docs only runs just the token check, `src/` runs the Rust steps and the areas that use the engine, FolioKit only runs the unit tests, a `SelfTest+<area>.swift` or `Preview/` file runs its area. Any file the map does not name, and a base it cannot find, run everything.
+- **CI** uses `--changed` for a pull request, and everything on `main` and for a pull request with the `pictures` label. What a narrowed run misses (a change in one area breaking a check of another) is caught on `main`.
+- The first window's areas run in order on one document. If an area fails alone and passes in the full run, it relies on one before it: run both.
 
 Which kind of test a rule gets depends on its layer ([where Swift code goes](architecture/app-layers.md), rule 8):
 

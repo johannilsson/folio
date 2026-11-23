@@ -15,6 +15,8 @@ enum AppConfig {
             .appendingPathComponent("frontend/dist")
     }()
     static var selfTest = false
+    /// `--only <areas>` with `--self-test`: the comma-separated `SelfTest.Area` names to run. Nil runs all.
+    static var selfTestOnly: String?
     /// How PlantUML diagrams are drawn is the reader's choice; nothing is bundled. The `PlantUMLCommand`
     /// default (`defaults write dev.folio.Folio PlantUMLCommand plantuml`, or `-PlantUMLCommand …`) is a
     /// command that reads the diagram on stdin and writes a PNG, run as `<command> -pipe -tpng`; it wins

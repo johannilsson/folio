@@ -4,7 +4,7 @@ import FolioKit
 // Folio --mcp: the MCP server Claude desktop starts (src/mcp.rs). No windows, and nothing on stdout but the protocol.
 if CommandLine.arguments.dropFirst().first == "--mcp" { exit(Rust.mcpServe()) }
 
-// Folio [--dist <dir>] [--self-test] [--set <name> [--screenshot <png> [--appearance light|dark]]] [file.md ...]
+// Folio [--dist <dir>] [--self-test [--only <areas>]] [--set <name> [--screenshot <png> [--appearance light|dark]]] [file.md ...]
 // Finder and `open -a Folio file.md` open files through AppKit; naming them here is
 // for running from a terminal.
 var args = Array(CommandLine.arguments.dropFirst())
@@ -15,6 +15,7 @@ while !args.isEmpty {
     switch arg {
     case "--dist": AppConfig.dist = URL(fileURLWithPath: args.removeFirst())
     case "--self-test": AppConfig.selfTest = true
+    case "--only": AppConfig.selfTestOnly = args.removeFirst()
     case "--set": AppConfig.openSet = args.removeFirst()
     case "--screenshot": AppConfig.screenshot = args.removeFirst()
     case "--appearance": AppConfig.appearance = args.removeFirst()
@@ -25,8 +26,17 @@ while !args.isEmpty {
 }
 
 if AppConfig.selfTest && files.count != 1 {
-    FileHandle.standardError.write(Data("usage: Folio --self-test <file.md>\n".utf8))
+    FileHandle.standardError.write(Data("usage: Folio --self-test [--only <areas>] <file.md>\n".utf8))
     exit(64)
+}
+if let only = AppConfig.selfTestOnly {
+    let names = only.split(separator: ",").map(String.init)
+    let unknown = names.filter { SelfTest.Area(rawValue: $0) == nil }
+    if !unknown.isEmpty {
+        let known = SelfTest.Area.allCases.map(\.rawValue).joined(separator: ", ")
+        FileHandle.standardError.write(Data("unknown area \(unknown.joined(separator: ", ")); areas: \(known)\n".utf8))
+        exit(64)
+    }
 }
 
 let app = NSApplication.shared

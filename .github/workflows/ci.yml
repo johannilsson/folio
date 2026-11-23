@@ -21,6 +21,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # --changed in a pull request compares with the base branch.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
         with:
@@ -45,10 +48,17 @@ jobs:
         working-directory: frontend
         run: pnpm dedupe --check
 
-      # Frontend build, cargo build/test; the macOS app steps only run on macOS.
+      # Frontend build, cargo build/test; the macOS app steps only run on macOS. A pull request runs only
+      # what its files can affect (--changed); main, and a pull request with the `pictures` label (which
+      # needs the whole app built), run everything.
       - name: Verify
         shell: bash
-        run: ./scripts/verify.sh
+        env:
+          NARROW: >-
+            ${{ github.event_name == 'pull_request'
+            && !contains(github.event.pull_request.labels.*.name, 'pictures')
+            && format('--changed origin/{0}', github.base_ref) || '' }}
+        run: ./scripts/verify.sh $NARROW
 
       # The pictures are only taken for a pull request with the `pictures` label, for changes that
       # touch what the app looks like. The tour only runs with FOLIO_SNAPSHOT set, as it does locally,

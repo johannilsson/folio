@@ -10,14 +10,26 @@ final class SelfTest {
     let source: URL
     var failures = 0
     var dirs: [URL] = []
+    /// The areas to run (`--only preview,wiki`); nil runs them all. See `Area`.
+    let only: Set<Area>?
 
     // Set once the first document is open.
     var controller: FolioWindowController!
 
-    init(app: AppDelegate, source: URL) {
+    init(app: AppDelegate, source: URL, only: Set<Area>? = nil) {
         self.app = app
         self.source = source
+        self.only = only
     }
+
+    /// A group of checks that can be run on its own. The first window's areas run in this order on one
+    /// document, so an area may rely on what the ones before it left behind; if a narrowed run fails where
+    /// the full one passes, run the area before it as well.
+    enum Area: String, CaseIterable {
+        case preview, source, scrolling, annotations, inline, windows, sets, wiki, items, welcome
+    }
+
+    private func runs(_ area: Area) -> Bool { only?.contains(area) ?? true }
 
     var file: URL { controller.files.file }
     var dir: URL { file.deletingLastPathComponent() }
@@ -67,44 +79,54 @@ final class SelfTest {
             return ids.last == "find" && folded
         }
 
-        await previewChecks()
-        await sourceEditingChecks()
-        await wideTableChecks()
-        await anchoringChecks()
-        await storeChecks()
-        await nativeAnnotationChecks()
-        await sourceAnnotationChecks()
-        await inlineChecks()
-        await undoAcrossModesChecks()
+        if runs(.preview) { await previewChecks() }
+        if runs(.source) { await sourceEditingChecks() }
+        if runs(.scrolling) {
+            await wideTableChecks()
+            await anchoringChecks()
+        }
+        if runs(.annotations) {
+            await storeChecks()
+            await nativeAnnotationChecks()
+            await sourceAnnotationChecks()
+        }
+        if runs(.inline) { await inlineChecks() }
+        if runs(.annotations) { await undoAcrossModesChecks() }
 
         // For a human to look at: FOLIO_SNAPSHOT=/path/to/base saves base-*.png pictures.
         if let base = ProcessInfo.processInfo.environment["FOLIO_SNAPSHOT"] { await tour(base) }
 
         // A second window shows its own file.
-        guard let secondCopy = try? tempCopy(), let second = await app.openForSelfTest(secondCopy) else {
-            report("a second document opens", false)
-            return finish()
+        if runs(.windows) {
+            guard let secondCopy = try? tempCopy(), let second = await app.openForSelfTest(secondCopy) else {
+                report("a second document opens", false)
+                return finish()
+            }
+            await check("a second window opens with its own document") {
+                let windows = NSApp.windows.compactMap { $0.windowController as? FolioWindowController }
+                return windows.count == 2 && second.files.file == secondCopy
+            }
+            await check("the second window shows its own file") {
+                await self.until { second.scrollHost.preview.textView.string.contains("The last paragraph.") }
+                    && second.window?.title == secondCopy.lastPathComponent
+            }
+            await check("the first window kept its document") { self.controller.files.file == copy }
         }
-        await check("a second window opens with its own document") {
-            let windows = NSApp.windows.compactMap { $0.windowController as? FolioWindowController }
-            return windows.count == 2 && second.files.file == secondCopy
-        }
-        await check("the second window shows its own file") {
-            await self.until { second.scrollHost.preview.textView.string.contains("The last paragraph.") }
-                && second.window?.title == secondCopy.lastPathComponent
-        }
-        await check("the first window kept its document") { self.controller.files.file == copy }
 
-        await setScenario()
-        await wikiScenario()
-        await documentLinkScenario()
-        await worktreeScenario()
-        await backlinkScenario()
-        await openItemsScenario()
-        await cardItemsScenario()
+        if runs(.sets) { await setScenario() }
+        if runs(.wiki) {
+            await wikiScenario()
+            await documentLinkScenario()
+            await worktreeScenario()
+            await backlinkScenario()
+        }
+        if runs(.items) {
+            await openItemsScenario()
+            await cardItemsScenario()
+        }
 
         // Last, since it closes every window.
-        await welcomeChecks()
+        if runs(.welcome) { await welcomeChecks() }
         return finish()
     }
 

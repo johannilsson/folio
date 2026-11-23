@@ -230,7 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func runSelfTest() {
         Task { @MainActor in
-            let ok = await SelfTest(app: self, source: initialFiles[0]).run()
+            let only = AppConfig.selfTestOnly.map { Set($0.split(separator: ",").compactMap { SelfTest.Area(rawValue: String($0)) }) }
+            let ok = await SelfTest(app: self, source: initialFiles[0], only: only).run()
             exit(ok ? 0 : 1)
         }
     }
