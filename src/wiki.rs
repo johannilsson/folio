@@ -80,13 +80,9 @@ pub fn open_items(markdown: &str) -> Vec<OpenItem> {
 pub fn open_items_with(markdown: &str, names: &[String]) -> Vec<OpenItem> {
     let lines: Vec<&str> = markdown.lines().collect();
     let mut items = Vec::new();
-    let mut fenced = false;
+    let mut fence = None;
     for (index, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
+        if in_code(&mut fence, line) {
             continue;
         }
         let Some((indent, rest)) = unticked(line) else { continue };
@@ -101,6 +97,31 @@ pub fn open_items_with(markdown: &str, names: &[String]) -> Vec<OpenItem> {
         });
     }
     items
+}
+
+/// Whether `line` is a fence or inside a fenced block of code, given `fence`, the open fence so far
+/// (its character and length), which it updates. A fence is three or more backticks or tildes; it
+/// closes on a line of only the same character, at least as many, as the engine reads it.
+fn in_code(fence: &mut Option<(char, usize)>, line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let run = |c: char| trimmed.len() - trimmed.trim_start_matches(c).len();
+    match *fence {
+        Some((c, len)) => {
+            if run(c) >= len && trimmed.trim_start_matches(c).trim().is_empty() {
+                *fence = None;
+            }
+            true
+        }
+        None => {
+            for c in ['`', '~'] {
+                if run(c) >= 3 {
+                    *fence = Some((c, run(c)));
+                    return true;
+                }
+            }
+            false
+        }
+    }
 }
 
 /// Ticks the item on `line` (1-based): its `[ ]` becomes `[x]`. None when that line is not an unticked
@@ -123,11 +144,18 @@ pub fn tick(markdown: &str, line: usize) -> Option<String> {
     done.then_some(out)
 }
 
-/// `- [ ] text` (or `*`, `+`): the width of the indent, and the text after the box.
+/// `- [ ] text` (or `*`, `+`, or a number: `1.`, `1)`): the width of the indent, and the text after the box.
 fn unticked(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_start();
     let indent = line.len() - trimmed.len();
-    let rest = trimmed.strip_prefix(['-', '*', '+'])?.strip_prefix(' ')?.trim_start();
+    let digits = trimmed.len() - trimmed.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let marker = match digits {
+        0 => trimmed.strip_prefix(['-', '*', '+']),
+        // An ordered list item has at most nine digits, as in CommonMark.
+        1..=9 => trimmed[digits..].strip_prefix(['.', ')']),
+        _ => None,
+    };
+    let rest = marker?.strip_prefix(' ')?.trim_start();
     let rest = rest.strip_prefix("[ ]")?;
     // The box is followed by a space, or it is not a task item.
     (rest.is_empty() || rest.starts_with(' ')).then(|| (indent, rest.trim_start()))
@@ -418,13 +446,9 @@ pub struct Reference {
 pub fn references(markdown: &str) -> Vec<Reference> {
     let mut found = Vec::new();
     let mut heading: Option<String> = None;
-    let mut fenced = false;
+    let mut fence = None;
     for (index, line) in markdown.lines().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
-            continue;
-        }
-        if fenced {
+        if in_code(&mut fence, line) {
             continue;
         }
         let hashes = line.len() - line.trim_start_matches('#').len();
@@ -542,6 +566,16 @@ mod tests {
     }
 
     #[test]
+    fn numbered_task_items_are_open_items_and_can_be_ticked() {
+        let doc = "1. [ ] first #waiting\n2) [ ] second #investigate\n  10. [ ] nested #replied\n";
+        let items = open_items(doc);
+        assert_eq!(items.iter().map(|i| (i.line, i.text.as_str())).collect::<Vec<_>>(), [(1, "first"), (2, "second"), (3, "nested")]);
+        assert_eq!(tick(doc, 2).unwrap(), "1. [ ] first #waiting\n2) [x] second #investigate\n  10. [ ] nested #replied\n");
+        // Not list items: no marker after the number, no space after it, or too many digits.
+        assert!(open_items("1 [ ] a #waiting\n1.[ ] b #waiting\n1234567890. [ ] c #waiting\n").is_empty());
+    }
+
+    #[test]
     fn a_folio_link_is_the_annotation_it_is_about() {
         let link = "folio://annotation/c3d4?repo=svc&branch=main&path=docs/t.md&file=/x/docs/t.md";
         let items = open_items(&format!("- [ ] Key rotation #waiting {MR} [Priya]({link})\n"));
@@ -586,6 +620,22 @@ mod tests {
     fn code_blocks_have_no_items() {
         assert!(open_items("```\n- [ ] in code #waiting\n```\n").is_empty());
         assert_eq!(open_items("```\nx\n```\n- [ ] after #waiting\n").len(), 1);
+    }
+
+    #[test]
+    fn tilde_fences_and_longer_fences_are_code_too() {
+        // A tilde fence, as the engine reads one.
+        assert!(open_items("~~~\n- [ ] in code #waiting\n~~~\n").is_empty());
+        // A four-backtick block that shows a three-backtick one stays open until its own fence.
+        let doc = "````md\n```\n- [ ] in code #waiting\n```\n````\n- [ ] after #waiting\n";
+        let items = open_items(doc);
+        assert_eq!(items.iter().map(|i| i.line).collect::<Vec<_>>(), [6]);
+        // A backtick line does not close a tilde block, and an info string does not close one.
+        assert!(open_items("~~~\n```\n- [ ] a #waiting\n~~~\n").is_empty());
+        assert!(open_items("```\n```js\n- [ ] a #waiting\n```\n").is_empty());
+        // Links in such a block are not references either.
+        let refs = references("~~~\nfolio://document?path=t.md\n~~~\n[spec](folio://document?path=t.md)\n");
+        assert_eq!(refs.iter().map(|r| r.line).collect::<Vec<_>>(), [4]);
     }
 
     #[test]

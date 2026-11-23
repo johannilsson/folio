@@ -11,7 +11,8 @@ pub struct Found {
     pub item: OpenItem,
 }
 
-/// The files to read: those named, and every markdown file of the set (its folders as they are on disk).
+/// The files to read: those named, and every markdown file of the set (its folders as they are on disk),
+/// each once: a file of the set can also be in one of its folders, and folders can nest.
 fn files(files: &[PathBuf], set_name: Option<&str>) -> anyhow::Result<Vec<PathBuf>> {
     let mut all: Vec<PathBuf> = files.to_vec();
     if let Some(name) = set_name {
@@ -21,6 +22,8 @@ fn files(files: &[PathBuf], set_name: Option<&str>) -> anyhow::Result<Vec<PathBu
             all.extend(set::folder_files(folder).into_iter().map(|f| f.path));
         }
     }
+    let mut seen = std::collections::HashSet::new();
+    all.retain(|file| seen.insert(dunce::canonicalize(file).unwrap_or_else(|_| file.clone())));
     Ok(all)
 }
 
@@ -83,6 +86,14 @@ mod tests {
         assert_eq!(files(&[tmp.join("other.md")], None).unwrap().len(), 1);
         assert!(files(&[], Some("nope")).is_err());
         assert!(run(&[tmp.join("missing.md")], None, None, true).is_err());
+
+        // A file of the set that is also in one of its folders, a nested folder, and a file named
+        // as well: each is read once, so its items are listed once.
+        set::add_files("s", &[tmp.join("wiki/index.md")], None).unwrap();
+        set::add_folders("s", &[tmp.join("wiki/research")]).unwrap();
+        assert_eq!(files(&[tmp.join("spec.md")], Some("s")).unwrap().len(), 3);
+        let tags: Vec<_> = find(&[], Some("s"), None).unwrap().into_iter().map(|f| f.item.tag).collect();
+        assert_eq!(tags, ["waiting", "investigate", "replied"]);
         std::env::remove_var("FOLIO_CONFIG_DIR");
         std::fs::remove_dir_all(&tmp).ok();
     }

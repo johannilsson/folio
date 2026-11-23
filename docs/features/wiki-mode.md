@@ -171,7 +171,8 @@ every wiki page about it, and from a wiki page to the document, without an annot
   - [ ] Key rotation: asked in review #replied https://github.com/…/pull/42#issuecomment-981
     - Sam: the family is revoked by the gateway since v3 (https://github.com/…#issuecomment-990)
   ```
-  Other task items are not collected; ticked ones (`- [x]`) are done and not shown.
+  A numbered task item (`1. [ ]`, `1) [ ]`) is one too, as are `*` and `+` ones. Other task items are
+  not collected; ticked ones (`- [x]`) are done and not shown.
 - The sidebar lists files only: there is no Open row. The items are in the Open pane.
 - **The Open pane** (mockup board 5) lists the items in the window's inspector, at the right beside the
   editor and its comments pane, so both can be open at once. As in Xcode, the toolbar is divided over it:
@@ -181,8 +182,7 @@ every wiki page about it, and from a wiki page to the document, without an annot
   Xcode's navigators, with the count beside it ("1 of 4"): the items whose Folio link points at the file
   on screen. The bar is the Open tab's; References has no filter. A purple
   dot marks an item about an annotation of that file. A row is compact: the box, the words, then the file
-  and line and the short address; clicking it opens the file with the item's words selected. The list in
-  place of the editor stays for grouping by file, the answers' lines and following the addresses.
+  and line and the short address; clicking it opens the file with the item's words selected.
 - Ticking an item reads its file again, checks the item is still on that line, and writes `[x]`
   through libfolio (the disk is the truth: an item that moved is not ticked, the list reads the
   file again instead). The count and the list follow the files without a reload.
@@ -277,7 +277,8 @@ Follows [where Swift code goes](../architecture/app-layers.md). The engine (`sid
      (`FolioLink.targetFound`, asked by `AppServer.deadReason`; `AppServer.refreshLinks` when a file or
      sidecar changes). Self-test in `backlinkScenario`.
 4. Backlinks on cards: `WikiReferences` (the `folio://` links in a page, with the heading or line
-   they are under and their words) and `FolioLink.points(to:)` in FolioKit; the set window reads
+   they are under and their words, found by `wiki::references` through `folio_references`, so a link
+   in a fenced block counts for neither the app nor `folio refs`) and `FolioLink.points(to:)` in FolioKit; the set window reads
    each page (again when it changes), works out which annotations of the file on screen each link
    is to (`SetWindowController.computeBacklinks`), and the card draws the count or the list
    (`AnnotationCardView.references`). Self-test: `backlinkScenario`.
