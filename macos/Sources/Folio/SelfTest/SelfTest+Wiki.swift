@@ -588,6 +588,9 @@ extension SelfTest {
         await check("an item added to a file shows in the pane within a moment") {
             await self.until(seconds: 4) { win.openEntries.count == 6 }
         }
+        // The split view remembers the pane is open; the next scenario starts with it closed.
+        if win.openPaneOn { win.toggleOpenPane(nil) }
+        await check("the pane is closed again") { await self.until { !win.openPaneOn } }
 
         win.performDeleteSet()
         await check("deleting the set leaves the files") { FileManager.default.fileExists(atPath: wiki.appendingPathComponent("tasks.md").path) }
