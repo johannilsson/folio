@@ -11,9 +11,6 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
 
     private var sidebarSplitItem: NSSplitViewItem?
 
-    /// The open items of the set, in place of the editor while the Open row is chosen.
-    let openList = OpenListView()
-    private(set) var openListShown = false
     /// The open items of each file, by file id; a file is read again when it changes.
     private var pageItems: [String: [OpenItem]] = [:]
     /// The tags `pageItems` were read with: a set that gains or loses one is read again.
@@ -40,10 +37,9 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     /// The files of the set's folders when last looked, by id, to tell what came and went.
     private var folderNames: [String: String] = [:]
 
-    /// What the window can show in place: a file of the set, or the Open list.
+    /// What the window can show in place: a file of the set.
     enum Place: Equatable {
         case file(String)
-        case openList
     }
     /// Where the window has been, for Go ▸ Back and Forward and the toolbar's arrows.
     private(set) var history = NavigationHistory<Place>()
@@ -110,15 +106,6 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             scrollHost.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
             scrollHost.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
         ])
-        openList.translatesAutoresizingMaskIntoConstraints = false
-        openList.isHidden = true
-        contentRoot.addSubview(openList)
-        NSLayoutConstraint.activate([
-            openList.topAnchor.constraint(equalTo: contentRoot.topAnchor),
-            openList.bottomAnchor.constraint(equalTo: contentRoot.bottomAnchor),
-            openList.leadingAnchor.constraint(equalTo: contentRoot.leadingAnchor),
-            openList.trailingAnchor.constraint(equalTo: contentRoot.trailingAnchor),
-        ])
         content.view = contentRoot
         let split = NSSplitViewController()
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -161,10 +148,6 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         sidebar.onAdd = { [weak self] in self?.addFilesToSet(nil) }
         sidebar.onRemove = { [weak self] id in self?.remove(id) }
         sidebar.onMoveGroup = { [weak self] group, to in self?.moveGroup(group, to: to) }
-        sidebar.onOpenList = { [weak self] in self?.showOpenList() }
-        openList.onTick = { [weak self] entry in self?.tickOpenItem(entry) }
-        openList.onOpen = { [weak self] entry in self?.openItem(entry) }
-        openList.onLink = { [weak self] url in self?.follow(openListLink: url) }
         openPane.onTick = { [weak self] entry in self?.tickOpenItem(entry) }
         openPane.onOpen = { [weak self] entry in self?.openItem(entry) }
         openPane.onScope = { [weak self] scope in self?.setOpenScope(scope) }
@@ -231,7 +214,6 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             history.visit(.file(id))
             syncHistoryButtons()
         }
-        hideOpenList()
         guard id != currentID, let entry = workspace.entries.first(where: { $0.document.id == id }) else {
             completion?()
             return
@@ -291,7 +273,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
 
     // MARK: back and forward
 
-    /// Go ▸ Back (⌘[) and the toolbar's arrow: the file or the Open list shown before.
+    /// Go ▸ Back (⌘[) and the toolbar's arrow: the file shown before.
     @objc func goBack(_ sender: Any?) {
         guard let place = history.goBack() else { return }
         show(place)
@@ -306,20 +288,15 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
     private func show(_ place: Place) {
         switch place {
         case .file(let id): openFile(id, recording: false)
-        case .openList:
-            showOpenList(recording: false)
-            // Emptied since: the file stays, and is where the window is.
-            if !openListShown { history.visit(.file(currentID)) }
         }
         syncHistoryButtons()
     }
 
-    /// Files taken out of the set, and the Open list once it is empty, cannot be gone back to.
+    /// Files taken out of the set cannot be gone back to.
     private func pruneHistory() {
         history.remove { place in
             switch place {
             case .file(let id): return workspace.document(id: id) == nil
-            case .openList: return openEntries.isEmpty
             }
         }
         syncHistoryButtons()
@@ -330,7 +307,7 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         forwardItem.isEnabled = history.canGoForward
     }
 
-    // MARK: the Open list
+    // MARK: open items
 
     /// The open items of every file of the set, read again for a file that changed.
     func updateOpenItems() {
@@ -345,18 +322,8 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
             entries += (pageItems[id] ?? []).map { OpenEntry(pageID: id, page: entry.name, item: $0) }
         }
         openEntries = entries
-        openList.tags = workspace.tags
         openPane.tags = workspace.tags
-        openList.entries = entries
-        sidebar.openCount = entries.count
         updateOpenPane()
-        // With no items left the list cannot be gone back to; when it is on screen it gives way to the file.
-        if entries.isEmpty { pruneHistory() }
-        if openListShown, entries.isEmpty {
-            hideOpenList()
-            history.visit(.file(currentID))
-            syncHistoryButtons()
-        }
         // The cards list the items that are about their annotation.
         let onCards = computeCardItems()
         if onCards != cardItems {
@@ -436,46 +403,10 @@ final class SetWindowController: EditorWindowController, NSWindowDelegate {
         return image
     }
 
-    /// Shows the list in place of the editor. `recording`: as for `openFile`.
-    func showOpenList(recording: Bool = true) {
-        // What was typed in a file is on disk by now: read every file again.
-        pageItems = [:]
-        updateOpenItems()
-        guard !openEntries.isEmpty else { return }
-        if recording {
-            history.visit(.openList)
-            syncHistoryButtons()
-        }
-        openListShown = true
-        openList.isHidden = false
-        scrollHost.isHidden = true
-        window?.subtitle = "Open items"
-        sidebar.selectOpenList()
-    }
-
-    /// Back to the editor, on the file it was on.
-    func hideOpenList() {
-        guard openListShown else { return }
-        openListShown = false
-        openList.isHidden = true
-        scrollHost.isHidden = false
-        if let entry = workspace.entries.first(where: { $0.document.id == currentID }) { window?.subtitle = subtitle(of: entry) }
-        sidebar.select(currentID)
-    }
-
     /// Opens the file the item is in, with the start of its words selected.
     private func openItem(_ entry: OpenEntry) {
         openFile(entry.pageID) { [weak self] in
             self?.annotations.reveal(passage: String(entry.item.text.prefix(40)), before: "")
-        }
-    }
-
-    /// An address or a Folio link on a row: only web addresses and links into Folio open.
-    private func follow(openListLink url: URL) {
-        if url.scheme == "folio" {
-            follow(url)
-        } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            NSWorkspace.shared.open(url)
         }
     }
 

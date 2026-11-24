@@ -20,12 +20,6 @@ import Testing
         #expect(OpenList.byTag([]).isEmpty)
     }
 
-    @Test func byFileInTheOrderTheFilesAppear() {
-        let groups = OpenList.byFile([entry("b", "waiting", "1"), entry("a", "replied", "2"), entry("b", "investigate", "3")])
-        #expect(groups.map(\.title) == ["b.md", "a.md"])
-        #expect(groups[0].entries.map(\.item.text) == ["1", "3"])
-    }
-
     // MARK: addresses
 
     @Test func anAddressIsShortenedToWhereItIs() {
