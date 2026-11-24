@@ -55,11 +55,13 @@ pub fn compute_ops(
     Ok(ops.into_iter().map(|(_, op)| op).collect())
 }
 
-/// Apply edits in reverse order so earlier byte offsets stay valid.
+/// Apply edits in reverse order so earlier byte offsets stay valid. An insert where a
+/// replace starts goes in after the replace, so it lands before the replacement; inserts
+/// at the same place keep their order.
 pub fn apply_ops(doc: &str, mut ops: Vec<(usize, usize, String)>) -> String {
     let mut new_doc = doc.to_string();
-    ops.sort_by_key(|b| std::cmp::Reverse(b.0));
-    for (start, end, repl) in ops {
+    ops.sort_by_key(|op| (op.0, op.1));
+    for (start, end, repl) in ops.into_iter().rev() {
         new_doc.replace_range(start..end, &repl);
     }
     new_doc
@@ -151,6 +153,31 @@ mod tests {
             ann("i", AnnotationKind::Insert, "The quick", None, Some("!")),
         ]);
         assert_eq!(compute_ops(doc, &s, &[0, 1]).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_insert_where_a_replace_starts_lands_before_the_replacement() {
+        let doc = "The quick brown fox.";
+        let s = sidecar(vec![
+            ann("i", AnnotationKind::Insert, "The ", None, Some("very ")),
+            ann("r", AnnotationKind::Replace, "The ", Some("quick"), Some("slow")),
+        ]);
+        let ops = compute_ops(doc, &s, &[0, 1]).unwrap();
+        assert_eq!(apply_ops(doc, ops), "The very slow brown fox.");
+        // The same whichever comes first in the sidecar.
+        let ops = compute_ops(doc, &s, &[1, 0]).unwrap();
+        assert_eq!(apply_ops(doc, ops), "The very slow brown fox.");
+    }
+
+    #[test]
+    fn inserts_at_the_same_place_keep_their_order() {
+        let doc = "The fox.";
+        let s = sidecar(vec![
+            ann("a", AnnotationKind::Insert, "The ", None, Some("quick ")),
+            ann("b", AnnotationKind::Insert, "The ", None, Some("brown ")),
+        ]);
+        let ops = compute_ops(doc, &s, &[0, 1]).unwrap();
+        assert_eq!(apply_ops(doc, ops), "The quick brown fox.");
     }
 
     #[test]
