@@ -74,8 +74,8 @@ Every annotation, regardless of kind or source, shares a common envelope:
 | `source`         | string  | yes      | Origin of the annotation. One of `local`, `agent`, `github`, `gitlab`. |
 | `author`         | string  | yes      | Display name of the author. `"me"` for local annotations. |
 | `context_before` | string  | yes      | The verbatim text immediately preceding the target in the source. Used for anchoring. Minimum 20 characters where possible. |
-| `target`         | string  | kind-dependent | The exact text in the source that this annotation refers to. Required for `replace`, `delete`, `highlight`. Null for `insert` and `comment`. |
-| `replacement`    | string  | kind-dependent | The proposed replacement text. Required for `replace` and `insert`. Null otherwise. |
+| `target`         | string  | kind-dependent | The exact text in the source that this annotation refers to. Required (and not empty) for `replace`, `delete`, `highlight`. Null for `insert` and `comment`. |
+| `replacement`    | string  | kind-dependent | The proposed replacement text. Required for `replace` and `insert`, and not empty for `insert` (an empty one for `replace` deletes the target). Null otherwise. |
 | `comment`        | string  | no       | Human-readable rationale or review note. Optional for all kinds. |
 | `created`        | string  | yes      | ISO 8601 timestamp. |
 | `resolved`       | boolean | yes      | `false` while pending. `true` once accepted, rejected, or dismissed. |
