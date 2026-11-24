@@ -22,28 +22,33 @@ public struct FolioLink: Equatable {
     /// Where the file was, as an absolute path.
     public let file: String?
 
+    /// The link `url` as the engine reads it (`folio_parse_link`); nil when it is not a `folio://` link.
     public init?(_ url: URL) {
-        guard url.scheme == "folio", let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        func query(_ name: String) -> String? {
-            components.queryItems?.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
+        guard let fields = try? Rust.parseLink(url.absoluteString) else { return nil }
+        self.init(fields: fields)
+    }
+
+    /// A link from the fields the engine gives it (`folio_parse_link`, `folio_references`).
+    init?(fields: [String: Any]) {
+        func value(_ name: String) -> String? {
+            (fields[name] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
-        switch components.host {
+        switch fields["kind"] as? String {
         case "document":
             target = .document
         case "annotation":
-            let id = url.lastPathComponent
-            guard !id.isEmpty, id != "/" else { return nil }
+            guard let id = value("id") else { return nil }
             target = .annotation(id)
         case "passage":
-            guard let text = query("q") else { return nil }
-            target = .passage(text: text, before: query("before") ?? "")
+            guard let text = value("text") else { return nil }
+            target = .passage(text: text, before: value("before") ?? "")
         default:
             return nil
         }
-        repo = query("repo")
-        branch = query("branch")
-        path = query("path")
-        file = query("file")
+        repo = value("repo")
+        branch = value("branch")
+        path = value("path")
+        file = value("file")
     }
 
     /// A file that is open, as far as finding a link's target goes.

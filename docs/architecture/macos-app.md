@@ -94,7 +94,7 @@ A set can hold a folder of notes next to the files under review. The design and 
   - the "also on …" subtitle;
   - the notice.
 - **Links into Folio.**
-  - `FolioLink` is the `folio://annotation/…`, `folio://passage?…` and `folio://document?…` links. They are found by repo, branch and path in the open windows (`AppServer.open`).
+  - `FolioLink` is the `folio://annotation/…`, `folio://passage?…` and `folio://document?…` links. The engine reads them (`folio_parse_link`, and `folio_references` for a page's links), so the app and `folio refs` agree on what is a link. They are found by repo, branch and path in the open windows (`AppServer.open`).
   - `WikiLinks` is `[[page]]` links.
   - `WikiReferences` is the links a page holds, for the backlinks on cards. The engine finds them (`folio_references`), as for `folio refs`.
   - `PreviewBuilder` draws links live, or grey with the reason. The reason comes from `linkState`, which asks the window, since the window knows what is open. `PreviewView.refreshLinks` redraws when that changes.

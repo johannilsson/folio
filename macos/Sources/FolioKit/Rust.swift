@@ -45,10 +45,14 @@ public enum Rust {
         let out = try object(folio_references(doc))
         return (out["references"] as? [[String: Any]] ?? []).compactMap { item in
             guard let line = (item["line"] as? NSNumber)?.intValue, let context = item["context"] as? String,
-                  let label = item["label"] as? String, let text = item["url"] as? String,
-                  let url = URL(string: text), let link = FolioLink(url) else { return nil }
+                  let label = item["label"] as? String, let link = FolioLink(fields: item) else { return nil }
             return WikiReferences.Reference(link: link, line: line, context: context, label: label)
         }
+    }
+
+    /// The fields of the `folio://` link `url` as the engine reads it (src/wiki.rs), nil when it is not one.
+    static func parseLink(_ url: String) throws -> [String: Any]? {
+        try object(folio_parse_link(url))["link"] as? [String: Any]
     }
 
     /// The markdown with the task item on `line` (1-based) ticked. Throws when that line is not an open item.

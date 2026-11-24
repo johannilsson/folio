@@ -31,6 +31,10 @@ char *folio_open_items(const char *doc, const char *tags_json);
    fenced block of code (src/wiki.rs, as `folio refs` finds them). */
 char *folio_references(const char *doc);
 
+/* {"link": {"kind", "id"?, "text"?, "before"?, "repo"?, "branch"?, "path"?, "file"?}} for a folio:// link
+   (the fields a reference carries), or {"link": null} when url is not one (src/wiki.rs, FolioLink::parse). */
+char *folio_parse_link(const char *url);
+
 /* {"doc": <the markdown with the task item on line (1-based) ticked>}, or an error when that line is not one. */
 char *folio_tick_item(const char *doc, size_t line);
 
