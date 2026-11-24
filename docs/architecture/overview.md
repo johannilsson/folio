@@ -87,7 +87,7 @@ flowchart TB
   - the `folio://` links in a page (`references`) and whether one points at a file (`FolioLink::points_to`);
   - `resolve`, `dead_reason`, `moved_to`: why a link does not work among a set's files.
 
-  `folio items`, `folio refs` (`--dead`), `folio relink` and the C API (`folio_open_items`, `folio_tick_item`, `folio_references`) use it.
+  `folio items`, `folio refs` (`--dead`), `folio relink` and the C API (`folio_open_items`, `folio_tick_item`, `folio_references`, `folio_parse_link`) use it.
 - `commands/`: the CLI subcommands, thin over the engine.
   - `set.rs`: `folio set add / rm / list` (`--folder` for a folder).
   - `link.rs`: `folio link`, as a `folio://` link naming repo, branch and path. It links an annotation, a passage (with `--passage`) or, with neither, the document.

@@ -187,6 +187,11 @@ fn references_json(doc: &str) -> Result<String, String> {
     Ok(json!({ "references": wiki::references(doc) }).to_string())
 }
 
+/// `{"link": <the link's target, repo, branch, path and file, as in a reference> | null}`.
+fn parse_link_json(url: &str) -> Result<String, String> {
+    Ok(json!({ "link": wiki::FolioLink::parse(url) }).to_string())
+}
+
 /// `{"doc": <markdown with the item on `line` ticked>}`.
 fn tick_item_json(doc: &str, line: usize) -> Result<String, String> {
     let ticked = wiki::tick(doc, line).ok_or_else(|| format!("line {line} is not an open task item"))?;
@@ -273,6 +278,16 @@ pub unsafe extern "C" fn folio_open_items(doc: *const c_char, tags_json: *const 
 #[no_mangle]
 pub unsafe extern "C" fn folio_references(doc: *const c_char) -> *mut c_char {
     finish((|| references_json(arg(doc)?))())
+}
+
+/// Returns `{"link": {...}}`, the `folio://` link `url` as the engine reads it, `{"link": null}` when it
+/// is not one, or `{"error": ...}`. Free with `folio_free`.
+///
+/// # Safety
+/// `url` must be a valid NUL-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn folio_parse_link(url: *const c_char) -> *mut c_char {
+    finish((|| parse_link_json(arg(url)?))())
 }
 
 /// Returns `{"doc": <markdown>}` with the task item on `line` (1-based) ticked, or `{"error": ...}` when
@@ -476,6 +491,14 @@ mod tests {
     use serde_json::Value;
 
     const DOC: &str = "# Title\n\nThe quick **brown** fox jumps.\n";
+
+    #[test]
+    fn parse_link_gives_the_fields_a_reference_carries() {
+        let out: Value = serde_json::from_str(&parse_link_json("folio://passage?repo=r&path=a.md&q=rotate%20it&before=We%20").unwrap()).unwrap();
+        assert_eq!(out["link"], serde_json::json!({"kind": "passage", "text": "rotate it", "before": "We ", "repo": "r", "path": "a.md"}));
+        let out: Value = serde_json::from_str(&parse_link_json("folio://set/x").unwrap()).unwrap();
+        assert!(out["link"].is_null());
+    }
 
     #[test]
     fn anchor_matches_direct_call_in_both_modes() {

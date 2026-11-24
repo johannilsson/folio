@@ -21,6 +21,15 @@ import Testing
         #expect(found[0].link.target == .passage(text: "rotate on every use", before: ""))
     }
 
+    @Test func aLinkTheEngineReadsIsABacklinkAsTheEngineReadsIt() {
+        // The app takes the link as the engine read it, even one that is not a well-formed URL (`|`).
+        let found = WikiReferences.find(in: "See [it](folio://passage?repo=r&branch=main&path=a.md&q=a|b&before=We%20) here.")
+        #expect(found.count == 1)
+        #expect(found.first?.link.target == .passage(text: "a|b", before: "We "))
+        #expect(found.first?.link.repo == "r" && found.first?.link.branch == "main" && found.first?.link.path == "a.md")
+        #expect(found.first?.link.file == nil)
+    }
+
     @Test func theContextIsTheHeadingTheLinkIsUnder() {
         let page = "# Threat model\n\n## T3 · Token replay\n\nSee [it](\(annotation)).\n\n## T4 · Brute force\n\nNothing.\n"
         let found = WikiReferences.find(in: page)
