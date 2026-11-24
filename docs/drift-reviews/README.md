@@ -10,6 +10,7 @@ A weekly review of design drift and maintainability in Folio. Each run adds a da
 | [2026-11-02](2026-11-02.md) | Improving | A set with a custom `--root` is read from a different sidecar by the app and by the CLI and MCP tools | [#107](https://github.com/johannilsson/folio/issues/107) | none |
 | [2026-11-09](2026-11-09.md) | Stable | A set with a custom `--root` is read from a different sidecar by the app and by the CLI and MCP tools | none | none |
 | [2026-11-16](2026-11-16.md) | Worsening | `folio://` links are parsed, resolved and checked twice, in Rust and in Swift, and the two already differ | [#131](https://github.com/johannilsson/folio/issues/131), [#133](https://github.com/johannilsson/folio/issues/133)–[#137](https://github.com/johannilsson/folio/issues/137) | none |
+| [2026-11-23](2026-11-23.md) | Improving | The rest of the `folio://` link rules (parsing, resolution, dead-link reasons) are still written in both Rust and Swift | [#148](https://github.com/johannilsson/folio/issues/148) | none |
 
 ## How to read a review
 
