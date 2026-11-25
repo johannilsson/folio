@@ -16,6 +16,10 @@ pub struct SetFile {
 pub struct SetFolder {
     pub id: String,
     pub path: PathBuf,
+    /// Extensions (lower case, no dot) of reference files in the folder: listed by `folio set list --files`,
+    /// never annotated or scanned.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +66,7 @@ impl Set {
         while self.folders.iter().any(|f| f.id == id) {
             id.push('x');
         }
-        self.folders.push(SetFolder { id, path });
+        self.folders.push(SetFolder { id, path, references: Vec::new() });
         true
     }
 
@@ -83,7 +87,7 @@ impl Set {
 
 /// Stable short id derived from the path (FNV-1a), so re-adding a file after
 /// removing it gives the same URL.
-fn path_id(path: &Path) -> String {
+pub fn path_id(path: &Path) -> String {
     let mut hash: u64 = 0xcbf29ce484222325;
     for b in path.to_string_lossy().bytes() {
         hash ^= b as u64;
@@ -230,11 +234,27 @@ pub fn describe(entry: &SetFile) -> Described {
 /// `.folio`) and `node_modules` are skipped, and links to folders are not followed.
 pub fn scan_folder(folder: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    scan_into(folder, &mut found);
+    scan_into(folder, &is_markdown, &mut found);
     found
 }
 
-fn scan_into(dir: &Path, found: &mut Vec<PathBuf>) {
+/// The reference files of a set folder (those with one of its `references` extensions), in the same order and
+/// with the same skip rules as `scan_folder`, plus Office lock files (`~$…`).
+pub fn reference_files(folder: &SetFolder) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if folder.references.is_empty() {
+        return found;
+    }
+    let wanted = |path: &Path| {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        !name.starts_with("~$") && folder.references.contains(&ext)
+    };
+    scan_into(&folder.path, &wanted, &mut found);
+    found
+}
+
+fn scan_into(dir: &Path, wanted: &dyn Fn(&Path) -> bool, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut files = Vec::new();
     let mut dirs = Vec::new();
@@ -247,7 +267,7 @@ fn scan_into(dir: &Path, found: &mut Vec<PathBuf>) {
         let path = entry.path();
         if kind.is_dir() {
             dirs.push((name.to_lowercase(), path));
-        } else if (kind.is_file() || (kind.is_symlink() && path.is_file())) && is_markdown(&path) {
+        } else if (kind.is_file() || (kind.is_symlink() && path.is_file())) && wanted(&path) {
             files.push((name.to_lowercase(), path));
         }
     }
@@ -255,7 +275,7 @@ fn scan_into(dir: &Path, found: &mut Vec<PathBuf>) {
     dirs.sort();
     found.extend(files.into_iter().map(|(_, p)| p));
     for (_, sub) in dirs {
-        scan_into(&sub, found);
+        scan_into(&sub, wanted, found);
     }
 }
 
@@ -356,6 +376,40 @@ pub fn add_folders(name: &str, folders: &[PathBuf]) -> anyhow::Result<AddOutcome
     }
     save(name, &current)?;
     Ok(outcome)
+}
+
+/// `pdf`, `.PDF` → `pdf`. An empty or spaced extension is refused.
+fn clean_extensions(list: &[String]) -> anyhow::Result<Vec<String>> {
+    list.iter()
+        .map(|e| {
+            let ext = e.trim().trim_start_matches('.').to_lowercase();
+            if ext.is_empty() || ext.contains(|c: char| c.is_whitespace() || c == '/' || c == '.') {
+                anyhow::bail!("not a file extension: {e:?}");
+            }
+            Ok(ext)
+        })
+        .collect()
+}
+
+/// Add and remove reference extensions of the folder `folder` in the set `name`. Returns the ones it has now.
+pub fn change_references(name: &str, folder: &Path, add: &[String], remove: &[String]) -> anyhow::Result<Vec<String>> {
+    let (add, remove) = (clean_extensions(add)?, clean_extensions(remove)?);
+    let mut current = load(name)?;
+    let canonical = dunce::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let entry = current
+        .folders
+        .iter_mut()
+        .find(|f| f.path == canonical)
+        .ok_or_else(|| anyhow::anyhow!("{} is not a folder of set {}", folder.display(), name))?;
+    entry.references.retain(|e| !remove.contains(e));
+    for ext in add {
+        if !entry.references.contains(&ext) {
+            entry.references.push(ext);
+        }
+    }
+    let now = entry.references.clone();
+    save(name, &current)?;
+    Ok(now)
 }
 
 /// What `add_files` did with each path.
@@ -665,7 +719,7 @@ mod tests {
         let tmp = temp_dir("folderfiles");
         std::fs::create_dir_all(tmp.join("wiki/research")).unwrap();
         std::fs::write(tmp.join("wiki/research/r.md"), "").unwrap();
-        let folder = SetFolder { id: "f".into(), path: tmp.join("wiki") };
+        let folder = SetFolder { id: "f".into(), path: tmp.join("wiki"), references: Vec::new() };
         let files = folder_files(&folder);
         assert_eq!(files.len(), 1);
         let file = &files[0];
@@ -675,6 +729,35 @@ mod tests {
         assert_ne!(file.id, path_id(&file.path));
         // The same rule as the CLI: no repo here, so the sidecar is beside the file.
         assert_eq!(file.described.folio_path, folio_path_in(&detect_root(&file.path), &file.path));
+    }
+
+    #[test]
+    fn reference_files_follow_the_scan_rules_and_the_folders_extensions() {
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = temp_dir("references");
+        std::env::set_var("FOLIO_CONFIG_DIR", &tmp);
+        let wiki = tmp.join("wiki");
+        for dir in ["a/deep", ".hidden", "node_modules"] {
+            std::fs::create_dir_all(wiki.join(dir)).unwrap();
+        }
+        for file in ["x.PDF", "a/y.pdf", "a/deep/z.pdf", ".hidden/h.pdf", "node_modules/n.pdf", "~$lock.pdf", "pic.png", "n.MD", "m.markdown"] {
+            std::fs::write(wiki.join(file), "").unwrap();
+        }
+        add_folders("s", &[wiki.clone()]).unwrap();
+        let folder = || load("s").unwrap().folders.remove(0);
+        assert!(reference_files(&folder()).is_empty());
+        let names = |f: &SetFolder| -> Vec<String> {
+            reference_files(f).iter().map(|p| p.strip_prefix(dunce::canonicalize(&wiki).unwrap()).unwrap().to_string_lossy().replace('\\', "/")).collect()
+        };
+        assert_eq!(change_references("s", &wiki, &[".PDF".into()], &[]).unwrap(), ["pdf"]);
+        assert_eq!(names(&folder()), ["x.PDF", "a/y.pdf", "a/deep/z.pdf"]);
+        assert_eq!(change_references("s", &wiki, &["png".into()], &["pdf".into()]).unwrap(), ["png"]);
+        assert_eq!(names(&folder()), ["pic.png"]);
+        // Members are unchanged by references.
+        assert_eq!(folder_files(&folder()).len(), 2);
+        assert!(change_references("s", &wiki, &["a b".into()], &[]).is_err());
+        assert!(change_references("s", &tmp, &["pdf".into()], &[]).is_err());
+        std::env::remove_var("FOLIO_CONFIG_DIR");
     }
 
     #[test]

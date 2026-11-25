@@ -164,6 +164,9 @@ enum SetCommands {
         /// Directory that holds the `.folio/` sidecars (default: the file's git root)
         #[arg(long)]
         root: Option<PathBuf>,
+        /// With --folder: file extensions to list as reference files, e.g. pdf,png (never annotated)
+        #[arg(long, value_delimiter = ',', value_name = "EXT")]
+        references: Vec<String>,
     },
     /// Remove files or folders from a set, or delete the set when none are given
     Rm {
@@ -173,6 +176,21 @@ enum SetCommands {
     /// List sets, or the files in one set
     List {
         name: Option<String>,
+        /// List each folder's member and reference files
+        #[arg(long)]
+        files: bool,
+        /// With --files: JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show, add (--add) or remove (--rm) the reference file extensions of a set folder
+    References {
+        name: String,
+        folder: PathBuf,
+        #[arg(long = "add", value_name = "EXT")]
+        add: Vec<String>,
+        #[arg(long = "rm", value_name = "EXT")]
+        remove: Vec<String>,
     },
     /// Show, add (--add) or remove (--rm) the tags that make a set's task items open ones, with their colours
     Tags {
@@ -191,9 +209,10 @@ fn main() {
     let result = match cli.command {
         Commands::Open { file, set } => commands::open::run(file.as_deref(), set.as_deref()),
         Commands::Set { command } => match command {
-            SetCommands::Add { name, files, folders, root } => commands::set::add(&name, &files, &folders, root.as_ref()),
+            SetCommands::Add { name, files, folders, root, references } => commands::set::add(&name, &files, &folders, root.as_ref(), &references),
             SetCommands::Rm { name, files } => commands::set::rm(&name, &files),
-            SetCommands::List { name } => commands::set::list(name.as_deref()),
+            SetCommands::List { name, files, json } => commands::set::list(name.as_deref(), files, json),
+            SetCommands::References { name, folder, add, remove } => commands::set::references(&name, &folder, &add, &remove),
             SetCommands::Tags { name, add, remove } => commands::set::tags(&name, &add, &remove),
         },
         Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),

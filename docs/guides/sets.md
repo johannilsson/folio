@@ -24,8 +24,11 @@ A set is a named list of markdown files from any folders, reviewed together in o
 |---|---|
 | `folio set add <set> <file>…` | Adds files (creating the set). |
 | `folio set add <set> --folder <dir>` | Adds a folder of notes ([wiki mode](../features/wiki-mode.md)). |
+| `folio set add <set> --folder <dir> --references pdf,png` | Also lists those file types as reference files of the folder. They are only listed: never annotated, scanned or reviewed. |
+| `folio set references <set> <dir> [--add EXT] [--rm EXT]` | Shows or changes a folder's reference extensions. |
 | `folio set rm <set> <file or folder>` | Takes one out again. |
 | `folio set list` | Lists the sets. |
+| `folio set list <set> --files [--json]` | Lists each folder's member files (what `folio items --set` reads) and its reference files. `--json` marks entries whose file is gone (`missing`). |
 | `folio set tags <set> --add blocked:red` | Adds an open-item tag. A new set starts with `#investigate`, `#waiting` and `#replied`. |
 | `folio open --set <name>` | Opens a set in the app (it sends `folio://set/<name>`). |
 
