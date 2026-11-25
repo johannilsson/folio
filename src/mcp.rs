@@ -555,9 +555,14 @@ fn reply(args: &Value) -> Result<Value, String> {
     if !folio.exists() {
         return Err(format!("{} has no annotations yet", file.display()));
     }
+    let body = string_arg(args, "body")?;
+    // An empty reply says nothing: it is as good as a missing one.
+    if body.trim().is_empty() {
+        return Err("`body` is required (a string that is not empty)".to_string());
+    }
     let edit = Edit::Reply {
         id: string_arg(args, "id")?.to_string(),
-        body: string_arg(args, "body")?.to_string(),
+        body: body.to_string(),
         author: author_arg(args),
         source: AnnotationSource::Agent,
     };
@@ -1310,6 +1315,11 @@ mod tests {
         let thread = &sidecar.annotations[0].replies;
         assert_eq!((thread[0].body.as_str(), thread[0].author.as_str(), thread[0].source.clone()), ("Because.", "claude-2", AnnotationSource::Agent));
         assert!(err(&NoApp, "reply", json!({ "file": file, "id": "nope", "body": "x" })).contains("no annotation with id"));
+        // An empty or blank body is refused and nothing is written.
+        for body in ["", "  \n"] {
+            assert!(err(&NoApp, "reply", json!({ "file": file, "id": id, "body": body })).contains("`body` is required"));
+        }
+        assert_eq!(Sidecar::load(&crate::location::folio_path(&file)).unwrap().annotations[0].replies.len(), 1);
     }
 
     #[test]
