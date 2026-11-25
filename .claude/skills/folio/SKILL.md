@@ -186,7 +186,7 @@ folio render <file.md>
 # Create an empty sidecar (if one doesn't exist yet)
 folio init <file.md>
 
-# Check sidecar is valid JSON and schema is correct
+# Check sidecar is valid JSON and schema is correct; --json adds a `sidecar` field with its path, also when the sidecar does not exist yet
 folio check <file.md>
 
 # Append a single annotation without editing JSON directly
@@ -196,6 +196,11 @@ folio annotate <file.md> --kind insert --context-before "rendered text before" -
 
 # List pending annotations (optionally filter by kind or source)
 folio review <file.md> [--kind replace] [--source agent] [--json]
+# With --json, --positions adds where each one anchors: `anchored`, and byte offsets `start` and `end` into the file
+folio review <file.md> --json --positions
+
+# Reply on an annotation's thread; prints the new reply id
+folio reply <file.md> <annotation-id> --body "your reply" [--author your-name] [--source agent]
 
 # What changed since a time (new annotations, replies, resolutions), as JSON with a `cursor` to pass as --since next time.
 # --since is inclusive and optional (omit for everything); --exclude-author is optional (e.g. your own --author).

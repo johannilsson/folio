@@ -35,7 +35,7 @@ pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
         Ok(s) => s,
         Err(e) => {
             if json {
-                println!("{}", json!({ "valid": false, "error": e.to_string() }));
+                println!("{}", json!({ "valid": false, "sidecar": folio_path, "error": e.to_string() }));
             } else {
                 eprintln!("error: {}", e);
             }
@@ -51,7 +51,7 @@ pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
 
     if unanchorable.is_empty() {
         if json {
-            println!("{}", json!({ "valid": true, "annotations": s.annotations.len() }));
+            println!("{}", json!({ "valid": true, "sidecar": folio_path, "annotations": s.annotations.len() }));
         } else {
             println!(
                 "{}  valid  ({} annotations)",
@@ -65,7 +65,7 @@ pub fn run(file: &Path, json: bool) -> anyhow::Result<()> {
             let ids: Vec<&str> = unanchorable.iter().map(|(id, _)| id.as_str()).collect();
             println!(
                 "{}",
-                json!({ "valid": false, "annotations": s.annotations.len(), "unanchorable": ids })
+                json!({ "valid": false, "sidecar": folio_path, "annotations": s.annotations.len(), "unanchorable": ids })
             );
         } else {
             for (id, kind) in &unanchorable {

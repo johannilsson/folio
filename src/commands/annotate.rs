@@ -64,7 +64,7 @@ pub(crate) fn parse_kind(s: &str) -> anyhow::Result<AnnotationKind> {
     }
 }
 
-fn parse_source(s: &str) -> anyhow::Result<AnnotationSource> {
+pub(crate) fn parse_source(s: &str) -> anyhow::Result<AnnotationSource> {
     match s {
         "local" => Ok(AnnotationSource::Local),
         "agent" => Ok(AnnotationSource::Agent),

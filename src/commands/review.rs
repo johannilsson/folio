@@ -21,11 +21,25 @@ fn display_name(file: &Path) -> String {
     file.file_name().unwrap_or(file.as_os_str()).to_string_lossy().into_owned()
 }
 
+/// An annotation as JSON, with where it anchors in `content`: `anchored`, and when it does,
+/// the `start` and `end` byte offsets into the file (equal for a comment or an insertion).
+fn with_position(ann: &Annotation, content: &str) -> serde_json::Value {
+    let mut value = serde_json::to_value(ann).unwrap_or_default();
+    let span = ann.anchor(content);
+    value["anchored"] = serde_json::json!(span.is_some());
+    if let Some((start, end)) = span {
+        value["start"] = serde_json::json!(start);
+        value["end"] = serde_json::json!(end);
+    }
+    value
+}
+
 pub fn run(
     file: &Path,
     kind_filter: Option<&str>,
     source_filter: Option<&str>,
     json: bool,
+    positions: bool,
 ) -> anyhow::Result<()> {
     let folio_path = crate::location::folio_path(file);
     let sidecar = Sidecar::load(&folio_path)?;
@@ -33,7 +47,14 @@ pub fn run(
     let pending = pending(&sidecar, kind_filter, source_filter);
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&pending)?);
+        if positions {
+            let content = std::fs::read_to_string(file)
+                .map_err(|e| anyhow::anyhow!("cannot read {}: {}", file.display(), e))?;
+            let located: Vec<_> = pending.iter().map(|a| with_position(a, &content)).collect();
+            println!("{}", serde_json::to_string_pretty(&located)?);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&pending)?);
+        }
         return Ok(());
     }
 
@@ -114,6 +135,23 @@ mod tests {
         assert_eq!(pending(&s, None, Some("local")).len(), 1);
         assert!(pending(&s, Some("delete"), Some("local")).is_empty());
         assert!(pending(&s, Some("bogus"), None).is_empty());
+    }
+
+    #[test]
+    fn a_position_is_the_byte_span_of_the_target() {
+        let s = sidecar("positions");
+        let doc = "Hello world.\n";
+        let delete = with_position(&s.annotations[0], doc);
+        assert_eq!((delete["anchored"].as_bool(), delete["start"].as_u64(), delete["end"].as_u64()), (Some(true), Some(6), Some(11)));
+        assert_eq!(delete["id"], s.annotations[0].id);
+    }
+
+    #[test]
+    fn an_annotation_that_no_longer_anchors_has_no_span() {
+        let s = sidecar("unanchored");
+        let value = with_position(&s.annotations[0], "Something else entirely.\n");
+        assert_eq!(value["anchored"], false);
+        assert!(value.get("start").is_none() && value.get("end").is_none());
     }
 
     #[test]
