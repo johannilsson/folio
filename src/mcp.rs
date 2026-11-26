@@ -10,7 +10,7 @@ use crate::commands::annotate::{parse_kind, validate_fields};
 use crate::edit::{self, Edit};
 use crate::live::{self, LiveError};
 use crate::set;
-use crate::sidecar::{fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
+use crate::sidecar::{anchor_text, fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -359,6 +359,15 @@ fn tools() -> Value {
             &[],
         ),
         tool(
+            "current_selection",
+            "The text the person has selected in the front Folio window, as rendered text with the `context_before` \
+             that `annotate` takes (pass them as `target` and `context_before`), and whether it anchors. Use it for \
+             requests like \"this passage\" or \"comment on this\".",
+            true,
+            json!({}),
+            &[],
+        ),
+        tool(
             "reveal",
             "Bring a file into view in Folio, opening it if needed, and focus one of its annotations.",
             false,
@@ -386,6 +395,7 @@ fn call(name: &str, args: &Value, app: &dyn App) -> Result<String, String> {
         "open" => open(args),
         "current_document" => current_document(app),
         "focused_annotation" => focused_annotation(app),
+        "current_selection" => current_selection(app),
         "reveal" => reveal(args, app),
         _ => Err(format!("unknown tool: {name}")),
     }?;
@@ -716,6 +726,23 @@ fn focused_annotation(app: &dyn App) -> Result<Value, String> {
         Some(annotation) => Ok(json!({ "file": file, "annotation": annotation })),
         None => Err(format!("annotation {id} is no longer in {}", folio.display())),
     }
+}
+
+fn current_selection(app: &dyn App) -> Result<Value, String> {
+    let window = front_window(app)?;
+    let file = window["file"].as_str().unwrap_or_default();
+    let Some(selection) = window.get("selection").filter(|s| s.is_object()) else {
+        return Ok(Value::String(format!("No text is selected in {file}.")));
+    };
+    let mut selection = selection.clone();
+    let anchored = match (selection["text"].as_str(), selection["context_before"].as_str()) {
+        (Some(text), Some(before)) if selection["truncated"] != true => {
+            anchor_text(&read(Path::new(file))?, before, Some(text)).is_some()
+        }
+        _ => false,
+    };
+    selection["anchored"] = json!(anchored);
+    Ok(json!({ "file": file, "sidecar": window["sidecar"], "selection": selection }))
 }
 
 fn reveal(args: &Value, app: &dyn App) -> Result<Value, String> {
@@ -1065,7 +1092,7 @@ mod tests {
         assert_eq!(
             names,
             ["render", "list_annotations", "annotations_since", "annotate", "reply", "verify", "set_list", "set_add", "set_remove", "items", "refs", "relink", "link",
-             "open", "current_document", "focused_annotation", "reveal"]
+             "open", "current_document", "focused_annotation", "current_selection", "reveal"]
         );
         for tool in replies[2]["result"]["tools"].as_array().unwrap() {
             assert_eq!(tool["inputSchema"]["type"], "object");
@@ -1381,8 +1408,30 @@ mod tests {
     }
 
     #[test]
+    fn current_selection_gives_what_annotate_takes_and_says_when_nothing_is_selected() {
+        let file = document("selection", DOC);
+        let mut with = window(&file, true, Value::Null);
+        with["selection"] = json!({ "text": "fox", "context_before": "The quick brown ", "length": 3, "truncated": false });
+        let app = FakeApp { windows: json!([with]), asked: Default::default() };
+        let got = ok(&app, "current_selection", json!({}));
+        assert_eq!(got["selection"]["text"], "fox");
+        assert_eq!(got["selection"]["anchored"], true);
+        // What it returns is what `annotate` takes.
+        let added = ok(&NoApp, "annotate", json!({ "file": file, "annotations": [{ "kind": "comment", "context_before": got["selection"]["context_before"], "target": got["selection"]["text"], "comment": "x" }] }));
+        assert_eq!(added["added"].as_array().unwrap().len(), 1);
+
+        let mut lost = window(&file, true, Value::Null);
+        lost["selection"] = json!({ "text": "no such words", "context_before": "", "length": 13, "truncated": false });
+        let app = FakeApp { windows: json!([lost]), asked: Default::default() };
+        assert_eq!(ok(&app, "current_selection", json!({}))["selection"]["anchored"], false);
+
+        let idle = FakeApp { windows: json!([window(&file, true, Value::Null)]), asked: Default::default() };
+        assert!(ok(&idle, "current_selection", json!({})).as_str().unwrap().starts_with("No text is selected"));
+    }
+
+    #[test]
     fn the_app_tools_say_so_when_folio_is_not_running() {
-        for name in ["current_document", "focused_annotation"] {
+        for name in ["current_document", "focused_annotation", "current_selection"] {
             assert!(err(&NoApp, name, json!({})).contains("Folio is not running"), "{name}");
         }
         assert!(err(&NoApp, "reveal", json!({ "file": absolute("/a.md") })).contains("Folio is not running"));

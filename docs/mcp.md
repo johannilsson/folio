@@ -59,6 +59,7 @@ Tools only take absolute paths to markdown files.
 |---|---|
 | `current_document` | The files open in Folio, the front one first. |
 | `focused_annotation` | The annotation (and its thread) the reader has open: by clicking its card or its text, or by stepping to it. So you can say "answer this one". |
+| `current_selection` | The text the reader has selected in the front window: `text` and `context_before` as rendered text, so they can be passed to `annotate` as `target` and `context_before`; `length`, `truncated` (the text is cut at 4000 characters) and `anchored`. A plain message when nothing is selected. Each window's `selection` is also in the app's `state`. |
 | `reveal` | Brings a file into view, opening it if needed, and focuses one of its annotations. |
 
 ## Adding a tool

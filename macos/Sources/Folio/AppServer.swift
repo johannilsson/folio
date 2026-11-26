@@ -94,7 +94,7 @@ enum AppServer {
     }
 
     /// Every window with what it shows. `focused` is the id of the annotation the reader is on: the one
-    /// they clicked, or stepped to.
+    /// they clicked, or stepped to; `selection` is the text they have selected, if any.
     private static func state() -> [String: Any] {
         let current = front
         return ["windows": editors.map { editor -> [String: Any] in
@@ -108,8 +108,22 @@ enum AppServer {
             ]
             if let set = editor as? SetWindowController { window["set"] = set.setName }
             if let focused = editor.annotations.focusedID { window["focused"] = focused }
+            if let selection = editor.annotations.selection, !selection.target.isEmpty { window["selection"] = selectionState(selection) }
             return window
         }]
+    }
+
+    /// The selection as `annotate` takes it: `text` (cut at 4000 characters) and `context_before`, with the
+    /// full length and whether it was cut.
+    private static func selectionState(_ selection: SelectionInfo) -> [String: Any] {
+        let cap = 4000
+        let length = selection.target.count
+        return [
+            "text": String(selection.target.prefix(cap)),
+            "context_before": selection.contextBefore,
+            "length": length,
+            "truncated": length > cap,
+        ]
     }
 
     /// Brings the file forward, opening it first if it is not open (in its set's window if a set has it),
