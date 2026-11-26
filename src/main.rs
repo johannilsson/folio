@@ -107,13 +107,13 @@ enum Commands {
         file: PathBuf,
         #[arg(long)]
         kind: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         context_before: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         target: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         replacement: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         comment: Option<String>,
         #[arg(long, default_value = "cli")]
         author: String,
@@ -136,10 +136,10 @@ enum Commands {
         #[arg(conflicts_with = "passage")]
         id: Option<String>,
         /// Link to this passage (rendered text, as `folio render` shows it) instead of an annotation
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         passage: Option<String>,
         /// With --passage: the rendered words just before it, when it appears more than once
-        #[arg(long, requires = "passage")]
+        #[arg(long, requires = "passage", allow_hyphen_values = true)]
         before: Option<String>,
         /// Print a whole markdown link, its text saying what it points at
         #[arg(long)]
@@ -234,5 +234,48 @@ fn main() {
     if let Err(e) = result {
         eprintln!("error: {}", e);
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Text copied from a document can start with `-` (a list item): it is a value, not a flag.
+    #[test]
+    fn text_arguments_may_start_with_a_hyphen() {
+        let annotate = Cli::try_parse_from([
+            "folio", "annotate", "a.md", "--kind", "replace",
+            "--context-before", "- one ", "--target", "- two", "--replacement", "- three", "--comment", "- four",
+        ])
+        .unwrap();
+        match annotate.command {
+            Commands::Annotate { context_before, target, replacement, comment, .. } => {
+                assert_eq!(
+                    (context_before.as_str(), target.as_deref(), replacement.as_deref(), comment.as_deref()),
+                    ("- one ", Some("- two"), Some("- three"), Some("- four"))
+                );
+            }
+            _ => panic!("not annotate"),
+        }
+
+        let link = Cli::try_parse_from(["folio", "link", "a.md", "--passage", "- two", "--before", "- one"]).unwrap();
+        match link.command {
+            Commands::Link { passage, before, .. } => {
+                assert_eq!((passage.as_deref(), before.as_deref()), (Some("- two"), Some("- one")));
+            }
+            _ => panic!("not link"),
+        }
+    }
+
+    #[test]
+    fn a_flag_after_a_text_argument_is_still_a_flag() {
+        let cli = Cli::try_parse_from(["folio", "annotate", "a.md", "--kind", "comment", "--context-before", "x", "--comment", "y", "--author", "me"]).unwrap();
+        match cli.command {
+            Commands::Annotate { comment, author, .. } => {
+                assert_eq!((comment.as_deref(), author.as_str()), (Some("y"), "me"));
+            }
+            _ => panic!("not annotate"),
+        }
     }
 }
