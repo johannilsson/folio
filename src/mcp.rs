@@ -10,7 +10,7 @@ use crate::commands::annotate::{parse_kind, validate_fields};
 use crate::edit::{self, Edit};
 use crate::live::{self, LiveError};
 use crate::set;
-use crate::sidecar::{anchor_text, fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
+use crate::sidecar::{anchor_raw_chars, fresh_id, render_plain_text, Annotation, AnnotationSource, Sidecar};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -737,7 +737,7 @@ fn current_selection(app: &dyn App) -> Result<Value, String> {
     let mut selection = selection.clone();
     let anchored = match (selection["text"].as_str(), selection["context_before"].as_str()) {
         (Some(text), Some(before)) if selection["truncated"] != true => {
-            anchor_text(&read(Path::new(file))?, before, Some(text)).is_some()
+            anchor_raw_chars(&read(Path::new(file))?, before, Some(text)).is_some()
         }
         _ => false,
     };
@@ -1419,6 +1419,15 @@ mod tests {
         // What it returns is what `annotate` takes.
         let added = ok(&NoApp, "annotate", json!({ "file": file, "annotations": [{ "kind": "comment", "context_before": got["selection"]["context_before"], "target": got["selection"]["text"], "comment": "x" }] }));
         assert_eq!(added["added"].as_array().unwrap().len(), 1);
+
+        // Across a block boundary the context is rendered text, with no separator between blocks.
+        let fenced = document("selection-fenced", "```\nAlice -> Bob\n```\n\nThe last paragraph.\n");
+        let rendered = render_plain_text(&read(&fenced).unwrap());
+        let at = rendered.find("The last paragraph.").unwrap();
+        let mut across = window(&fenced, true, Value::Null);
+        across["selection"] = json!({ "text": "The last paragraph.", "context_before": &rendered[..at], "length": 19, "truncated": false });
+        let app = FakeApp { windows: json!([across]), asked: Default::default() };
+        assert_eq!(ok(&app, "current_selection", json!({}))["selection"]["anchored"], true);
 
         let mut lost = window(&file, true, Value::Null);
         lost["selection"] = json!({ "text": "no such words", "context_before": "", "length": 13, "truncated": false });
