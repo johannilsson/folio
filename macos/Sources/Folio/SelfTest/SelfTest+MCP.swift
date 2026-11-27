@@ -202,6 +202,26 @@ extension SelfTest {
         }
 
         // A file that is not open is opened.
+        // What the reader has selected, in the form `annotate` takes.
+        let words = "The last paragraph."
+        let wordsStart = (previewText as NSString).range(of: words)
+        controller.window?.makeFirstResponder(previewView.textView)
+        previewView.textView.setSelectedRange(wordsStart)
+        await check("current_selection gives the selected text with its context, and none after the caret moves") {
+            let shown = await self.until { self.pane.selection?.target == words }
+            let answer = await client.tool("current_selection", [:])?.text
+            let selected = client.json(answer)?["selection"] as? [String: Any]
+            if !(shown && selected?["anchored"] as? Bool == true) {
+                print("    shown \(shown) range \(wordsStart) selection \(String(describing: self.pane.selection)) answer \(answer ?? "nil")")
+            }
+            let stated = selected?["text"] as? String == words && selected?["anchored"] as? Bool == true
+                && selected?["length"] as? Int == words.count && selected?["truncated"] as? Bool == false
+            self.previewView.textView.setSelectedRange(NSRange(location: wordsStart.location, length: 0))
+            let cleared = await self.until { self.pane.selection == nil }
+            let none = await client.tool("current_selection", [:])?.text.hasPrefix("No text is selected") == true
+            return shown && stated && cleared && none
+        }
+
         if let other = try? tempCopy(named: "revealed.md") {
             let opened = await client.tool("reveal", ["file": other.path])
             func document() -> NSDocument? {
