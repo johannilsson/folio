@@ -69,6 +69,9 @@ enum Commands {
         source: Option<String>,
         #[arg(long)]
         json: bool,
+        /// With --json: add where each annotation anchors (`anchored`, and byte offsets `start` and `end`)
+        #[arg(long, requires = "json")]
+        positions: bool,
     },
     /// Print what changed on the annotations since a time (new annotations, replies, resolutions), as JSON
     Changes {
@@ -115,6 +118,17 @@ enum Commands {
         replacement: Option<String>,
         #[arg(long)]
         comment: Option<String>,
+        #[arg(long, default_value = "cli")]
+        author: String,
+        #[arg(long, default_value = "local")]
+        source: String,
+    },
+    /// Reply on an annotation's thread
+    Reply {
+        file: PathBuf,
+        id: String,
+        #[arg(long)]
+        body: String,
         #[arg(long, default_value = "cli")]
         author: String,
         #[arg(long, default_value = "local")]
@@ -218,8 +232,8 @@ fn main() {
         Commands::Items { files, set, tag, json } => commands::items::run(&files, set.as_deref(), tag.as_deref(), json),
         Commands::Refs { file, set, dead, json } => commands::refs::run(file.as_deref(), &set, dead, json),
         Commands::Relink { set, dry_run } => commands::refs::relink(&set, dry_run),
-        Commands::Review { file, kind, source, json } => {
-            commands::review::run(&file, kind.as_deref(), source.as_deref(), json)
+        Commands::Review { file, kind, source, json, positions } => {
+            commands::review::run(&file, kind.as_deref(), source.as_deref(), json, positions)
         }
         Commands::Changes { file, since, exclude_author } => {
             commands::changes::run(&file, since.as_deref(), exclude_author.as_deref())
@@ -230,6 +244,7 @@ fn main() {
         Commands::Reject { file, id, all, source, dry_run } => {
             commands::reject::run(&file, id.as_deref(), all, source.as_deref(), dry_run)
         }
+        Commands::Reply { file, id, body, author, source } => commands::reply::run(&file, &id, &body, &author, &source),
         Commands::Annotate { file, kind, context_before, target, replacement, comment, author, source } => {
             commands::annotate::run(
                 &file,

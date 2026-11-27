@@ -24,4 +24,4 @@ Any other agent can follow the [sidecar format](../reference/sidecar-format.md) 
 
 ## The command line
 
-`folio review`, `accept`, `reject`, `annotate`, `changes`, `check`, `link`, `items` and `refs` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
+`folio review`, `accept`, `reject`, `annotate`, `reply`, `changes`, `check`, `link`, `items` and `refs` work on the same annotations from scripts, CI or an agent, on any platform. `folio --help` lists everything.
