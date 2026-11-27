@@ -53,9 +53,10 @@ pub fn run(
         return Ok(());
     }
 
-    let new_doc = apply_ops(&doc, ops);
-
-    std::fs::write(file, &new_doc)?;
+    // Accepting only comments and highlights changes nothing in the markdown: leave the file alone.
+    if !ops.is_empty() {
+        std::fs::write(file, apply_ops(&doc, ops))?;
+    }
 
     mark_accepted(&mut sidecar, &indices);
     sidecar.save(&folio_path)?;
@@ -121,6 +122,18 @@ mod tests {
         let s = Sidecar::load(&folio).unwrap();
         let resolved: Vec<bool> = s.annotations.iter().map(|a| a.resolved).collect();
         assert_eq!(resolved, vec![false, true]);
+    }
+
+    #[test]
+    fn accepting_only_a_highlight_does_not_write_the_markdown() {
+        let (file, folio) = setup("no-write");
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(old).unwrap();
+
+        run(&file, None, true, Some("local"), false).unwrap();
+
+        assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), old);
+        assert!(Sidecar::load(&folio).unwrap().annotations[1].resolved);
     }
 
     #[test]
