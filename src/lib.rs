@@ -7,5 +7,6 @@ pub mod live;
 pub mod location;
 pub mod mcp;
 pub mod set;
+pub mod skill;
 pub mod sidecar;
 pub mod wiki;

@@ -116,6 +116,15 @@ Recent files are kept in `<config>/recents.json`, beside the sets (`RecentFiles`
 - File ▸ Open Recent and the welcome window read ours.
 - Clear Menu and the welcome list's Clear All Recents empty it. (`welcomeChecks` runs last in the self-test.)
 
+## Agent skill
+
+The app offers to install the Folio skill for the agents on the Mac, and to update it when a newer one ships.
+
+- The skill is `.claude/skills/folio/SKILL.md`, baked into libfolio (`skill.rs`, `include_str!`), so the installed copy always matches the app's version. An installed copy that differs is "outdated".
+- libfolio finds the agents by their config folders and writes `folio/SKILL.md` into each one's skills folder: Claude Code `~/.claude/skills`, OpenCode `~/.config/opencode/skills`, Codex `~/.agents/skills`. With none found, it uses `~/.agents/skills`, which Codex, OpenCode and most other agents read. `FOLIO_SKILL_HOME` replaces the home folder (the self-test uses it).
+- The welcome window's Agent Skill card (`WelcomeWindowController.showSkill`) is shown while the skill is missing (Recommended) or outdated (Update available), and says Installed right after installing. It is put away the next time the window is shown. Folio ▸ Install Agent Skill… (Update, or Reinstall, by state) is always there, for someone who skipped the card. `AppDelegate.installSkill` does both.
+- `SkillStatus` in FolioKit holds the wording rules. Tests: `AgentSkillTests`, `skill.rs`, and `welcomeChecks`.
+
 ## MCP
 
 `main.swift` turns `--mcp` into the MCP server before AppKit starts; nothing may print on stdout but the protocol. `AppServer` answers the server's questions about windows and the focused annotation. See [MCP](../mcp.md).

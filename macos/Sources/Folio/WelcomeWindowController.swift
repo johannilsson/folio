@@ -16,10 +16,15 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
     private(set) var rows: [Row] = []
     private let table = WelcomeTable()
     private let empty = NSTextField(labelWithString: "No Sets or Recent Files")
+    private let skillCard = WelcomeCard()
+    private let skillBadge = NSTextField(labelWithString: "")
+    private let skillPitch = NSTextField(wrappingLabelWithString: "")
+    private let skillButton = NSButton(title: "", target: nil, action: nil)
+    private(set) var skill: SkillStatus?
 
     init(app: AppDelegate) {
         self.app = app
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 440),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -38,6 +43,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
     /// Brings the window forward with the lists as they are now, the first item selected.
     func show() {
         reload()
+        showSkill(try? Rust.skillStatus())
         if window?.isVisible != true { window?.center() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
@@ -75,7 +81,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .tertiaryLabelColor
 
-        let left = NSStackView(views: [icon, name, version, openFile, newSet, hint])
+        let left = NSStackView(views: [icon, name, version, openFile, newSet, hint, buildSkillCard()])
         left.orientation = .vertical
         left.alignment = .centerX
         left.spacing = 8
@@ -83,6 +89,7 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
         left.setCustomSpacing(2, after: name)
         left.setCustomSpacing(32, after: version)
         left.setCustomSpacing(10, after: newSet)
+        left.setCustomSpacing(24, after: hint)
 
         // Right: the sets and recent files, in the sidebar's material.
         table.style = .inset
@@ -136,8 +143,63 @@ final class WelcomeWindowController: NSWindowController, NSTableViewDataSource, 
             left.trailingAnchor.constraint(lessThanOrEqualTo: right.leadingAnchor, constant: -24),
             openFile.widthAnchor.constraint(equalToConstant: 240),
             newSet.widthAnchor.constraint(equalTo: openFile.widthAnchor),
+            skillCard.widthAnchor.constraint(equalTo: openFile.widthAnchor),
         ])
         window?.contentView = root
+    }
+
+    /// The offer to install the agent skill: a title with a badge, a line about it, and the pill that acts.
+    private func buildSkillCard() -> NSView {
+        let title = NSTextField(labelWithString: "Agent Skill")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        skillBadge.font = .systemFont(ofSize: 10, weight: .semibold)
+        skillBadge.textColor = .secondaryLabelColor
+        skillPitch.font = .systemFont(ofSize: 11)
+        skillPitch.textColor = .secondaryLabelColor
+        skillButton.bezelStyle = .rounded
+        skillButton.controlSize = .small
+        skillButton.target = self
+        skillButton.action = #selector(installSkill(_:))
+        skillButton.setAccessibilityIdentifier("welcome-skill-install")
+        skillCard.setAccessibilityIdentifier("welcome-skill-card")
+
+        let heading = NSStackView(views: [title, skillBadge])
+        heading.spacing = 6
+        let stack = NSStackView(views: [heading, skillPitch, skillButton])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        skillCard.translatesAutoresizingMaskIntoConstraints = false
+        skillCard.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: skillCard.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: skillCard.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: skillCard.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: skillCard.trailingAnchor, constant: -12),
+        ])
+        skillPitch.preferredMaxLayoutWidth = 216
+        return skillCard
+    }
+
+    /// Shows the skill's state on the card; the card is hidden while there is nothing to do, unless `keep`
+    /// (right after installing, the card says Installed instead of vanishing).
+    func showSkill(_ status: SkillStatus?, keep: Bool = false) {
+        skill = status
+        guard let status else { skillCard.isHidden = true; return }
+        skillCard.isHidden = !status.needsAttention && !keep
+        skillBadge.stringValue = status.badge ?? ""
+        skillBadge.isHidden = status.badge == nil
+        skillPitch.stringValue = status.pitch
+        skillButton.title = status.buttonTitle
+        skillButton.image = status.needsAttention ? nil : NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        skillButton.imagePosition = .imageLeading
+        skillButton.isEnabled = status.needsAttention
+    }
+
+    /// The card's pill: installs or updates the skill and shows what happened.
+    @objc private func installSkill(_ sender: Any?) {
+        app?.installSkill(self)
     }
 
     // MARK: content
@@ -328,6 +390,14 @@ private final class WelcomeTable: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 36 || event.keyCode == 76 { onReturn?() } else { super.keyDown(with: event) }
+    }
+}
+
+/// A soft rounded fill, the same as behind the action buttons.
+private final class WelcomeCard: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.labelColor.withAlphaComponent(0.06).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
     }
 }
 

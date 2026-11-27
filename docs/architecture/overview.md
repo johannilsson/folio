@@ -95,6 +95,7 @@ flowchart TB
   - `refs.rs`: `folio refs` and `folio relink`: the pages of a set that link to a file, the links that no longer work, and repairing a gone branch.
   - `open.rs`: `folio open <file>` / `--set <name>`, which launches the macOS app.
 - `mcp.rs`: the MCP server (JSON-RPC over stdio) that the app's binary becomes with `Folio --mcp`. See [MCP](../mcp.md).
+- `skill.rs`: the agent skill that ships in the binary, and where each agent keeps skills. See [the agent skill](macos-app.md#agent-skill).
 - `live.rs`: the Unix socket (`<config>/app.sock`) between the MCP server and the running app. libfolio serves it and calls back into Swift (`AppServer.swift`). See [the app socket](../mcp.md#the-app-socket).
 
 ## Frontend (`frontend/src/`)

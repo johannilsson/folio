@@ -94,6 +94,13 @@ char *folio_mcp_snippets(const char *exe);
    or "codex". {"config": <path>, "change": "added" | "updated" | "unchanged"} */
 char *folio_mcp_connect(const char *client, const char *exe);
 
+/* Whether the Folio agent skill is installed for the agents found: {"state": "missing" | "outdated" |
+   "current", "places": [{"name", "file", "state"}]} */
+char *folio_skill_status(void);
+
+/* Installs or updates the skill this build ships; same result as folio_skill_status, after. */
+char *folio_skill_install(void);
+
 void folio_free(char *ptr);
 
 #endif
