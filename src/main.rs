@@ -127,7 +127,7 @@ enum Commands {
     Reply {
         file: PathBuf,
         id: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         body: String,
         #[arg(long, default_value = "cli")]
         author: String,
@@ -299,6 +299,12 @@ mod tests {
                 assert_eq!((passage.as_deref(), before.as_deref()), (Some("- two"), Some("- one")));
             }
             _ => panic!("not link"),
+        }
+
+        let reply = Cli::try_parse_from(["folio", "reply", "a.md", "ann_1", "--body", "- agreed"]).unwrap();
+        match reply.command {
+            Commands::Reply { body, .. } => assert_eq!(body, "- agreed"),
+            _ => panic!("not reply"),
         }
     }
 
